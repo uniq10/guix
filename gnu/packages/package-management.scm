@@ -270,7 +270,8 @@
        `(("gnutls" ,gnutls)
          ("guile-json" ,guile-json)
          ("guile-ssh" ,guile-ssh)
-         ("guile-git" ,guile-git)))
+         ("guile-git" ,guile-git)
+         ("guile-sqlite3" ,guile-sqlite3)))
 
       (home-page "https://www.gnu.org/software/guix/")
       (synopsis "Functional package manager for installed software packages and versions")
