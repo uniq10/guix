@@ -126,6 +126,7 @@
 
             current-build-output-port
 
+            assimilate-path
             register-path
 
             %store-monad
@@ -1308,6 +1309,17 @@ This makes sense only when the daemon was started with '--cache-failures'."
 
 
 
+(define* (assimilate-path path #:key
+                          (optimize #t)
+                          (store %store-directory))
+  ;; reset-timestamps prints a message on each invocation that we probably
+  ;; don't want.
+  (with-output-to-port 
+      (%make-void-port "w")
+    (lambda ()
+      (reset-timestamps path)))
+  (when optimize
+    (deduplicate path hash store)))
 
 ;; TODO: Handle databases not existing yet (what should the default behavior
 ;; be? The C++ version checks for a number in the file "schema" in the
@@ -1363,14 +1375,9 @@ be used internally by the daemon's build hook."
         #:hash (string-append "sha256:"
                               (bytevector->base16-string hash))
         #:nar-size nar-size)
-       ;; reset-timestamps prints a message on each invocation that we probably
-       ;; don't want.
-       (with-output-to-port 
-           (%make-void-port "w")
-         (lambda ()
-           (reset-timestamps real-path)))
-       (when optimize
-         (deduplicate real-path hash store-dir))
+       (assimilate-path path
+                        #:optimize optimize
+                        #:store store-dir)
        ;; If we've made it this far without an exception, I guess we've
        ;; probably succeeded?
        #t))))

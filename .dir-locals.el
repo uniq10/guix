@@ -75,6 +75,7 @@
    (eval . (put 'with-imported-modules 'scheme-indent-function 1))
 
    (eval . (put 'with-sql-statement 'scheme-indent-function 1))
+   (eval . (put 'with-sql-statements 'scheme-indent-function 1))
    (eval . (put 'with-sql-database 'scheme-indent-function 1))
    (eval . (put 'run-sql 'scheme-indent-function 1))
    (eval . (put 'run-statement 'scheme-indent-function 1))
