@@ -147,7 +147,9 @@
             utmpx-address
             login-type
             utmpx-entries
-            (read-utmpx-from-port . read-utmpx)))
+            (read-utmpx-from-port . read-utmpx)
+            personality
+            ADDR_NO_RANDOMIZE))
 
 ;;; Commentary:
 ;;;
@@ -1920,4 +1922,16 @@ entry."
     ((? bytevector? bv)
      (read-utmpx bv))))
 
-;;; syscalls.scm ends here
+(define ADDR_NO_RANDOMIZE #x0040000)
+
+(define personality
+  (let ((proc (syscall->procedure int "personality" `(,unsigned-long))))
+    (lambda (persona)
+      (let-values (((ret err) (proc persona)))
+        (if (= -1 ret)
+            (throw 'system-error "personality" "~A"
+                   (list (strerror err))
+                   (list err))
+            ret)))))
+
+;;; syscalls.scm ends here 
