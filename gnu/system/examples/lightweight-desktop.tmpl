@@ -12,20 +12,21 @@
   (locale "en_US.utf8")
 
   ;; Use the UEFI variant of GRUB with the EFI System
-  ;; Partition on /dev/sda1.
-  (bootloader (grub-configuration (grub grub-efi)
-                                  (device "/dev/sda1")))
+  ;; Partition mounted on /boot/efi.
+  (bootloader (bootloader-configuration
+                (bootloader grub-efi-bootloader)
+                (target "/boot/efi")))
 
-  ;; Assume the target root file system is labelled "my-root".
+  ;; Assume the target root file system is labelled "my-root",
+  ;; and the EFI System Partition has UUID 1234-ABCD.
   (file-systems (cons* (file-system
                          (device "my-root")
                          (title 'label)
                          (mount-point "/")
                          (type "ext4"))
                        (file-system
-                         ;; Specify partition here since FAT
-                         ;; labels are currently unsupported.
-                         (device "/dev/sda1")
+                         (device (uuid "1234-ABCD" 'fat))
+                         (title 'uuid)
                          (mount-point "/boot/efi")
                          (type "vfat"))
                        %base-file-systems))
@@ -46,7 +47,7 @@
                    %base-packages))
 
   ;; Use the "desktop" services, which include the X11
-  ;; log-in service, networking with Wicd, and more.
+  ;; log-in service, networking with NetworkManager, and more.
   (services %desktop-services)
 
   ;; Allow resolution of '.local' host names with mDNS.

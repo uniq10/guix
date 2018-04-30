@@ -1,8 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2015, 2016, 2017 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Troy Sankey <sankeytms@gmail.com>
 ;;; Copyright © 2016 Stefan Reichoer <stefan@xsteve.at>
 ;;;
@@ -23,7 +23,7 @@
 
 (define-module (gnu packages calendar)
   #:use-module (gnu packages)
-  #:use-module (guix licenses)
+  #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix build utils)
@@ -31,18 +31,23 @@
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system python)
   #:use-module (gnu packages base)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages dav)
   #:use-module (gnu packages freedesktop)
+  #:use-module (gnu packages glib)
   #:use-module (gnu packages icu4c)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages time)
+  #:use-module (gnu packages xml)
   #:use-module (srfi srfi-26))
 
 (define-public libical
   (package
     (name "libical")
-    (version "2.0.0")
+    (version "3.0.3")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -50,19 +55,18 @@
                     version "/libical-" version ".tar.gz"))
               (sha256
                (base32
-                "1njn2kr0rrjqv5g3hdhpdzrhankyj4fl1bgn76z3g4n1b7vi2k35"))))
+                "0hcjyf35b8rrvy8xziqxc4imi28mmkixb09gknisvp6jsa5fp4av"))))
     (build-system cmake-build-system)
     (arguments
      '(#:tests? #f ; test suite appears broken
-       #:configure-flags
-       (list (string-append "-DCMAKE_INSTALL_RPATH="
-                            (assoc-ref %outputs "out") "/lib:"
-                            (assoc-ref %outputs "out") "/lib64"))
+       #:configure-flags '("-DSHARED_ONLY=true")
        #:phases
        (modify-phases %standard-phases
          (add-before 'configure 'patch-paths
-           (lambda _
-             (let ((tzdata (assoc-ref %build-inputs "tzdata")))
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; FIXME: This should be patched to use TZDIR so we can drop
+             ;; the tzdata dependency.
+             (let ((tzdata (assoc-ref inputs "tzdata")))
                (substitute* "src/libical/icaltz-util.c"
                  (("\\\"/usr/share/zoneinfo\\\",")
                   (string-append "\"" tzdata "/share/zoneinfo\""))
@@ -71,27 +75,33 @@
                  (("\\\"/usr/share/lib/zoneinfo\\\"") "")))
              #t)))))
     (native-inputs
-     `(("perl" ,perl)))
+     `(("perl" ,perl)
+       ("pkg-config" ,pkg-config)))
     (inputs
-     `(("icu4c" ,icu4c)
+     `(("glib" ,glib)
+       ("libxml2" ,libxml2)
        ("tzdata" ,tzdata)))
+    (propagated-inputs
+     ;; In Requires.private of libical.pc.
+     `(("icu4c" ,icu4c)))
     (home-page "https://libical.github.io/libical/")
     (synopsis "iCalendar protocols and data formats implementation")
     (description
      "Libical is an implementation of the iCalendar protocols and protocol
 data units.")
-    (license lgpl2.1)))
+    ;; Can be used with either license.  See COPYING.
+    (license (list license:lgpl2.1 license:mpl2.0))))
 
 (define-public khal
   (package
     (name "khal")
-    (version "0.9.5")
+    (version "0.9.8")
     (source (origin
              (method url-fetch)
              (uri (pypi-uri "khal" version))
              (sha256
               (base32
-               "0fvv0kjym9q8v20zbpr5m8ig65b8hva4p0c935qsdvgdni68jidr"))))
+               "1blx3gxnv7sj302biqphfw7i6ilzl2xlmvzp130n3113scg9w17y"))))
     (build-system python-build-system)
     (arguments
      `(#:phases (modify-phases %standard-phases
@@ -100,26 +110,32 @@ data units.")
           (lambda* (#:key inputs outputs #:allow-other-keys)
             ;; Make installed package available for running the tests
             (add-installed-pythonpath inputs outputs)
-            (zero? (system* "make" "--directory=doc/" "man"))
-            (install-file
-              "doc/build/man/khal.1"
-              (string-append (assoc-ref outputs "out") "/share/man/man1"))))
-
-        ;; The tests require us to choose a timezone.
+            (and
+              (zero? (system* "make" "--directory=doc/" "man"))
+              (install-file
+                "doc/build/man/khal.1"
+                (string-append (assoc-ref outputs "out") "/share/man/man1")))))
         (replace 'check
           (lambda* (#:key inputs #:allow-other-keys)
+            ;; The tests require us to choose a timezone.
             (setenv "TZ"
                     (string-append (assoc-ref inputs "tzdata")
                                    "/share/zoneinfo/Zulu"))
-            (zero? (system* "py.test" "tests")))))))
+            (zero? (system* "py.test" "tests" "-k"
+                            (string-append
+                              ;; These tests are known to fail in when not
+                              ;; running in a TTY:
+                              ;; https://github.com/pimutils/khal/issues/683
+                              "not test_printics_read_from_stdin "
+                              "and not test_import_from_stdin"))))))))
     (native-inputs
-      ;; XXX Uses tmpdir_factory, introduced in pytest 2.8.
-     `(("python-pytest" ,python-pytest-3.0)
+     `(("python-pytest" ,python-pytest)
        ("python-pytest-cov" ,python-pytest-cov)
        ("python-setuptools-scm" ,python-setuptools-scm)
        ;; Required for tests
-       ("tzdata" ,tzdata)
        ("python-freezegun" ,python-freezegun)
+       ("tzdata" ,tzdata)
+       ("vdirsyncer" ,vdirsyncer)
        ;; Required to build manpage
        ("python-sphinxcontrib-newsfeed" ,python-sphinxcontrib-newsfeed)
        ("python-sphinx" ,python-sphinx)))
@@ -131,13 +147,12 @@ data units.")
        ("python-icalendar" ,python-icalendar)
        ("python-tzlocal" ,python-tzlocal)
        ("python-urwid" ,python-urwid)
-       ("python-pyxdg" ,python-pyxdg)
-       ("vdirsyncer" ,vdirsyncer)))
+       ("python-pyxdg" ,python-pyxdg)))
     (synopsis "Console calendar program")
     (description "Khal is a standards based console calendar program,
 able to synchronize with CalDAV servers through vdirsyncer.")
     (home-page "http://lostpackets.de/khal/")
-    (license expat)))
+    (license license:expat)))
 
 (define-public remind
   (package
@@ -166,7 +181,7 @@ Each reminder or alarm can consist of a message sent to standard output, or a
 program to be executed.  It also features: sophisticated date calculation,
 moon phases, sunrise/sunset, Hebrew calendar, alarms, PostScript output and
 proper handling of holidays.")
-    (license gpl2)))
+    (license license:gpl2)))
 
 (define-public libhdate
   (package
@@ -187,4 +202,4 @@ proper handling of holidays.")
 of day, written in C, and including bindings for C++, pascal, perl, php, python,
 and ruby.  It includes two illustrative command-line programs, @code{hcal} and
 @code{hdate}, and some snippets and scripts written in the binding languages.")
-    (license gpl3+)))
+    (license license:gpl3+)))

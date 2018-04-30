@@ -3,15 +3,17 @@
 ;;; Copyright © 2014, 2017 Julien Lepiller <julien@lepiller.eu>
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2015, 2016, 2017, 2018 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016, 2017 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Andy Patterson <ajpatter@uwaterloo.ca>
-;;; Copyright © 2016, 2017 Clément Lassieur <clement@lassieur.org>
+;;; Copyright © 2016, 2017, 2018 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Mekeor Melire <mekeor.melire@gmail.com>
 ;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
-;;; Copyright © 2017 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Theodoros Foradis <theodoros@foradis.org>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Leo Famulari <leo@famulari.name>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,6 +38,7 @@
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system glib-or-gtk)
+  #:use-module (guix build-system meson)
   #:use-module (guix build-system python)
   #:use-module (guix build-system perl)
   #:use-module (guix build-system cmake)
@@ -69,6 +72,7 @@
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-crypto)
   #:use-module (gnu packages pcre)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages tcl)
@@ -90,6 +94,7 @@
   #:use-module (gnu packages guile)
   #:use-module (gnu packages less)
   #:use-module (gnu packages readline)
+  #:use-module (gnu packages photo)
   #:use-module (gnu packages texinfo))
 
 (define-public libotr
@@ -123,6 +128,35 @@ keys, no previous conversation is compromised.")
     (home-page "https://otr.cypherpunks.ca/")
     (license (list license:lgpl2.1 license:gpl2))))
 
+(define-public libsignal-protocol-c
+  (package
+  (name "libsignal-protocol-c")
+  (version "2.3.1")
+  (source (origin
+           (method url-fetch)
+           (uri (string-append "https://github.com/WhisperSystems/"
+                               "libsignal-protocol-c/archive/v" version
+                               ".tar.gz"))
+           (file-name (string-append name "-" version ".tar.gz"))
+           (sha256
+            (base32
+             "1klz9jvbnmfc3qy2x6qcswzw14a7kyzs51dlg18yllvir1f1kz0s"))))
+  (arguments
+   `(;; Required for proper linking and for tests to run.
+     #:configure-flags '("-DBUILD_SHARED_LIBS=on" "-DBUILD_TESTING=1")))
+  (build-system cmake-build-system)
+  (inputs `( ;; Required for tests:
+            ("check" ,check)
+            ("openssl" ,openssl)))
+  (native-inputs `(("pkg-config" ,pkg-config)))
+  (home-page "https://github.com/WhisperSystems/libsignal-protocol-c")
+  (synopsis "Implementation of a ratcheting forward secrecy protocol")
+  (description "libsignal-protocol-c is an implementation of a ratcheting
+forward secrecy protocol that works in synchronous and asynchronous
+messaging environments.  It can be used with messaging software to provide
+end-to-end encryption.")
+  (license license:gpl3+)))
+
 (define-public bitlbee
   (package
     (name "bitlbee")
@@ -142,20 +176,19 @@ keys, no previous conversation is compromised.")
               ("python" ,python-2)
               ("perl" ,perl)))
     (arguments
-     `(#:phases (alist-cons-after
-                 'install 'install-etc
-                 (lambda* (#:key (make-flags '()) #:allow-other-keys)
-                   (zero? (apply system* "make" "install-etc" make-flags)))
-                 (alist-replace
-                  'configure
-                  ;; bitlbee's configure script does not tolerate many of the
-                  ;; variable settings that Guix would pass to it.
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    (zero? (system* "./configure"
-                                    (string-append "--prefix="
-                                                   (assoc-ref outputs "out"))
-                                    "--otr=1")))
-                  %standard-phases))))
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'install-etc
+           (lambda* (#:key (make-flags '()) #:allow-other-keys)
+             (zero? (apply system* "make" "install-etc" make-flags))))
+         (replace 'configure
+           ;; bitlbee's configure script does not tolerate many of the
+           ;; variable settings that Guix would pass to it.
+           (lambda* (#:key outputs #:allow-other-keys)
+             (zero? (system* "./configure"
+                             (string-append "--prefix="
+                                            (assoc-ref outputs "out"))
+                             "--otr=1")))))))
     (synopsis "IRC to instant messaging gateway")
     (description "BitlBee brings IM (instant messaging) to IRC clients, for
 people who have an IRC client running all the time and don't want to run an
@@ -169,30 +202,17 @@ identi.ca and status.net).")
 (define-public hexchat
   (package
     (name "hexchat")
-    (version "2.12.4")
+    (version "2.14.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://dl.hexchat.net/hexchat/hexchat-"
                                   version ".tar.xz"))
               (sha256
                (base32
-                "0ficrx56knz5y297qb0x5y02339yvyv734z7kpcx1ixvb0qr2dgs"))
-              (modules '((guix build utils)))
-              (snippet
-               '(begin
-                  ;; Delete dangling symlinks to a non-existent ‘/usr’.
-                  (with-directory-excursion "m4"
-                    (for-each (lambda (f) (delete-file f))
-                              '("intltool.m4" "libtool.m4" "lt~obsolete.m4"
-                                "ltoptions.m4" "ltsugar.m4" "ltversion.m4")))
-                  (delete-file-recursively "build-aux")
-                  (delete-file "po/Makefile.in.in")))))
-    (build-system gnu-build-system)
-    (native-inputs `(("autoconf" ,autoconf)
-                     ("autoconf-archive" ,autoconf-archive)
-                     ("automake" ,automake)
-                     ("intltool" ,intltool)
-                     ("libtool" ,libtool)
+                "18h3l34zmazjlfx3irg7k7swppa62ad9ffbl0j3ry8p2xfyf8cmh"))))
+    (build-system meson-build-system)
+    (native-inputs `(("gettext" ,gettext-minimal)
+                     ("perl" ,perl)
                      ("pkg-config" ,pkg-config)))
     (inputs `(("dbus-glib" ,dbus-glib)
               ("dbus" ,dbus)
@@ -201,6 +221,7 @@ identi.ca and status.net).")
               ("gtk" ,gtk+-2)
               ("libcanberra" ,libcanberra)
               ("libnotify" ,libnotify)
+              ("libproxy" ,libproxy)
               ("openssl" ,openssl)
 
               ;; Bindings for add-on scripts.
@@ -210,14 +231,16 @@ identi.ca and status.net).")
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         ;; Release 2.12.4 wasn't properly bootstrapped.  Later ones might be!
-         (add-after 'unpack 'bootstrap
-           (lambda* (#:key inputs #:allow-other-keys)
-             ;; This file is still required for autoreconf.
-             (copy-file (string-append (assoc-ref inputs "intltool")
-                                       "/share/intltool/Makefile.in.in")
-                        "po/Makefile.in.in")
-             (zero? (system* "autoreconf" "-fiv")))))))
+         (add-after 'unpack 'skip-desktop-database-updates
+           (lambda _
+             ;; The build scripts update icon and desktop file databases when
+             ;; DESTDIR is not set.  We can't update these databases from
+             ;; within the build chroot, but we also don't set DESTDIR.  So, we
+             ;; just skip this code.
+             (substitute* "meson_post_install.py"
+               (("if 'DESTDIR' not in os.environ:")
+                 "if False:"))
+             #t)))))
     (synopsis "Graphical IRC Client")
     (description
      "HexChat lets you connect to multiple IRC networks at once.  The main
@@ -356,7 +379,7 @@ authentication.")
      (list (search-path-specification
             (variable "PURPLE_PLUGIN_PATH")
             (files (list (string-append "lib/purple-"
-                                        (version-prefix version 1))
+                                        (version-major version))
                          "lib/pidgin")))))
     (home-page "http://www.pidgin.im/")
     (synopsis "Graphical multi-protocol instant messaging client")
@@ -417,14 +440,14 @@ compromised.")
 (define-public znc
   (package
     (name "znc")
-    (version "1.6.5")
+    (version "1.6.6")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://znc.in/releases/archive/znc-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "1jia6kq6bp8yxfj02d5vj9vqb4pylqcldspyjj6iz82kkka2a0ig"))))
+                "09cmsnxvi7jg9a0dicf60fxnxdff4aprw7h8vjqlj5ywf6y43f3z"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -451,7 +474,7 @@ compromised.")
        ("zlib" ,zlib)
        ("icu4c" ,icu4c)
        ("cyrus-sasl" ,cyrus-sasl)))
-    (home-page "http://znc.in")
+    (home-page "https://znc.in")
     (synopsis "IRC network bouncer")
     (description "ZNC is an IRC network bouncer or BNC.  It can detach the
 client from the actual IRC server, and also from selected channels.  Multiple
@@ -462,14 +485,14 @@ simultaneously and therefore appear under the same nickname on IRC.")
 (define-public python-nbxmpp
   (package
     (name "python-nbxmpp")
-    (version "0.5.5")
+    (version "0.6.4")
     (source
      (origin
        (method url-fetch)
        (uri (pypi-uri "nbxmpp" version))
        (sha256
         (base32
-         "1gnzrzrdl4nii1sc5x8p5iw2ya5sl70j3nn34abqsny51p2pzmv6"))))
+         "12rfmp613alh3mi8f94008sx7x1a8c1izs3icrvw7bf4gnf2pi31"))))
     (build-system python-build-system)
     (arguments
      `(#:tests? #f))                    ; no tests
@@ -487,7 +510,7 @@ was initially a fork of xmpppy, but uses non-blocking sockets.")
 (define-public gajim
   (package
     (name "gajim")
-    (version "0.16.8")
+    (version "1.0.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://gajim.org/downloads/"
@@ -495,35 +518,74 @@ was initially a fork of xmpppy, but uses non-blocking sockets.")
                                   "/gajim-" version ".tar.bz2"))
               (sha256
                (base32
-                "0ckakdjg30fsyjsgyy2573x9nmjivdg76y049l86wns5axw8im26"))))
-    (build-system gnu-build-system)
+                "16ynws10vhx6rhjjjmzw6iyb3hc19823xhx4gsb14hrc7l8vzd1c"))))
+    (build-system python-build-system)
     (arguments
      `(#:phases
        (modify-phases %standard-phases
          (add-after 'install 'wrap-program
            (lambda* (#:key outputs #:allow-other-keys)
-             ;; Make sure all Python scripts run with the correct PYTHONPATH.
-             (let ((out (assoc-ref outputs "out"))
-                   (path (getenv "PYTHONPATH")))
-               (for-each (lambda (name)
-                           (let ((file (string-append out "/bin/" name)))
-                             ;; Wrapping destroys identification of intended
-                             ;; application, so we need to override "APP".
-                             (substitute* file
-                               (("APP=`basename \\$0`")
-                                (string-append "APP=" name)))
-                             (wrap-program file
-                               `("PYTHONPATH" ":" prefix (,path)))))
-                         '("gajim" "gajim-remote" "gajim-history-manager")))
+             (let ((out (assoc-ref outputs "out")))
+               (for-each
+                (lambda (name)
+                  (let ((file (string-append out "/bin/" name))
+                        (gi-typelib-path (getenv "GI_TYPELIB_PATH")))
+                    (wrap-program file
+                      `("GI_TYPELIB_PATH" ":" prefix (,gi-typelib-path)))))
+                '("gajim" "gajim-remote" "gajim-history-manager")))
+             #t))
+         (add-before 'check 'remove-test-resolver
+           ;; This test requires network access.
+           (lambda _
+             (substitute* "test/runtests.py"
+               (("'integration.test_resolver',") ""))
+             #t))
+         (add-before 'check 'start-xserver
+           ;; Tests require a running X server.
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((xorg-server (assoc-ref inputs "xorg-server"))
+                   (display ":1"))
+               (setenv "DISPLAY" display)
+               (zero? (system (string-append xorg-server "/bin/Xvfb "
+                                             display " &"))))))
+         (add-after 'install 'install-icons
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (adwaita (string-append
+                              (assoc-ref inputs "adwaita-icon-theme")
+                              "/share/icons/Adwaita"))
+                    (hicolor (string-append
+                              (assoc-ref inputs "hicolor-icon-theme")
+                              "/share/icons/hicolor"))
+                    (icons (string-append
+                            out "/lib/python"
+                            ,(version-major+minor (package-version python))
+                            "/site-packages/gajim/data/icons")))
+               (with-directory-excursion icons
+                 (symlink adwaita "Adwaita")
+                 (copy-recursively hicolor "hicolor")))
              #t)))))
     (native-inputs
-     `(("intltool" ,intltool)))
+     `(("intltool" ,intltool)
+       ("xorg-server" ,xorg-server)))
     (inputs
-     `(("python2-nbxmpp" ,python2-nbxmpp)
-       ("python2-pyopenssl" ,python2-pyopenssl)
-       ("python2-gnupg" ,python2-gnupg)
-       ("python2-pygtk" ,python2-pygtk)
-       ("python" ,python-2)))
+     `(("adwaita-icon-theme" ,adwaita-icon-theme)
+       ("gnome-keyring" ,gnome-keyring)
+       ("gtk+" ,gtk+)
+       ("gtkspell3" ,gtkspell3)
+       ("hicolor-icon-theme" ,hicolor-icon-theme)
+       ("libsecret" ,libsecret)
+       ("python-axolotl" ,python-axolotl)
+       ("python-dbus" ,python-dbus)
+       ("python-docutils" ,python-docutils)
+       ("python-gnupg" ,python-gnupg)
+       ("python-nbxmpp" ,python-nbxmpp)
+       ("python-pillow" ,python-pillow)
+       ("python-pyasn1" ,python-pyasn1)
+       ("python-pycairo" ,python-pycairo)
+       ("python-pygobject" ,python-pygobject)
+       ("python-pyopenssl" ,python-pyopenssl)
+       ("python-qrcode" ,python-qrcode)))
     (home-page "https://gajim.org/")
     (synopsis "Jabber (XMPP) client")
     (description "Gajim is a feature-rich and easy to use Jabber/XMPP client.
@@ -533,17 +595,84 @@ transformation; audio and video conferences; file transfer; TLS, GPG and
 end-to-end encryption support; XML console.")
     (license license:gpl3)))
 
+(define-public dino
+  ;; The only release tarball is for version 0.0, but it is very old and fails
+  ;; to build.
+  (let ((commit "f25fadde2d6c9492b9cafe2cddbcc7b966942e47")
+        (revision "3"))
+    (package
+      (name "dino")
+      (version (string-append "0.0-" revision "." (string-take commit 9)))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/dino/dino.git")
+                      (commit commit)))
+                (file-name (string-append name "-" version "-checkout"))
+                (sha256
+                 (base32
+                  "1nhzrw3pbpybn9qclckk6z427vbgnqd0y1l63zd1rfw4zw099mzs"))))
+      (build-system cmake-build-system)
+      (arguments
+       `(#:tests? #f ; there are no tests
+         #:parallel-build? #f ; not supported
+         ; Use our libsignal-protocol-c instead of the git submodule.
+         #:configure-flags '("-DSHARED_SIGNAL_PROTOCOL=yes")
+         #:modules ((guix build cmake-build-system)
+                    ((guix build glib-or-gtk-build-system) #:prefix glib-or-gtk:)
+                    (guix build utils))
+         #:imported-modules (,@%gnu-build-system-modules
+                             (guix build cmake-build-system)
+                             (guix build glib-or-gtk-build-system))
+         #:phases
+         (modify-phases %standard-phases
+           ;; The signal-protocol plugin accesses internal headers of
+           ;; libsignal-protocol-c, so we need to put the sources there.
+           (add-after 'unpack 'unpack-sources
+             (lambda* (#:key inputs #:allow-other-keys)
+               (let ((unpack (lambda (source target)
+                               (with-directory-excursion target
+                                 (zero? (system* "tar" "xvf"
+                                                 (assoc-ref inputs source)
+                                                 "--strip-components=1"))))))
+                 (unpack "libsignal-protocol-c-source"
+                         "plugins/signal-protocol/libsignal-protocol-c")
+                 #t)))
+           (add-after 'install 'glib-or-gtk-wrap
+             (assoc-ref glib-or-gtk:%standard-phases 'glib-or-gtk-wrap)))))
+      (inputs
+       `(("libgee" ,libgee)
+         ("libsignal-protocol-c" ,libsignal-protocol-c)
+         ("libgcrypt" ,libgcrypt)
+         ("libsoup" ,libsoup)
+         ("sqlite" ,sqlite)
+         ("gpgme" ,gpgme)
+         ("gtk+" ,gtk+)
+         ("glib-networking" ,glib-networking)
+         ("gsettings-desktop-schemas" ,gsettings-desktop-schemas)))
+      (native-inputs
+       `(("pkg-config" ,pkg-config)
+         ("libsignal-protocol-c-source" ,(package-source libsignal-protocol-c))
+         ("glib" ,glib "bin")
+         ("vala" ,vala)
+         ("gettext" ,gettext-minimal)))
+      (home-page "https://dino.im")
+      (synopsis "Graphical Jabber (XMPP) client")
+      (description "Dino is a Jabber (XMPP) client which aims to fit well into
+a graphical desktop environment like GNOME.")
+      (license license:gpl3+))))
+
 (define-public prosody
   (package
     (name "prosody")
-    (version "0.9.12")
+    (version "0.10.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://prosody.im/downloads/source/"
                                   "prosody-" version ".tar.gz"))
               (sha256
                (base32
-                "139yxqpinajl32ryrybvilh54ddb1q6s0ajjhlcs4a0rnwia6n8s"))))
+                "1644jy5dk46vahmh6nna36s79k8k668sbi3qamjb4q3c4m3y853l"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ; no "check" target
@@ -609,7 +738,10 @@ end-to-end encryption support; XML console.")
     (inputs
      `(("libidn" ,libidn)
        ("openssl" ,openssl)
+       ;; Lua 5.1 is still recommended for production usage.
+       ;; See https://prosody.im/doc/packagers.
        ("lua" ,lua-5.1)
+       ("lua5.1-bitop" ,lua5.1-bitop)
        ("lua5.1-expat" ,lua5.1-expat)
        ("lua5.1-socket" ,lua5.1-socket)
        ("lua5.1-filesystem" ,lua5.1-filesystem)
@@ -670,7 +802,7 @@ protocols.")
 (define-public c-toxcore
   (package
     (name "c-toxcore")
-    (version "0.1.9")
+    (version "0.2.2")
     (source
      (origin
        (method url-fetch)
@@ -679,7 +811,10 @@ protocols.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "1y30xc1dzq9knww274d4y0m8gridcf5j851rxdri8j2s64p3qqgk"))))
+         "18bfqx0ylbas9gs91rkspf04l5fjjcl0mxm1gfs2d59bv65mvcm3"))))
+    (arguments
+     `(#:tests? #f)) ; FIXME: Testsuite seems to stay stuck on test 3. Disable
+                     ; for now.
     (build-system cmake-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -697,46 +832,54 @@ messenger protocol.")
 (define-public utox
   (package
    (name "utox")
-   (version "0.11.0")
+   (version "0.17.0")
    (source
     (origin
-     (method url-fetch)
-     (uri (string-append "https://github.com/uTox/uTox/archive/v"
-                         version ".tar.gz"))
-     (file-name (string-append name "-" version ".tar.gz"))
+     (method git-fetch)
+     (uri (git-reference
+           (url "https://github.com/uTox/uTox.git")
+           (commit "v0.17.0")
+           (recursive? #t))) ;; Needed for 'minini' git submodule.
+     (file-name (string-append name "-" version "-checkout"))
      (sha256
       (base32
-       "15s4iwjk1s0kihjqn0f07c9618clbphpr827mds3xddkiwnjz37v"))))
+       "12wbq883il7ikldayh8hm0cjfrkp45vn05xx9s1jbfz6gmkidyar"))))
    (build-system cmake-build-system)
    (arguments
-    '(#:tests? #f ; No test phase.
+    `(#:configure-flags '("-DENABLE_TESTS=on")
       #:phases
       (modify-phases %standard-phases
-        (add-after 'unpack 'fix-freetype-include
-          (lambda _
-            (substitute* "CMakeLists.txt"
-              (("/usr/include/freetype2")
-               (string-append (assoc-ref %build-inputs "freetype")
-                              "/include/freetype2")))))
-        (add-before 'install 'patch-cmake-find-utox
-          (lambda _
-            (substitute* "../build/cmake_install.cmake"
-              (("/uTox-0.11.0/utox")
-               "/build/utox")))))))
+        (add-before 'build 'patch-absolute-filename-libgtk-3
+          (lambda* (#:key inputs outputs #:allow-other-keys)
+            (substitute* "../source/src/xlib/gtk.c"
+                         (("libgtk-3.so")
+                         (string-append (assoc-ref inputs "gtk+")
+                                        "/lib/libgtk-3.so")))))
+        (add-after 'install 'wrap-program
+          (lambda* (#:key inputs outputs #:allow-other-keys)
+            (wrap-program (string-append (assoc-ref outputs "out")
+                                         "/bin/utox")
+            ;; For GtkFileChooserDialog.
+            `("GSETTINGS_SCHEMA_DIR" =
+              (,(string-append (assoc-ref inputs "gtk+")
+                               "/share/glib-2.0/schemas")))))))))
    (inputs
-    ;; TODO: Fix the file chooser dialog; which input does it need?
     `(("dbus" ,dbus)
       ("filteraudio" ,filteraudio)
       ("fontconfig" ,fontconfig)
       ("freetype" ,freetype)
       ("libsodium" ,libsodium)
       ("c-toxcore" ,c-toxcore)
+      ("gtk+" ,gtk+)
       ("libvpx" ,libvpx)
       ("libx11" ,libx11)
       ("libxext" ,libxext)
       ("libxrender" ,libxrender)
       ("openal" ,openal)
       ("v4l-utils" ,v4l-utils)))
+   (native-inputs
+    `(("check" ,check)
+      ("pkg-config" ,pkg-config)))
    (synopsis "Lightweight Tox client")
    (description
     "Utox is a lightweight Tox client.  Tox is a distributed and secure
@@ -747,14 +890,14 @@ instant messenger with audio and video chat capabilities.")
 (define-public qtox
   (package
     (name "qtox")
-    (version "1.10.1")
+    (version "1.15.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/qTox/qTox/archive/v"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0b37an611i2jdri59vsspyl3yf6cn4h0bn9d2jdrkw8d2rfqc8qy"))
+                "0bmnx6m33qn9nx40yy268x4wnvv2y7bvm41hzrlbhsiaph7kg583"))
               (file-name (string-append name "-" version ".tar.gz"))))
     (build-system cmake-build-system)
     (arguments
@@ -766,9 +909,18 @@ instant messenger with audio and video chat capabilities.")
                (("__DATE__") "\"\"")
                (("__TIME__") "\"\"")
                (("TIMESTAMP") "\"\""))
-             #t)))))
+             #t))
+         ;; Ensure that icons are found at runtime.
+         (add-after 'install 'wrap-executable
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (wrap-program (string-append out "/bin/qtox")
+                 `("QT_PLUGIN_PATH" prefix
+                   ,(list (string-append (assoc-ref inputs "qtsvg")
+                                         "/lib/qt5/plugins/"))))))))))
     (inputs
-     `(("ffmpeg" ,ffmpeg)
+     `(("ffmpeg" ,ffmpeg-3.4)
+       ("filteraudio" ,filteraudio)
        ("glib" ,glib)
        ("gtk+" ,gtk+-2)
        ("libsodium" ,libsodium)
@@ -776,6 +928,8 @@ instant messenger with audio and video chat capabilities.")
        ("libvpx" ,libvpx)
        ("libxscrnsaver" ,libxscrnsaver)
        ("libx11" ,libx11)
+       ("libexif" ,libexif)
+       ("sqlite" ,sqlite)
        ("openal" ,openal)
        ("qrencode" ,qrencode)
        ("qtbase" ,qtbase)
@@ -794,48 +948,38 @@ connect with friends and family without anyone else listening in.")
 (define-public pybitmessage
   (package
     (name "pybitmessage")
-    (version "0.6.1")
+    (version "0.6.3.2")
     (source
      (origin
-       (method url-fetch)
-       (uri (string-append "https://github.com/Bitmessage/"
-                           "PyBitmessage/archive/v" version ".tar.gz"))
-       (file-name (string-append name "-" version ".tar.gz"))
+       (method git-fetch)
+       (uri (git-reference
+             (url "https://github.com/Bitmessage/PyBitmessage.git")
+             (commit version)))
+       (file-name (string-append name "-" version "-checkout"))
        (sha256
         (base32
-         "1ffj7raxpp277kphj98190fxrwfx16vmbspk7k3azg3bh5f5idnf"))))
-    (inputs
-     `(("python" ,python-2)
-       ("python:tk" ,python-2 "tk")
-       ("openssl" ,openssl)
-       ("sqlite" ,sqlite)
-       ("qt" ,qt-4)
+         "1lmhbpwsqh1v93krlqqhafw2pc3y0qp8zby186yllbph6s8kdp35"))))
+    (propagated-inputs
+     ;; TODO:
+     ;; Package "pyopencl", required in addition to numpy for OpenCL support.
+     ;; Package "gst123", required in addition to alsa-utils and
+     ;; mpg123 for sound support.
+     `(("python2-msgpack" ,python2-msgpack)
+       ("python2-pythondialog" ,python2-pythondialog)
        ("python2-pyqt-4" ,python2-pyqt-4)
        ("python2-sip" ,python2-sip)
        ("python2-pysqlite" ,python2-pysqlite)
        ("python2-pyopenssl" ,python2-pyopenssl)))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
-    (build-system gnu-build-system)
+     `(("openssl" ,openssl)))
+    (build-system python-build-system)
     (arguments
-     `(#:imported-modules ((guix build python-build-system)
-                           ,@%gnu-build-system-modules)
-       #:make-flags (list (string-append "PREFIX="
-                                         (assoc-ref %outputs "out")))
-       #:tests? #f ; no test target
+     `(#:modules ((guix build python-build-system)
+                  (guix build utils))
+       #:tests? #f ;no test target
+       #:python ,python-2
        #:phases
        (modify-phases %standard-phases
-         (add-before 'build 'fix-makefile
-           (lambda* (#:key inputs #:allow-other-keys)
-             (substitute* "Makefile"
-               (("mkdir -p \\$\\{DESTDIR\\}/usr") "")
-               (("/usr/local") "")
-               (("/usr") "")
-               (("#!/bin/sh") (string-append "#!" (which "sh")))
-               (("python2") (which "python"))
-               (("/opt/openssl-compat-bitcoin/lib/")
-                (string-append (assoc-ref inputs "openssl") "/lib/")))
-             #t))
          (add-after 'unpack 'fix-unmatched-python-shebangs
            (lambda* (#:key inputs #:allow-other-keys)
              (substitute* "src/bitmessagemain.py"
@@ -869,18 +1013,24 @@ connect with friends and family without anyone else listening in.")
                 (string-append (assoc-ref inputs "openssl")
                                "/lib/libssl.so")))
              #t))
-         ;; XXX: Make does not build and install bitmsghash, do it
-         ;; and place it in /lib.
-         (add-before 'build 'build-and-install-bitmsghash
-           (lambda* (#:key outputs #:allow-other-keys)
-             (chdir "src/bitmsghash")
-             (system* "make")
-             (chdir "../..")
-             (install-file "src/bitmsghash/bitmsghash.so"
-                           (string-append (assoc-ref outputs "out") "/lib"))
+         (add-after 'unpack 'noninteractive-build
+           ;; This applies upstream commit 4c597d3f7cf9f83a763472aa165a1a4292019f20
+           (lambda _
+             (substitute* "setup.py"
+               (("except NameError")
+                "except EOFError, NameError"))
              #t))
-         (add-after 'install 'wrap
-           (@@ (guix build python-build-system) wrap)))))
+         ;; XXX: python setup.py does not build and install bitmsghash,
+         ;; without it PyBitmessage tries to compile it at first run
+         ;; in the store, which due to obvious reasons fails. Do it
+         ;; and place it in /lib.
+         (add-after 'unpack 'build-and-install-bitmsghash
+           (lambda* (#:key outputs #:allow-other-keys)
+             (with-directory-excursion "src/bitmsghash"
+               (system* "make")
+               (install-file "bitmsghash.so"
+                             (string-append (assoc-ref outputs "out") "/lib")))
+             #t)))))
     (license license:expat)
     (description
      "Distributed and trustless peer-to-peer communications protocol
@@ -1209,7 +1359,7 @@ support, and more.")
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'autogen
+         (add-after 'unpack 'autogen
            (lambda _
              (zero? (system* "sh" "autogen.sh"))))
          ;; For 'system' commands in Scheme code.
@@ -1284,7 +1434,7 @@ manual SSL certificate verification.")
 (define-public libstrophe
   (package
     (name "libstrophe")
-    (version "0.9.1")
+    (version "0.9.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/strophe/libstrophe/archive/"
@@ -1292,7 +1442,7 @@ manual SSL certificate verification.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1hzwdax4nsz0fncf5bjfza0cn0lc6xsf38y569ql1gg5hvwr6169"))))
+                "0vxfcyfnhnlaj6spm2b0ljw5i3knbphy6mvzpl5zv9b52ny4b08m"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -1386,14 +1536,14 @@ building the IRC clients and bots.")
 (define-public toxic
   (package
     (name "toxic")
-    (version "0.8.0")
+    (version "0.8.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/JFreegman/toxic/archive/v"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0166lqb47f4kj34mhi57aqmnk9mh4hsicmbdsj6ag54sy1zicy20"))
+                "1dx6z7k0zpsd7dpysdy23f0hnm49qlikb0mq8fg0y01dsz9vxgak"))
               (file-name (git-file-name name version))))
     (build-system gnu-build-system)
     (arguments

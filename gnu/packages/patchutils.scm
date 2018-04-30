@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -53,30 +54,31 @@
     (inputs `(("perl" ,perl)))
     (arguments
      '(#:parallel-tests? #f
-       #:phases (alist-cons-before
-                 'check 'patch-test-scripts
-                 (lambda _
-                   (let ((echo (which "echo")))
-                     (substitute*
-                         (find-files "tests" "^run-test$")
-                       (("/bin/echo") echo))))
-                 (alist-cons-after
-                  'install 'wrap-program
-                  ;; Point installed scripts to the utilities they need.
-                  (lambda* (#:key inputs outputs #:allow-other-keys)
-                    (let* ((out       (assoc-ref outputs "out"))
-                           (diffutils (assoc-ref inputs "diffutils"))
-                           (sed       (assoc-ref inputs "sed"))
-                           (gawk      (assoc-ref inputs "gawk")))
-                      (for-each
-                       (lambda (prog)
-                         (wrap-program (string-append out "/bin/" prog)
-                                       `("PATH" ":" prefix
-                                         ,(map (lambda (dir)
-                                                 (string-append dir "/bin"))
-                                               (list diffutils sed gawk)))))
-                       '("dehtmldiff" "editdiff" "espdiff"))))
-                  %standard-phases))))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'patch-test-scripts
+           (lambda _
+             (let ((echo (which "echo")))
+               (substitute*
+                   (find-files "tests" "^run-test$")
+                 (("/bin/echo") echo)))
+             #t))
+         (add-after 'install 'wrap-program
+           ;; Point installed scripts to the utilities they need.
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out       (assoc-ref outputs "out"))
+                    (diffutils (assoc-ref inputs "diffutils"))
+                    (sed       (assoc-ref inputs "sed"))
+                    (gawk      (assoc-ref inputs "gawk")))
+               (for-each
+                (lambda (prog)
+                  (wrap-program (string-append out "/bin/" prog)
+                    `("PATH" ":" prefix
+                      ,(map (lambda (dir)
+                              (string-append dir "/bin"))
+                            (list diffutils sed gawk)))))
+                '("dehtmldiff" "editdiff" "espdiff")))
+             #t)))))
     (home-page "http://cyberelk.net/tim/software/patchutils")
     (synopsis "Collection of tools for manipulating patch files")
     (description
@@ -105,39 +107,39 @@ listing the files modified by a patch.")
               ("ed" ,ed)))
     (arguments
      '(#:parallel-tests? #f
-       #:phases 
-       (alist-cons-before
-        'check 'patch-tests
-        (lambda _
-          (substitute*
-              '("test/run"
-                "test/edit.test") 
-            (("/bin/sh") (which "sh")))
-          ;; TODO: Run the mail tests once the mail feature can be supported.
-          (delete-file "test/mail.test"))
-        (alist-cons-after
-         'install 'wrap-program
-         ;; quilt's configure checks for the absolute path to the utilities it
-         ;; needs, but uses only the name when invoking them, so we need to
-         ;; make sure the quilt script can find those utilities when run.
-         (lambda* (#:key inputs outputs #:allow-other-keys)
-           (let* ((out       (assoc-ref outputs "out"))
-                  (coreutils (assoc-ref inputs "coreutils"))
-                  (diffutils (assoc-ref inputs "diffutils"))
-                  (findutils (assoc-ref inputs "findutils"))
-                  (less      (assoc-ref inputs "less"))
-                  (file      (assoc-ref inputs "file"))
-                  (ed        (assoc-ref inputs "ed"))
-                  (sed       (assoc-ref inputs "sed"))
-                  (bash      (assoc-ref inputs "bash"))
-                  (grep      (assoc-ref inputs "grep")))
-             (wrap-program (string-append out "/bin/quilt")
-                           `("PATH" ":" prefix
-                             ,(map (lambda (dir)
-                                     (string-append dir "/bin"))
-                                   (list coreutils diffutils findutils
-                                         less file ed sed bash grep))))))
-         %standard-phases))))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'patch-tests
+           (lambda _
+             (substitute*
+                 '("test/run"
+                   "test/edit.test") 
+               (("/bin/sh") (which "sh")))
+             ;; TODO: Run the mail tests once the mail feature can be supported.
+             (delete-file "test/mail.test")
+             #t))
+         (add-after 'install 'wrap-program
+           ;; quilt's configure checks for the absolute path to the utilities it
+           ;; needs, but uses only the name when invoking them, so we need to
+           ;; make sure the quilt script can find those utilities when run.
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out       (assoc-ref outputs "out"))
+                    (coreutils (assoc-ref inputs "coreutils"))
+                    (diffutils (assoc-ref inputs "diffutils"))
+                    (findutils (assoc-ref inputs "findutils"))
+                    (less      (assoc-ref inputs "less"))
+                    (file      (assoc-ref inputs "file"))
+                    (ed        (assoc-ref inputs "ed"))
+                    (sed       (assoc-ref inputs "sed"))
+                    (bash      (assoc-ref inputs "bash"))
+                    (grep      (assoc-ref inputs "grep")))
+               (wrap-program (string-append out "/bin/quilt")
+                 `("PATH" ":" prefix
+                   ,(map (lambda (dir)
+                           (string-append dir "/bin"))
+                         (list coreutils diffutils findutils
+                               less file ed sed bash grep)))))
+             #t)))))
     (home-page "https://savannah.nongnu.org/projects/quilt/")
     (synopsis "Script for managing patches to software")
     (description
@@ -149,27 +151,30 @@ refreshed, and more.")
 (define-public colordiff
   (package
     (name "colordiff")
-    (version "1.0.16")
+    (version "1.0.18")
     (source
       (origin
         (method url-fetch)
-        (uri (list (string-append "http://www.colordiff.org/archive/colordiff-"
+        (uri (list (string-append "https://www.colordiff.org/colordiff-"
+                                  version ".tar.gz")
+                   (string-append "http://www.colordiff.org/archive/colordiff-"
                                   version ".tar.gz")))
       (sha256
        (base32
-        "12qkkw13261dra8pg7mzx4r8p9pb0ajb090bib9j1s6hgphwzwga"))))
+        "1q6n60n4b9fnzccxyxv04mxjsql4ddq17vl2c74ijvjdhpcfrkr9"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:tests? #f
+     `(#:tests? #f                      ; no tests
        #:make-flags (list (string-append "DESTDIR=" (assoc-ref %outputs "out"))
                           "INSTALL_DIR=/bin" "MAN_DIR=/share/man/man1")
        #:phases
-       (alist-delete 'configure
-                     (alist-delete 'build %standard-phases))))
+       (modify-phases %standard-phases
+         (delete 'configure)            ; no configure script
+         (delete 'build))))             ; nothing to build
     (inputs
      `(("perl" ,perl)
        ("xmlto" ,xmlto)))
-    (home-page "http://www.colordiff.org")
+    (home-page "https://www.colordiff.org")
     (synopsis "Display diff output with colors")
     (description
      "Colordiff is Perl script wrapper on top of diff command which provides

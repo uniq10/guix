@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016, 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016, 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,7 +35,8 @@
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages image)
   #:use-module (gnu packages pkg-config)
-  #:use-module (gnu packages xml))
+  #:use-module (gnu packages xml)
+  #:use-module (ice-9 match))
 
 (define-public gnustep-make
   (package
@@ -65,6 +67,7 @@ to easily create cross-compiled binaries.")
   (package
     (name "windowmaker")
     (version "0.95.8")
+    (synopsis "NeXTSTEP-like window manager")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -75,7 +78,10 @@ to easily create cross-compiled binaries.")
                 "12p8kljqgx5hnic0zvs5mxwp7kg21sb6qjagb2qw8ydvf5amrgwx"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases
+     `(#:modules ((guix build gnu-build-system)
+                  (guix build utils)
+                  (ice-9 match))
+       #:phases
        (modify-phases %standard-phases
          (add-before 'configure 'pre-configure
            (lambda* (#:key outputs #:allow-other-keys)
@@ -96,19 +102,41 @@ to easily create cross-compiled binaries.")
                ;; The path to wmsetbg in Guix requires 67 extra characters.
                (substitute* "src/defaults.c"
                  (("len = strlen\\(text\\) \\+ 40;")
-                  (string-append "len = strlen(text) + 107;"))))))
-         (add-after 'install 'wrap
+                  (string-append "len = strlen(text) + 107;")))
+               #t)))
+         (add-after 'install 'install-xsession
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (xsessions (string-append out "/share/xsessions")))
+               (mkdir-p xsessions)
+               (call-with-output-file
+                   (string-append xsessions "/windowmaker.desktop")
+                 (lambda (port)
+                  (format port "~
+                    [Desktop Entry]~@
+                    Name=Window Maker~@
+                    Comment=~a~@
+                    Exec=~a/bin/wmaker~@
+                    Type=Application~%"
+                          (string-map (match-lambda
+                                        (#\newline #\space)
+                                        (chr chr))
+                                      ,synopsis) out))))
+             #t))
+         (add-after 'install-xsession 'wrap
             (lambda* (#:key outputs #:allow-other-keys)
               (let* ((out (assoc-ref outputs "out"))
                      (bin (string-append out "/bin")))
                 ;; In turn, 'wmaker.inst' wants to invoke 'wmmenugen'
                 ;; etc., so make sure everything is in $PATH.
                 (wrap-program (string-append bin "/wmaker.inst")
-                              `("PATH" ":" prefix (,bin)))))))))
+                  `("PATH" ":" prefix (,bin)))
+                #t))))))
     (inputs
      `(("libxmu" ,libxmu)
        ("libxft" ,libxft)
        ("libx11" ,libx11)
+       ("libxinerama" ,libxinerama)
        ("fontconfig" ,fontconfig)
        ("libjpeg" ,libjpeg)
        ("giflib" ,giflib)
@@ -117,7 +145,6 @@ to easily create cross-compiled binaries.")
     (native-inputs
      `(("pkg-config" ,pkg-config)))
     (home-page "http://windowmaker.org/")
-    (synopsis "NeXTSTEP-like window manager")
     (description
      "Window Maker is an X11 window manager originally designed to provide
 integration support for the GNUstep Desktop Environment.  In every way
@@ -130,7 +157,7 @@ interface.  It is fast, feature rich, easy to configure, and easy to use.")
 (define-public wmbattery
   (package
     (name "wmbattery")
-    (version "2.50")
+    (version "2.51")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -138,22 +165,16 @@ interface.  It is fast, feature rich, easy to configure, and easy to use.")
                     version ".orig.tar.gz"))
               (sha256
                (base32
-                "0hi6bivv3xd2k68w08krndfl68wdx7nmc2wjzsmcd4q3qgwgyk44"))
-              (modules '((guix build utils)))
-              (snippet
-               ;; Fix memory leak:
-               ;; <https://lists.gnu.org/archive/html/guix-devel/2016-05/msg00466.html>.
-               '(substitute* "upower.c"
-                  (("up = up_client_new\\(\\);")
-                   (string-append "if (!up)\n"
-                                  "                up = up_client_new();"))))))
+                "084a3irxbmgms4bqaga80mlx9wgvlkx6d2w0ns939yrpfzg87laj"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f              ; no "check" target
        #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'autoconf
-           (lambda _ (zero? (system* "autoreconf" "-vfi")))))))
+           (lambda _
+             (invoke "autoreconf" "-vfi")
+             #t)))))
     (inputs
      `(("glib" ,glib)
        ("libx11" ,libx11)
@@ -164,7 +185,7 @@ interface.  It is fast, feature rich, easy to configure, and easy to use.")
      `(("autoconf" ,autoconf)
        ("automake" ,automake)
        ("pkg-config" ,pkg-config)))
-    (home-page "http://windowmaker.org/dockapps/?name=wmbattery")
+    (home-page "http://www.dockapps.net/wmbattery")
     (synopsis "Display laptop battery info")
     (description
      "Wmbattery displays the status of your laptop's battery in a small icon.
@@ -202,7 +223,7 @@ other compatible window managers.")
 (define-public wmcpuload
   (package
     (name "wmcpuload")
-    (version "1.0.1")
+    (version "1.1.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -210,7 +231,7 @@ other compatible window managers.")
                     name "_" version ".orig.tar.gz"))
               (sha256
                (base32
-                "0irlns4cvxy2mnicx75bya166hdxq7h8bphds3ligijcl9fzgs6n"))))
+                "1334y0axnxydwv05d172f405iljrfakg4kcyg9kmn46v6ywv424g"))))
     (build-system gnu-build-system)
     (inputs
      `(("libx11" ,libx11)
@@ -218,7 +239,7 @@ other compatible window managers.")
        ("libxpm" ,libxpm)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
-    (home-page "http://windowmaker.org/dockapps/?name=wmcpuload")
+    (home-page "http://www.dockapps.net/wmcpuload")
     (synopsis "Monitor CPU usage")
     (description
      "Wmcpuload displays the current CPU usage, expressed as a percentile and a
@@ -245,7 +266,9 @@ on.")
      `(#:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'autoconf
-           (lambda _ (zero? (system* "autoreconf" "-vfi")))))))
+           (lambda _
+             (invoke "autoreconf" "-vfi")
+             #t)))))
     ;; wmclock requires autoreconf to generate its configure script.
     (inputs
      `(("libx11" ,libx11)
@@ -255,7 +278,7 @@ on.")
      `(("autoconf" ,autoconf)
        ("automake" ,automake)
        ("pkg-config" ,pkg-config)))
-    (home-page "http://windowmaker.org/dockapps/?name=wmclock")
+    (home-page "http://www.dockapps.net/wmclock")
     (synopsis "Display the date and time")
     (description
      "wmclock is an applet for Window Maker which displays the date and time in

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.h"
 #include "types.hh"
 
 #include <map>
@@ -8,6 +9,14 @@
 
 namespace nix {
 
+enum CompressionType
+{
+    COMPRESSION_NONE = 0,
+    COMPRESSION_GZIP = 1
+#if HAVE_BZLIB_H
+    , COMPRESSION_BZIP2 = 2
+#endif
+};
 
 struct Settings {
 
@@ -16,8 +25,6 @@ struct Settings {
     Settings();
 
     void processEnvironment();
-
-    void loadConfFile();
 
     void set(const string & name, const string & value);
 
@@ -32,8 +39,6 @@ struct Settings {
     void update();
 
     string pack();
-
-    void unpack(const string & pack);
 
     SettingsMap getOverrides();
 
@@ -169,7 +174,7 @@ struct Settings {
     bool keepLog;
 
     /* Whether to compress logs. */
-    bool compressLog;
+    enum CompressionType logCompression;
 
     /* Maximum number of bytes a builder can write to stdout/stderr
        before being killed (0 means no limit). */

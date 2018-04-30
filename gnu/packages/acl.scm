@@ -2,6 +2,7 @@
 ;;; Copyright © 2012 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2014 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2014 Andreas Enge <andreas@enge.fr>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -41,27 +42,37 @@
       (sha256
        (base32
         "08qd9s3wfhv0ajswsylnfwr5h0d7j9d4rgip855nrh400nxp940p"))
-      (patches (search-patches "acl-hurd-path-max.patch"))))
+      (patches (search-patches "acl-fix-perl-regex.patch"
+                               "acl-hurd-path-max.patch"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:tests? #f   ; FIXME: Investigate test suite failures
-       #:test-target "tests"
+     `(#:test-target "tests"
        #:phases
-        (alist-cons-after
-         'build 'patch-exec-bin-sh
-         (lambda _
-           (substitute* "test/run"
-             (("/bin/sh") (which "sh"))))
-         (alist-replace
-          'install
-          (lambda _
-            (zero? (system* "make" "install" "install-lib" "install-dev")))
-          %standard-phases))))
+       (modify-phases %standard-phases
+         (add-after 'build 'patch-exec-bin-sh
+           (lambda _
+             (substitute* "test/run"
+               (("/bin/sh") (which "sh")))
+             #t))
+         (add-before 'check 'patch-tests
+           (lambda _
+             ;; The coreutils do not have an ACL bit to remove from their
+             ;; output, so the sed expression that removes the bit is disabled.
+             (substitute* "test/sbits-restore.test"
+                          (("\\| sed.*'") ""))
+             ;; These tests require the existence of a user named "bin", but
+             ;; this user does not exist within Guix's build environment.
+             (for-each (lambda (file)
+                         (delete-file (string-append "test/" file)))
+                       '("setfacl-X.test" "cp.test" "misc.test"))))
+         (replace 'install
+           (lambda _
+             (zero? (system* "make" "install" "install-lib" "install-dev")))))))
     (inputs `(("attr" ,attr)))
     (native-inputs
      `(("gettext" ,gettext-minimal)
        ("perl" ,perl)))
-    (home-page "http://savannah.nongnu.org/projects/acl")
+    (home-page "https://savannah.nongnu.org/projects/acl")
     (synopsis
      "Library and tools for manipulating access control lists")
     (description

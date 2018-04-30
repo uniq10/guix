@@ -1,13 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015, 2016 Federico Beffa <beffa@fbengineering.ch>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -89,37 +90,37 @@
        (modify-phases %standard-phases
          (replace 'unpack
            (lambda* (#:key inputs #:allow-other-keys)
-             (and (zero? (system* "tar" "xzvf"
-                                  (assoc-ref inputs "source")))
-                  (chdir ,(mit-scheme-source-directory (%current-system)
-                                                       version))
-                  (begin
-                    ;; Delete these dangling symlinks since they break
-                    ;; `patch-shebangs'.
-                    (for-each delete-file
-                              (append '("src/lib/shim-config.scm")
-                                      (find-files "src/lib/lib" "\\.so$")
-                                      (find-files "src/lib" "^liarc-")
-                                      (find-files "src/compiler" "^make\\.")))
-                    (chdir "src")
-                    #t))))
+             (invoke "tar" "xzvf"
+                     (assoc-ref inputs "source"))
+             (chdir ,(mit-scheme-source-directory (%current-system)
+                                                  version))
+             ;; Delete these dangling symlinks since they break
+             ;; `patch-shebangs'.
+             (for-each delete-file
+                       (append '("src/lib/shim-config.scm")
+                               (find-files "src/lib/lib" "\\.so$")
+                               (find-files "src/lib" "^liarc-")
+                               (find-files "src/compiler" "^make\\.")))
+             (chdir "src")
+             #t))
          (replace 'build
            (lambda* (#:key system outputs #:allow-other-keys)
              (let ((out (assoc-ref outputs "out")))
                (if (or (string-prefix? "x86_64" system)
                        (string-prefix? "i686" system))
-                   (zero? (system* "make" "compile-microcode"))
-                   (zero? (system* "./etc/make-liarc.sh"
-                                   (string-append "--prefix=" out)))))))
+                   (invoke "make" "compile-microcode")
+                   (invoke "./etc/make-liarc.sh"
+                           (string-append "--prefix=" out)))
+               #t)))
          (add-after 'configure 'configure-doc
            (lambda* (#:key outputs inputs #:allow-other-keys)
              (with-directory-excursion "../doc"
                (let* ((out (assoc-ref outputs "out"))
                       (bash (assoc-ref inputs "bash"))
                       (bin/sh (string-append bash "/bin/sh")))
-                 (system* bin/sh "./configure"
-                          (string-append "--prefix=" out)
-                          (string-append "SHELL=" bin/sh))
+                 (invoke bin/sh "./configure"
+                         (string-append "--prefix=" out)
+                         (string-append "SHELL=" bin/sh))
                  (substitute* '("Makefile" "make-common")
                    (("/lib/mit-scheme/doc")
                     (string-append "/share/doc/" ,name "-" ,version)))
@@ -127,7 +128,8 @@
          (add-after 'build 'build-doc
            (lambda* _
              (with-directory-excursion "../doc"
-               (zero? (system* "make")))))
+               (invoke "make"))
+             #t))
          (add-after 'install 'install-doc
            (lambda* (#:key outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
@@ -137,7 +139,7 @@
                      (string-append doc "/share/doc/" ,name "-" ,version)))
                (with-directory-excursion "../doc"
                  (for-each (lambda (target)
-                             (system* "make" target))
+                             (invoke "make" target))
                            '("install-config" "install-info-gz" "install-man"
                              "install-html" "install-pdf")))
                (mkdir-p new-doc/mit-scheme-dir)
@@ -199,14 +201,14 @@ features an integrated Emacs-like editor and a large runtime library.")
 (define-public bigloo
   (package
     (name "bigloo")
-    (version "4.3a")
+    (version "4.3b")
     (source (origin
              (method url-fetch)
              (uri (string-append "ftp://ftp-sop.inria.fr/indes/fp/Bigloo/bigloo"
                                  version ".tar.gz"))
              (sha256
               (base32
-               "03rcqs6kvy2j5lqk4fidqay5qfyp474qqspbh6wk4qdbds6w599w"))
+               "1x7xdgsls277zlf6gcaxs2cj62xj6yvb0qxh0ddmxfamvxba0cf4"))
              ;; Remove bundled libraries.
              (modules '((guix build utils)))
              (snippet
@@ -228,34 +230,37 @@ features an integrated Emacs-like editor and a large runtime library.")
                ((", @DATE@") ""))
              (substitute* "autoconf/osversion"
                (("^version.*$") "version=\"\"\n"))
+             (substitute* "comptime/Makefile"
+               (("\\$\\(LDCOMPLIBS\\)")
+                "$(LDCOMPLIBS) $(LDFLAGS)"))
 
              ;; The `configure' script doesn't understand options
              ;; of those of Autoconf.
              (let ((out (assoc-ref outputs "out")))
-               (zero?
-                (system* "./configure"
-                         (string-append "--prefix=" out)
-                         ; use system libraries
-                         "--customgc=no"
-                         "--customunistring=no"
-                         "--customlibuv=no"
-                         (string-append"--mv=" (which "mv"))
-                         (string-append "--rm=" (which "rm"))
-                         "--cflags=-fPIC"
-                         (string-append "--ldflags=-Wl,-rpath="
-                                        (assoc-ref outputs "out")
-                                        "/lib/bigloo/" ,version)
-                         (string-append "--lispdir=" out
-                                        "/share/emacs/site-lisp")
-                         "--sharedbde=yes"
-                         "--sharedcompiler=yes")))))
+               (invoke "./configure"
+                       (string-append "--prefix=" out)
+                       ; use system libraries
+                       "--customgc=no"
+                       "--customunistring=no"
+                       "--customlibuv=no"
+                       (string-append"--mv=" (which "mv"))
+                       (string-append "--rm=" (which "rm"))
+                       "--cflags=-fPIC"
+                       (string-append "--ldflags=-Wl,-rpath="
+                                      (assoc-ref outputs "out")
+                                      "/lib/bigloo/" ,version)
+                       (string-append "--lispdir=" out
+                                      "/share/emacs/site-lisp")
+                       "--sharedbde=yes"
+                       "--sharedcompiler=yes"
+                       "--disable-patch"))))
          (add-after 'install 'install-emacs-modes
            (lambda* (#:key outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
                     (dir (string-append out "/share/emacs/site-lisp")))
-               (zero? (system* "make" "-C" "bmacs" "all" "install"
-                               (string-append "EMACSBRAND=emacs25")
-                               (string-append "EMACSDIR=" dir)))))))))
+               (invoke "make" "-C" "bmacs" "all" "install"
+                       (string-append "EMACSBRAND=emacs25")
+                       (string-append "EMACSDIR=" dir))))))))
     (inputs
      `(("emacs" ,emacs)                      ;UDE needs the X version of Emacs
        ("libgc" ,libgc)
@@ -295,7 +300,7 @@ Scheme and C programs and between Scheme and Java programs.")
                                  version ".tar.gz"))
              (sha256
               (base32
-               "09m7pahjsp7wxzd20cdph9j3mgf2nq5dyckcjljcd40m25v85kks"))))
+               "0bvq79vxcpgwydwi923cxb5w9isx2x8r3d0xndbdhacmmsw1m811"))))
     (build-system gnu-build-system)
     (arguments
      `(#:test-target "test"
@@ -336,17 +341,14 @@ mashups, office (web agendas, mail clients, ...), etc.")
 (define-public chicken
   (package
     (name "chicken")
-    (version "4.12.0")
+    (version "4.13.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://code.call-cc.org/releases/"
                                   version "/chicken-" version ".tar.gz"))
               (sha256
                (base32
-                "12b9gaa9lqh39lj1v4wm48f6z8ww3jdkvc5bh9gqqvn6kd2wwnk0"))
-              (patches
-               (search-patches "chicken-CVE-2017-6949.patch"
-                               "chicken-CVE-2017-11343.patch"))))
+                "0hvckhi5gfny3mlva6d7y9pmx7cbwvq0r7mk11k3sdiik9hlkmdd"))))
     (build-system gnu-build-system)
     (arguments
      `(#:modules ((guix build gnu-build-system)
@@ -403,87 +405,91 @@ implementation techniques and as an expository tool.")
 (define-public racket
   (package
     (name "racket")
-    (version "6.8")
+    (version "6.12")
     (source (origin
              (method url-fetch)
              (uri (list (string-append "http://mirror.racket-lang.org/installers/"
                                        version "/racket-" version "-src.tgz")
                         (string-append
                          "http://mirror.informatik.uni-tuebingen.de/mirror/racket/"
-                         version "/racket/racket-" version "-src-unix.tgz")))
+                         version "/racket-" version "-src.tgz")))
              (sha256
               (base32
-               "1l9z1a0r5zydr50cklx9xjw3l0pwnf64i10xq7112fl1r89q3qgv"))))
+               "0cwcypzjfl9py1s695mhqkiapff7c1w29llsmdj7qgn58wl0apk5"))
+             (patches (search-patches
+                       ;; See: https://github.com/racket/racket/issues/1962
+                       ;; This can be removed in whatever Racket release comes after 6.12
+                       "racket-fix-xform-issue.patch"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
-       (alist-cons-before
-        'configure 'pre-configure
-        (lambda* (#:key inputs #:allow-other-keys)
-          ;; Patch dynamically loaded libraries with their absolute paths.
-          (let* ((library-path   (search-path-as-string->list
-                                  (getenv "LIBRARY_PATH")))
-                 (find-so        (lambda (soname)
-                                   (search-path
-                                    library-path
-                                    (format #f "~a.so" soname))))
-                 (patch-ffi-libs (lambda (file libs)
-                                   (for-each
-                                    (lambda (lib)
-                                      (substitute* file
-                                        (((format #f "\"~a\"" lib))
-                                         (format #f "\"~a\"" (find-so lib)))))
-                                    libs))))
-            (substitute* "collects/db/private/sqlite3/ffi.rkt"
-              (("ffi-lib sqlite-so")
-               (format #f "ffi-lib \"~a\"" (find-so "libsqlite3"))))
-            (substitute* "collects/openssl/libssl.rkt"
-              (("ffi-lib libssl-so")
-               (format #f "ffi-lib \"~a\"" (find-so "libssl"))))
-            (substitute* "collects/openssl/libcrypto.rkt"
-              (("ffi-lib libcrypto-so")
-               (format #f "ffi-lib \"~a\"" (find-so "libcrypto"))))
-            (substitute* "share/pkgs/math-lib/math/private/bigfloat/gmp.rkt"
-              (("ffi-lib libgmp-so")
-               (format #f "ffi-lib \"~a\"" (find-so "libgmp"))))
-            (substitute* "share/pkgs/math-lib/math/private/bigfloat/mpfr.rkt"
-              (("ffi-lib libmpfr-so")
-               (format #f "ffi-lib \"~a\"" (find-so "libmpfr"))))
-            (for-each
-             (lambda (x) (apply patch-ffi-libs x))
-             '(("share/pkgs/draw-lib/racket/draw/unsafe/cairo-lib.rkt"
-                ("libfontconfig" "libcairo"))
-               ("share/pkgs/draw-lib/racket/draw/unsafe/glib.rkt"
-                ("libglib-2.0" "libgmodule-2.0" "libgobject-2.0"))
-               ("share/pkgs/draw-lib/racket/draw/unsafe/jpeg.rkt"
-                ("libjpeg"))
-               ("share/pkgs/draw-lib/racket/draw/unsafe/pango.rkt"
-                ("libpango-1.0" "libpangocairo-1.0"))
-               ("share/pkgs/draw-lib/racket/draw/unsafe/png.rkt"
-                ("libpng"))
-               ("share/pkgs/db-lib/db/private/odbc/ffi.rkt"
-                ("libodbc"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/x11.rkt"
-                ("libX11"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/gsettings.rkt"
-                ("libgio-2.0"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/gtk3.rkt"
-                ("libgdk-3" "libgtk-3"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/unique.rkt"
-                ("libunique-1.0"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/utils.rkt"
-                ("libgdk-x11-2.0" "libgdk_pixbuf-2.0" "libgtk-x11-2.0"))
-               ("share/pkgs/gui-lib/mred/private/wx/gtk/gl-context.rkt"
-                ("libGL"))
-               ("share/pkgs/sgl/gl.rkt"
-                ("libGL" "libGLU")))))
-          (chdir "src"))
-        (alist-cons-after
-         'unpack 'patch-/bin/sh
-         (lambda _
-           (substitute* "collects/racket/system.rkt"
-             (("/bin/sh") (which "sh"))))
-         %standard-phases))
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; Patch dynamically loaded libraries with their absolute paths.
+             (let* ((library-path   (search-path-as-string->list
+                                     (getenv "LIBRARY_PATH")))
+                    (find-so        (lambda (soname)
+                                      (search-path
+                                       library-path
+                                       (format #f "~a.so" soname))))
+                    (patch-ffi-libs (lambda (file libs)
+                                      (for-each
+                                       (lambda (lib)
+                                         (substitute* file
+                                           (((format #f "\"~a\"" lib))
+                                            (format #f "\"~a\"" (find-so lib)))))
+                                       libs))))
+               (substitute* "collects/db/private/sqlite3/ffi.rkt"
+                 (("ffi-lib sqlite-so")
+                  (format #f "ffi-lib \"~a\"" (find-so "libsqlite3"))))
+               (substitute* "collects/openssl/libssl.rkt"
+                 (("ffi-lib libssl-so")
+                  (format #f "ffi-lib \"~a\"" (find-so "libssl"))))
+               (substitute* "collects/openssl/libcrypto.rkt"
+                 (("ffi-lib libcrypto-so")
+                  (format #f "ffi-lib \"~a\"" (find-so "libcrypto"))))
+               (substitute* "share/pkgs/math-lib/math/private/bigfloat/gmp.rkt"
+                 (("ffi-lib libgmp-so")
+                  (format #f "ffi-lib \"~a\"" (find-so "libgmp"))))
+               (substitute* "share/pkgs/math-lib/math/private/bigfloat/mpfr.rkt"
+                 (("ffi-lib libmpfr-so")
+                  (format #f "ffi-lib \"~a\"" (find-so "libmpfr"))))
+               (for-each
+                (lambda (x) (apply patch-ffi-libs x))
+                '(("share/pkgs/draw-lib/racket/draw/unsafe/cairo-lib.rkt"
+                   ("libfontconfig" "libcairo"))
+                  ("share/pkgs/draw-lib/racket/draw/unsafe/glib.rkt"
+                   ("libglib-2.0" "libgmodule-2.0" "libgobject-2.0"))
+                  ("share/pkgs/draw-lib/racket/draw/unsafe/jpeg.rkt"
+                   ("libjpeg"))
+                  ("share/pkgs/draw-lib/racket/draw/unsafe/pango.rkt"
+                   ("libpango-1.0" "libpangocairo-1.0"))
+                  ("share/pkgs/draw-lib/racket/draw/unsafe/png.rkt"
+                   ("libpng"))
+                  ("share/pkgs/db-lib/db/private/odbc/ffi.rkt"
+                   ("libodbc"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/x11.rkt"
+                   ("libX11"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/gsettings.rkt"
+                   ("libgio-2.0"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/gtk3.rkt"
+                   ("libgdk-3" "libgtk-3"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/unique.rkt"
+                   ("libunique-1.0"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/utils.rkt"
+                   ("libgdk-x11-2.0" "libgdk_pixbuf-2.0" "libgtk-x11-2.0"))
+                  ("share/pkgs/gui-lib/mred/private/wx/gtk/gl-context.rkt"
+                   ("libGL"))
+                  ("share/pkgs/sgl/gl.rkt"
+                   ("libGL" "libGLU")))))
+             (chdir "src")
+             #t))
+         (add-after 'unpack 'patch-/bin/sh
+           (lambda _
+             (substitute* "collects/racket/system.rkt"
+               (("/bin/sh") (which "sh")))
+             #t)))
        #:tests? #f                                ; XXX: how to run them?
        ))
     (inputs
@@ -517,7 +523,7 @@ of libraries.")
 (define-public gambit-c
   (package
     (name "gambit-c")
-    (version "4.8.5")
+    (version "4.8.9")
     (source
      (origin
        (method url-fetch)
@@ -527,7 +533,7 @@ of libraries.")
              (string-map (lambda (c) (if (char=? c #\.) #\_ c)) version)
              ".tgz"))
        (sha256
-        (base32 "0xwmqzqvk83xyjz48vp36p5vj1415rl3pi3xq7y8i3p8s409a98b"))))
+        (base32 "16sg1s8myzxqpimj5ry6lfza0qfs157zj28bvmxwwgy89jd9m5v7"))))
     (build-system gnu-build-system)
     (arguments
      '(#:configure-flags
@@ -602,7 +608,7 @@ threads.")
 
     (package
       (name "scmutils")
-      (version "20140302")
+      (version "20160827")
       (source
        (origin
          (method url-fetch/tarbomb)
@@ -614,7 +620,7 @@ threads.")
                              "/scmutils-tarballs/" name "-" version
                              "-x86-64-gnu-linux.tar.gz"))
          (sha256
-          (base32 "10cnbm7nh78m5mrl1di85s29gny81jb1am9zd9f9yx725xb6dnfg"))))
+          (base32 "00ly5m0s4dy5kxravjaqlpii5zcnr6b9nqm0607lr7xcs52i4j8b"))))
       (build-system gnu-build-system)
       (inputs
        `(("mit-scheme" ,mit-scheme)
@@ -629,104 +635,104 @@ threads.")
          #:phases
          (modify-phases %standard-phases
            (replace 'configure
-                    ;; No standard build procedure is used. We set the correct
-                    ;; runtime path in the custom build system.
-                    (lambda* (#:key outputs #:allow-other-keys)
-                      (let ((out (assoc-ref outputs "out")))
-                        ;; Required to find .bci files at runtime.
-                        (with-directory-excursion "scmutils"
-                          (rename-file "src" "scmutils"))
-                        (substitute* "scmutils/scmutils/load.scm"
-                          (("/usr/local/scmutils/")
-                           (string-append out "/lib/mit-scheme-"
-                                          ,(system-suffix) "/")))
-                        #t)))
+             ;; No standard build procedure is used. We set the correct
+             ;; runtime path in the custom build system.
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let ((out (assoc-ref outputs "out")))
+                 ;; Required to find .bci files at runtime.
+                 (with-directory-excursion "scmutils"
+                   (rename-file "src" "scmutils"))
+                 (substitute* "scmutils/scmutils/load.scm"
+                   (("/usr/local/scmutils/")
+                    (string-append out "/lib/mit-scheme-"
+                                   ,(system-suffix) "/")))
+                 #t)))
            (replace 'build
-                    ;; Compile the code and build a band.
-                    (lambda* (#:key outputs #:allow-other-keys)
-                      (let* ((out (assoc-ref outputs "out"))
-                             (make-img (string-append
-                                        "echo '(load \"load\") "
-                                        "(disk-save \"edwin-mechanics.com\")'"
-                                        "| mit-scheme")))
-                        (with-directory-excursion "scmutils/scmutils"
-                          (and (zero? (system "mit-scheme < compile.scm"))
-                               (zero? (system make-img)))))))
+             ;; Compile the code and build a band.
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (make-img (string-append
+                                 "echo '(load \"load\") "
+                                 "(disk-save \"edwin-mechanics.com\")'"
+                                 "| mit-scheme")))
+                 (with-directory-excursion "scmutils/scmutils"
+                   (and (zero? (system "mit-scheme < compile.scm"))
+                        (zero? (system make-img)))))))
            (add-before 'install 'fix-directory-names
-                       ;; Correct directory names in the startup script.
-                       (lambda* (#:key inputs outputs #:allow-other-keys)
-                         (let* ((out (assoc-ref outputs "out"))
-                                (scm-root (assoc-ref inputs "mit-scheme")))
-                           (substitute* "bin/mechanics"
-                             (("ROOT=\"\\$\\{SCMUTILS_ROOT:-/.*\\}\"")
-                              (string-append
-                               "ROOT=\"${SCMUTILS_ROOT:-" scm-root "}\"\n"
-                               "LIB=\"${ROOT}/lib/mit-scheme-"
-                               ,(system-suffix) ":"
-                               out "/lib/mit-scheme-" ,(system-suffix) "\""))
-                             (("EDWIN_INFO_DIRECTORY=.*\n") "")
-                             (("SCHEME=.*\n")
-                              (string-append "SCHEME=\"${ROOT}/bin/scheme "
-                                             "--library ${LIB}\"\n"))
-                             (("export EDWIN_INFO_DIRECTORY") ""))
-                           #t)))
+             ;; Correct directory names in the startup script.
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (scm-root (assoc-ref inputs "mit-scheme")))
+                 (substitute* "bin/mechanics"
+                   (("ROOT=\"\\$\\{SCMUTILS_ROOT:-/.*\\}\"")
+                    (string-append
+                     "ROOT=\"${SCMUTILS_ROOT:-" scm-root "}\"\n"
+                     "LIB=\"${ROOT}/lib/mit-scheme-"
+                     ,(system-suffix) ":"
+                     out "/lib/mit-scheme-" ,(system-suffix) "\""))
+                   (("EDWIN_INFO_DIRECTORY=.*\n") "")
+                   (("SCHEME=.*\n")
+                    (string-append "SCHEME=\"${ROOT}/bin/scheme "
+                                   "--library ${LIB}\"\n"))
+                   (("export EDWIN_INFO_DIRECTORY") ""))
+                 #t)))
            (add-before 'install 'emacs-tags
-                       ;; Generate Emacs's tags for easy reference to source
-                       ;; code.
-                       (lambda* (#:key inputs outputs #:allow-other-keys)
-                         (with-directory-excursion "scmutils/scmutils"
-                           (zero? (apply system* "etags"
-                                         (find-files "." "\\.scm"))))))
+             ;; Generate Emacs's tags for easy reference to source
+             ;; code.
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (with-directory-excursion "scmutils/scmutils"
+                 (zero? (apply system* "etags"
+                               (find-files "." "\\.scm"))))))
            (replace 'install
-                    ;; Copy files to the store.
-                    (lambda* (#:key outputs #:allow-other-keys)
-                      (define* (copy-files-to-directory files dir
-                                                        #:optional (delete? #f))
-                        (for-each (lambda (f)
-                                    (copy-file f (string-append dir "/" f))
-                                    (when delete? (delete-file f)))
-                                  files))
+             ;; Copy files to the store.
+             (lambda* (#:key outputs #:allow-other-keys)
+               (define* (copy-files-to-directory files dir
+                                                 #:optional (delete? #f))
+                 (for-each (lambda (f)
+                             (copy-file f (string-append dir "/" f))
+                             (when delete? (delete-file f)))
+                           files))
 
-                      (let* ((out (assoc-ref outputs "out"))
-                             (bin (string-append out "/bin"))
-                             (doc (string-append out "/share/doc/"
-                                                 ,name "-" ,version))
-                             (lib (string-append out "/lib/mit-scheme-"
-                                                 ,(system-suffix)
-                                                 "/scmutils")))
-                        (for-each mkdir-p (list lib doc bin))
-                        (with-directory-excursion "scmutils/scmutils"
-                          (copy-files-to-directory '("COPYING" "LICENSE")
-                                                   doc #t)
-                          (for-each delete-file (find-files "." "\\.bin"))
-                          (copy-files-to-directory '("edwin-mechanics.com")
-                                                   (string-append lib "/..") #t)
-                          (copy-recursively "." lib))
-                        (with-directory-excursion "bin"
-                          (copy-files-to-directory (find-files ".") bin))
-                        (with-directory-excursion "scmutils/manual"
-                          (copy-files-to-directory (find-files ".") doc))
-                        #t)))
+               (let* ((out (assoc-ref outputs "out"))
+                      (bin (string-append out "/bin"))
+                      (doc (string-append out "/share/doc/"
+                                          ,name "-" ,version))
+                      (lib (string-append out "/lib/mit-scheme-"
+                                          ,(system-suffix)
+                                          "/scmutils")))
+                 (for-each mkdir-p (list lib doc bin))
+                 (with-directory-excursion "scmutils/scmutils"
+                   (copy-files-to-directory '("COPYING" "LICENSE")
+                                            doc #t)
+                   (for-each delete-file (find-files "." "\\.bin"))
+                   (copy-files-to-directory '("edwin-mechanics.com")
+                                            (string-append lib "/..") #t)
+                   (copy-recursively "." lib))
+                 (with-directory-excursion "bin"
+                   (copy-files-to-directory (find-files ".") bin))
+                 (with-directory-excursion "scmutils/manual"
+                   (copy-files-to-directory (find-files ".") doc))
+                 #t)))
            (add-after 'install 'emacs-helpers
-                      ;; Add convenience Emacs commands to easily load the
-                      ;; Scmutils band in an MIT-Scheme buffer inside of Emacs
-                      ;; and to easily load code tags.
-                      (lambda* (#:key inputs outputs #:allow-other-keys)
-                        (let* ((out (assoc-ref outputs "out"))
-                               (mit-root (assoc-ref inputs "mit-scheme"))
-                               (emacs-lisp-dir
-                                (string-append out "/share/emacs/site-lisp"
-                                               "/guix.d/" ,name "-" ,version))
-                               (el-file (string-append emacs-lisp-dir
-                                                       "/scmutils.el"))
-                               (lib-relative-path
-                                (string-append "/lib/mit-scheme-"
-                                               ,(system-suffix))))
-                          (mkdir-p emacs-lisp-dir)
-                          (call-with-output-file el-file
-                            (lambda (p)
-                              (format p
-                                      ";;;###autoload
+             ;; Add convenience Emacs commands to easily load the
+             ;; Scmutils band in an MIT-Scheme buffer inside of Emacs
+             ;; and to easily load code tags.
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (mit-root (assoc-ref inputs "mit-scheme"))
+                      (emacs-lisp-dir
+                       (string-append out "/share/emacs/site-lisp"
+                                      "/guix.d/" ,name "-" ,version))
+                      (el-file (string-append emacs-lisp-dir
+                                              "/scmutils.el"))
+                      (lib-relative-path
+                       (string-append "/lib/mit-scheme-"
+                                      ,(system-suffix))))
+                 (mkdir-p emacs-lisp-dir)
+                 (call-with-output-file el-file
+                   (lambda (p)
+                     (format p
+                             ";;;###autoload
 (defun scmutils-load ()
   (interactive)
   (require 'xscheme)
@@ -762,10 +768,10 @@ engineering.")
       (license gpl2+))))
 
 (define-public sicp
-  (let ((commit "5b52db566968d28a89fbbaf338d207f01cc81cac"))
+  (let ((commit "225c172f9b859902a64a3c5dd5e1f9ac1a7382de"))
     (package
       (name "sicp")
-      (version (string-append "20160220-1." (string-take commit 7)))
+      (version (string-append "20170703-1." (string-take commit 7)))
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
@@ -773,7 +779,7 @@ engineering.")
                       (commit commit)))
                 (sha256
                  (base32
-                  "10h6h7szwlfbshwh18bnl2hvyddj5i7106l79s145l0sjjv15cxb"))
+                  "0bhdrdc1mgdjdsg4jksq9z6x129f3346jbf3zir2a0dfmsj6m10n"))
                 (file-name (string-append name "-" version "-checkout"))))
       (build-system trivial-build-system)
       (native-inputs `(("gzip" ,gzip)
@@ -804,7 +810,7 @@ engineering.")
                   (every zero?
                          (map (cut system* "gzip" "-9n" <>)
                               (find-files info-dir))))))))
-      (home-page "http://sarabander.github.io/sicp")
+      (home-page "https://sarabander.github.io/sicp")
       (synopsis "Structure and Interpretation of Computer Programs")
       (description "Structure and Interpretation of Computer Programs (SICP) is
 a textbook aiming to teach the principles of computer programming.
@@ -815,8 +821,8 @@ metalinguistic abstraction, recursion, interpreters, and modular programming.")
       (license cc-by-sa4.0))))
 
 (define-public scheme48-rx
-  (let* ((commit "d3231ad13de2b44e3ee173b1c9d09ff165e8b6d5")
-         (revision "1"))
+  (let* ((commit "dd9037f6f9ea01019390614f6b126b7dd293798d")
+         (revision "2"))
     (package
       (name "scheme48-rx")
       (version (string-append "0.0.0-" revision "." (string-take commit 7)))
@@ -828,7 +834,7 @@ metalinguistic abstraction, recursion, interpreters, and modular programming.")
                (commit commit)))
          (sha256
           (base32
-           "1nmziaibgmfi346kzidj6xyad0vm7724qymbzgxvdzyrqji6v6yz"))
+           "1bvriavxw5kf2izjbil3999vr983vkk2xplfpinafr86m40b2cci"))
          (file-name (string-append name "-" version "-checkout"))))
       (build-system trivial-build-system)
       (arguments
@@ -880,7 +886,7 @@ regular-expression notation.")
                                                    (assoc-ref outputs "out")))))))))
     (native-inputs `(("unzip" ,unzip)
                      ("texinfo" ,texinfo)))
-    (home-page "http://people.csail.mit.edu/jaffer/SLIB/")
+    (home-page "http://people.csail.mit.edu/jaffer/SLIB.html")
     (synopsis "Compatibility and utility library for Scheme")
     (description "SLIB is a portable Scheme library providing compatibility and
 utility functions for all standard Scheme implementations.")
@@ -949,3 +955,70 @@ implementation includes Hobbit, a Scheme-to-C compiler, which can
 generate C files whose binaries can be dynamically or statically
 linked with a SCM executable.")
     (license lgpl3+)))
+
+(define-public tinyscheme
+  (package
+    (name "tinyscheme")
+    (version "1.41")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://sourceforge/" name "/" name "/"
+                                  name "-" version "/" name "-" version ".zip"))
+              (sha256
+               (base32
+                "0yqma4jrjgj95f3hf30h542x97n8ah234n19yklbqq0phfsa08wf"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("unzip" ,unzip)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (replace 'unpack
+           (lambda* (#:key source #:allow-other-keys)
+             (invoke "unzip" source)
+             (chdir (string-append ,name "-" ,version))
+             #t))
+         (add-after 'unpack 'set-scm-directory
+           ;; Hard-code ‘our’ init.scm instead of looking in the current
+           ;; working directory, so invoking ‘scheme’ just works.
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (scm (string-append out "/share/" ,name)))
+               (substitute* "scheme.c"
+                 (("init.scm" all)
+                  (string-append scm "/" all)))
+               #t)))
+         (delete 'configure)            ; no configure script
+         (replace 'install
+           ;; There's no ‘install’ target.  Install files manually.
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out     (assoc-ref outputs "out"))
+                    (bin     (string-append out "/bin"))
+                    (doc     (string-append out "/share/doc/"
+                                            ,name "-" ,version))
+                    (include (string-append out "/include"))
+                    (lib     (string-append out "/lib"))
+                    (scm     (string-append out "/share/" ,name)))
+               (install-file "scheme" bin)
+               (install-file "Manual.txt" doc)
+               (install-file "scheme.h" include)
+               (install-file "libtinyscheme.so" lib)
+               (install-file "init.scm" scm)
+               #t))))
+       #:tests? #f))                    ; no tests
+    (home-page "http://tinyscheme.sourceforge.net/")
+    (synopsis "Light-weight interpreter for the Scheme programming language")
+    (description
+     "TinyScheme is a light-weight Scheme interpreter that implements as large a
+subset of R5RS as was possible without getting very large and complicated.
+
+It's meant to be used as an embedded scripting interpreter for other programs.
+As such, it does not offer an Integrated Development Environment (@dfn{IDE}) or
+extensive toolkits, although it does sport a small (and optional) top-level
+loop.
+
+As an embedded interpreter, it allows multiple interpreter states to coexist in
+the same program, without any interference between them.  Foreign functions in C
+can be added and values can be defined in the Scheme environment.  Being quite a
+small program, it is easy to comprehend, get to grips with, and use.")
+    (license bsd-3)))                   ; there are no licence headers

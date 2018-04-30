@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -97,8 +97,11 @@ QEMU monitor and to the guest's backdoor REPL."
           "-monitor" (string-append "unix:" socket-directory "/monitor")
           "-chardev" (string-append "socket,id=repl,path=" socket-directory
                                     "/repl")
+
+          ;; See
+          ;; <http://www.linux-kvm.org/page/VMchannel_Requirements#Invocation>.
           "-device" "virtio-serial"
-          "-device" "virtconsole,chardev=repl"))
+          "-device" "virtserialport,chardev=repl,name=org.gnu.guix.port.0"))
 
   (define (accept* port)
     (match (select (list port) '() (list port) timeout)
@@ -165,19 +168,24 @@ QEMU monitor and to the guest's backdoor REPL."
      (newline repl)
      (read repl))))
 
-(define* (wait-for-file file marionette #:key (timeout 10))
-  "Wait until FILE exists in MARIONETTE; 'read' its content and return it.  If
+(define* (wait-for-file file marionette
+                        #:key (timeout 10) (read 'read))
+  "Wait until FILE exists in MARIONETTE; READ its content and return it.  If
 FILE has not shown up after TIMEOUT seconds, raise an error."
-  (marionette-eval
-   `(let loop ((i ,timeout))
-      (cond ((file-exists? ,file)
-             (call-with-input-file ,file read))
-            ((> i 0)
-             (sleep 1)
-             (loop (- i 1)))
-            (else
-             (error "file didn't show up" ,file))))
-   marionette))
+  (match (marionette-eval
+          `(let loop ((i ,timeout))
+             (cond ((file-exists? ,file)
+                    (cons 'success (call-with-input-file ,file ,read)))
+                   ((> i 0)
+                    (sleep 1)
+                    (loop (- i 1)))
+                   (else
+                    'failure)))
+          marionette)
+    (('success . result)
+     result)
+    ('failure
+     (error "file didn't show up" file))))
 
 (define (marionette-control command marionette)
   "Run COMMAND in the QEMU monitor of MARIONETTE.  COMMAND is a string such as
@@ -257,8 +265,19 @@ PREDICATE, whichever comes first.  Raise an error when TIMEOUT is exceeded."
     (#\. . "dot")
     (#\, . "comma")
     (#\; . "semicolon")
+    (#\' . "apostrophe")
+    (#\" . "shift-apostrophe")
+    (#\` . "grave_accent")
     (#\bs . "backspace")
     (#\tab . "tab")))
+
+(define (character->keystroke chr keystrokes)
+  "Return the keystroke for CHR according to the keyboard layout defined by
+KEYSTROKES."
+  (if (char-set-contains? char-set:upper-case chr)
+      (string-append "shift-" (string (char-downcase chr)))
+      (or (assoc-ref keystrokes chr)
+          (string chr))))
 
 (define* (string->keystroke-commands str
                                      #:optional
@@ -268,9 +287,9 @@ PREDICATE, whichever comes first.  Raise an error when TIMEOUT is exceeded."
 to STR.  KEYSTROKES is an alist specifying a mapping from characters to
 keystrokes."
   (string-fold-right (lambda (chr result)
-                       (cons (string-append "sendkey "
-                                            (or (assoc-ref keystrokes chr)
-                                                (string chr)))
+                       (cons (string-append
+                              "sendkey "
+                              (character->keystroke chr keystrokes))
                              result))
                      '()
                      str))

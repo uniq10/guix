@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,6 +26,12 @@
              (ice-9 match)
              (ice-9 pretty-print)
              (ice-9 format))
+
+(define %top-srcdir
+  (and=> (assq-ref (current-source-location) 'filename)
+         (lambda (file)
+           (canonicalize-path
+            (string-append (dirname file) "/../..")))))
 
 (define %user-module
   ;; Hydra user module.
@@ -70,9 +77,10 @@ Otherwise return THING."
 
 ;; Without further ado...
 (match (command-line)
-  ((command file)
+  ((command file cuirass? ...)
    ;; Load FILE, a Scheme file that defines Hydra jobs.
-   (let ((port (current-output-port)))
+   (let ((port (current-output-port))
+         (real-build-things build-things))
      (save-module-excursion
       (lambda ()
         (set-current-module %user-module)
@@ -86,17 +94,24 @@ Otherwise return THING."
 
        ;; Grafts can trigger early builds.  We do not want that to happen
        ;; during evaluation, so use a sledgehammer to catch such problems.
+       ;; An exception, though, is the evaluation of Guix itself, which
+       ;; requires building a "trampoline" program.
        (set! build-things
          (lambda (store . args)
            (format (current-error-port)
-                   "error: trying to build things during evaluation!~%")
+                   "warning: building things during evaluation~%")
            (format (current-error-port)
                    "'build-things' arguments: ~s~%" args)
-           (exit 1)))
+           (apply real-build-things store args)))
 
        ;; Call the entry point of FILE and print the resulting job sexp.
        (pretty-print
-        (match ((module-ref %user-module 'hydra-jobs) store '())
+        (match ((module-ref %user-module
+                            (if (equal? cuirass? "cuirass")
+                                'cuirass-jobs
+                                'hydra-jobs))
+                store `((guix
+                         . ((file-name . ,%top-srcdir)))))
           (((names . thunks) ...)
            (map (lambda (job thunk)
                   (format (current-error-port) "evaluating '~a'... " job)
@@ -107,8 +122,8 @@ Otherwise return THING."
                 names thunks)))
         port))))
   ((command _ ...)
-   (format (current-error-port) "Usage: ~a FILE
-Evaluate the Hydra jobs defined in FILE.~%"
+   (format (current-error-port) "Usage: ~a FILE [cuirass]
+Evaluate the Hydra or Cuirass jobs defined in FILE.~%"
            command)
    (exit 1)))
 

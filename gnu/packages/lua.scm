@@ -6,8 +6,10 @@
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 doncatnip <gnopap@gmail.com>
-;;; Copyright © 2016 Clément Lassieur <clement@lassieur.org>
+;;; Copyright © 2016, 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2016 José Miguel Sánchez García <jmi2k@openmailbox.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Fis Trivial <ybbs.daans@hotmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,8 +30,11 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix git-download)
   #:use-module (guix utils)
+  #:use-module (guix build utils)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system cmake)
   #:use-module (gnu packages)
   #:use-module (gnu packages readline)
   #:use-module (gnu packages tls)
@@ -112,21 +117,30 @@ for configuration, scripting, and rapid prototyping.")
 (define-public luajit
   (package
     (name "luajit")
-    (version "2.1.0-beta2")
+    (version "2.1.0-beta3")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://luajit.org/download/LuaJIT-"
                                   version ".tar.gz"))
               (sha256
-               (base32 "0iyghj1xjlmd9ywa4flf9yszynf3jhbp0yqb9b49k7ab0g528fbi"))
-              (patches (search-patches "luajit-symlinks.patch"
-                                       "luajit-no_ldconfig.patch"))))
+               (base32 "1hyrhpkwjqsv54hnnx4cl8vk44h9d6c9w0fz1jfjz00w255y7lhs"))
+              (patches (search-patches "luajit-no_ldconfig.patch"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:tests? #f                      ;luajit is distributed without tests
-       #:phases (alist-delete 'configure %standard-phases)
-       #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))))
-    (home-page "http://www.luajit.org/")
+     `(#:tests? #f                      ; luajit is distributed without tests
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)            ; no configure script
+         (add-after 'install 'create-luajit-symlink
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin")))
+               (with-directory-excursion bin
+                 (symlink ,(string-append name "-" version)
+                          ,name)
+                 #t)))))
+         #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))))
+    (home-page "https://www.luajit.org/")
     (synopsis "Just in time compiler for Lua programming language version 5.1")
     (description
      "LuaJIT is a Just-In-Time Compiler (JIT) for the Lua
@@ -173,21 +187,21 @@ language.")
 (define-public lua5.1-socket
   (package
     (name "lua5.1-socket")
-    (version "2.0.2")
+    (version "3.0-rc1")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://files.luaforge.net/releases/"
-                                  "luasocket/luasocket/luasocket-"
-                                  version "/luasocket-" version ".tar.gz"))
+              (uri (string-append
+                    "https://github.com/diegonehab/luasocket/archive/v"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "19ichkbc4rxv00ggz8gyf29jibvc2wq9pqjik0ll326rrxswgnag"))))
+                "0j8jx8bjicvp9khs26xjya8c495wrpb7parxfnabdqa5nnsxjrwb"))))
     (build-system gnu-build-system)
     (arguments
      `(#:make-flags
        (let ((out (assoc-ref %outputs "out")))
-         (list (string-append "INSTALL_TOP_SHARE=" out "/share/lua/5.1")
-               (string-append "INSTALL_TOP_LIB=" out "/lib/lua/5.1")))
+         (list (string-append "INSTALL_TOP=" out)))
        #:phases
        (modify-phases %standard-phases
          (delete 'configure)
@@ -286,7 +300,7 @@ secure session between the peers.")
 (define-public lua-lgi
   (package
     (name "lua-lgi")
-    (version "0.9.1")
+    (version "0.9.2")
     (source
       (origin
         (method url-fetch)
@@ -296,7 +310,7 @@ secure session between the peers.")
         (file-name (string-append name "-" version ".tar.gz"))
         (sha256
           (base32
-            "1fmgdl5y4ph3yc6ycg865s3vai1rjkyda61cgqxk6zd13hmznw0c"))))
+            "0kwcaj3ahi9gxfyp0lr5zgr6vi1mgsg9sz0980x0nwxlh9a11i6g"))))
     (build-system gnu-build-system)
     (arguments
      '(#:make-flags (list "CC=gcc"
@@ -340,14 +354,15 @@ secure session between the peers.")
     (inputs
      `(("gobject-introspection" ,gobject-introspection)
        ("glib" ,glib)
-       ("pango", pango)
-       ("gtk", gtk+-2)
+       ("pango" ,pango)
+       ("gtk" ,gtk+-2)
        ("lua" ,lua)
        ("cairo" ,cairo)
        ("libffi" ,libffi)
-       ("xorg-server", xorg-server)))
+       ("xorg-server" ,xorg-server)))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
+     `(("pkg-config" ,pkg-config)
+       ("dbus" ,dbus)))                          ;tests use 'dbus-run-session'
     (home-page "https://github.com/pavouk/lgi/")
     (synopsis "Lua bridge to GObject based libraries")
     (description
@@ -356,9 +371,9 @@ based libraries.  It allows using GObject-based libraries directly from Lua.
 Notable examples are GTK+, GStreamer and Webkit.")
     (license license:expat)))
 
-(define-public lua-lpeg
+(define (make-lua-lpeg name lua)
   (package
-    (name "lua-lpeg")
+    (name name)
     (version "1.0.1")
     (source (origin
               (method url-fetch)
@@ -382,7 +397,7 @@ Notable examples are GTK+, GStreamer and Webkit.")
                              (string-append out "/share/lua/" lua-version))
                #t))))
        #:test-target "test"))
-    (inputs `(("lua", lua)))
+    (inputs `(("lua" ,lua)))
     (synopsis "Pattern-matching library for Lua")
     (description
      "LPeg is a pattern-matching library for Lua, based on Parsing Expression
@@ -390,34 +405,16 @@ Grammars (PEGs).")
     (home-page "http://www.inf.puc-rio.br/~roberto/lpeg")
     (license license:expat)))
 
+(define-public lua-lpeg
+  (make-lua-lpeg "lua-lpeg" lua))
+
 (define-public lua5.2-lpeg
-  (package (inherit lua-lpeg)
-    (name "lua5.2-lpeg")
-    ;; XXX: The arguments field is almost an exact copy of the field in
-    ;; "lua-lpeg", except for the version string, which was derived from "lua"
-    ;; and now is taken from "lua-5.2".  See this discussion for context:
-    ;; http://lists.gnu.org/archive/html/guix-devel/2017-01/msg02048.html
-    (arguments
-     `(#:phases
-       (modify-phases %standard-phases
-         (delete 'configure)
-         ;; `make install` isn't available, so we have to do it manually
-         (replace 'install
-           (lambda* (#:key outputs #:allow-other-keys)
-             (let ((out (assoc-ref outputs "out"))
-                   (lua-version ,(version-major+minor (package-version lua-5.2))))
-               (install-file "lpeg.so"
-                             (string-append out "/lib/lua/" lua-version))
-               (install-file "re.lua"
-                             (string-append out "/share/lua/" lua-version))
-               #t))))
-       #:test-target "test"))
-    (inputs `(("lua", lua-5.2)))))
+  (make-lua-lpeg "lua5.2-lpeg" lua-5.2))
 
 ;; Lua 5.3 is not supported.
-(define-public lua5.2-bitop
+(define (make-lua-bitop name lua)
   (package
-    (name "lua5.2-bitop")
+    (name name)
     (version "1.0.2")
     (source (origin
               (method url-fetch)
@@ -434,15 +431,77 @@ Grammars (PEGs).")
              (string-append "INSTALLPATH=printf "
                             (assoc-ref %outputs "out")
                             "/lib/lua/"
-                            ,(version-major+minor (package-version lua-5.2))
+                            ,(version-major+minor (package-version lua))
                             "/bit/bit.so"))
        #:phases
        (modify-phases %standard-phases
          (delete 'configure))))
-    (inputs `(("lua", lua-5.2)))
-    (home-page "http://bitop.luajit.org/index.html")
+    (inputs `(("lua" ,lua)))
+    (home-page "https://bitop.luajit.org/index.html")
     (synopsis "Bitwise operations on numbers for Lua")
     (description
      "Lua BitOp is a C extension module for Lua which adds bitwise operations
 on numbers.")
     (license license:expat)))
+
+(define-public lua5.2-bitop
+  (make-lua-bitop "lua5.2-bitop" lua-5.2))
+
+(define-public lua5.1-bitop
+  (make-lua-bitop "lua5.1-bitop" lua-5.1))
+
+(define-public selene
+  (package
+    (name "selene")
+    (version "2017.08.25")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/jeremyong/Selene.git")
+                    ;; The release is quite old.
+                    (commit "ffe1ade2568d4cff5894552be8f43e63e379a4c9")))
+              (file-name "Selene")
+              (sha256
+               (base32
+                "1axrgv3rxxdsaf807lwvklfzicn6x6gpf35narllrnz9lg6hn508"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:configure-flags
+       ;; lua pc file in CMakeLists.txt is lua5.3.pc
+       '("-DLUA_PC_CFG=lua;lua-5.3;lua-5.1")
+       #:test-target "all"
+       #:phases
+       ;; This is a header only library
+       (modify-phases %standard-phases
+         (delete 'build)
+         (replace 'install
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((output (assoc-ref outputs "out"))
+                    (source (assoc-ref inputs "source"))
+                    (includedir (string-append output "/include")))
+               (copy-recursively
+                (string-append source "/include")
+                includedir))
+             #t))
+         ;; The path of test files are hard coded.
+         (replace 'check
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((output (assoc-ref outputs "out"))
+                    (source (assoc-ref inputs "source"))
+                    (builddir (getcwd))
+                    (testdir  (string-append builddir "/test")))
+               (copy-recursively (string-append source "/test") testdir)
+               (invoke "make")
+               (mkdir-p "runner")
+               (copy-file "./test_runner" "./runner/test_runner")
+               (chdir "./runner")
+               (invoke "./test_runner")))))))
+    (native-inputs
+     `(("lua" ,lua)
+       ("pkg-config" ,pkg-config)))
+    (home-page "https://github.com/jeremyong/Selene")
+    (synopsis "Lua C++11 bindings")
+    (description
+     "Selene is a simple C++11 header-only library enabling seamless
+ interoperability between C++ and Lua programming language.")
+    (license license:zlib)))

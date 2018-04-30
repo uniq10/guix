@@ -19,6 +19,7 @@
 (define-module (gnu packages animation)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix git-download)
   #:use-module (guix utils)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix build-system gnu)
@@ -34,6 +35,8 @@
   #:use-module (gnu packages image)
   #:use-module (gnu packages imagemagick)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages pulseaudio)
+  #:use-module (gnu packages qt)
   #:use-module (gnu packages video))
 
 (define-public etl
@@ -78,6 +81,16 @@ C++ @dfn{Standard Template Library} (STL).")
                             "/lib"))
        #:phases
        (modify-phases %standard-phases
+         (add-after 'unpack 'fix-boost-build-error
+           ;; A chain of Boost headers leads to this error: "make_array" is
+           ;; not a member of "boost::serialization".  This can be avoided by
+           ;; loading the "array_wrapper" header first.
+           (lambda _
+             (substitute* "src/synfig/valuenodes/valuenode_dynamic.cpp"
+               (("#include <boost/numeric/odeint/integrate/integrate.hpp>" match)
+                (string-append
+                 "#include <boost/serialization/array_wrapper.hpp>\n" match)))
+             #t))
          (add-after 'unpack 'adapt-to-libxml++-changes
           (lambda _
             (substitute* "configure"
@@ -175,3 +188,72 @@ be capable of producing feature-film quality animation.  It eliminates the
 need for tweening, preventing the need to hand-draw each frame.  This package
 contains the graphical user interface for synfig.")
     (license license:gpl3+)))
+
+(define-public papagayo
+  (let ((commit "e143684b30e59fe4a554f965cb655d23cbe93ee7")
+        (revision "1"))
+    (package
+      (name "papagayo")
+      (version (string-append "2.0b1-" revision "." (string-take commit 9)))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/LostMoho/Papagayo.git")
+                      (commit commit)))
+                (file-name (git-file-name name version))
+                (sha256
+                 (base32
+                  "1p9gffjhbph34jhrvgpg93yha75bf88vkvlnk06x1r9601ph5321"))
+                (modules '((guix build utils)))
+                ;; Delete bundled libsndfile sources.
+                (snippet
+                 '(begin
+                    (delete-file-recursively "libsndfile_1.0.19")
+                    (delete-file-recursively "libsndfile_1.0.25")
+                    #t))))
+      (build-system gnu-build-system)
+      (arguments
+       `(#:phases
+         (modify-phases %standard-phases
+           (replace 'configure
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (let ((libsndfile (assoc-ref inputs "libsndfile")))
+                 ;; Do not use bundled libsndfile sources
+                 (substitute* "Papagayo.pro"
+                   (("else \\{")
+                    (string-append "\nINCLUDEPATH += " libsndfile
+                                   "/include"
+                                   "\nLIBS +=" libsndfile
+                                   "/lib/libsndfile.so\n"
+                                   "win32 {"))))
+               (zero? (system* "qmake"
+                               (string-append "DESTDIR="
+                                              (assoc-ref outputs "out")
+                                              "/bin")))))
+           ;; Ensure that all required Qt plugins are found at runtime.
+           (add-after 'install 'wrap-executable
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (qt '("qt" "qtmultimedia")))
+                 (wrap-program (string-append out "/bin/Papagayo")
+                   `("QT_PLUGIN_PATH" ":" prefix
+                     ,(map (lambda (label)
+                             (string-append (assoc-ref inputs label)
+                                            "/lib/qt5/plugins/"))
+                           qt)))
+                 #t))))))
+      (inputs
+       `(("qt" ,qtbase)
+         ("qtmultimedia" ,qtmultimedia)
+         ("libsndfile" ,libsndfile)))
+      (native-inputs
+       `(("qttools" ,qttools)))
+      (home-page "http://www.lostmarble.com/papagayo/")
+      (synopsis "Lip-syncing for animations")
+      (description
+       "Papagayo is a lip-syncing program designed to help you line up
+phonemes with the actual recorded sound of actors speaking.  Papagayo makes it
+easy to lip sync animated characters by making the process very simple – just
+type in the words being spoken, then drag the words on top of the sound’s
+waveform until they line up with the proper sounds.")
+      (license license:gpl3+))))

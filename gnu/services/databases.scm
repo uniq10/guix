@@ -3,6 +3,7 @@
 ;;; Copyright © 2015, 2016 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Christopher Baines <mail@cbaines.net>
+;;; Copyright © 2018 Clément Lassieur <clement@lassieur.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,13 +26,48 @@
   #:use-module (gnu system shadow)
   #:use-module (gnu packages admin)
   #:use-module (gnu packages databases)
+  #:use-module (guix modules)
   #:use-module (guix records)
   #:use-module (guix gexp)
+  #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
-  #:export (postgresql-configuration
+  #:export (<postgresql-config-file>
+            postgresql-config-file
+            postgresql-config-file?
+            postgresql-config-file-log-destination
+            postgresql-config-file-hba-file
+            postgresql-config-file-ident-file
+            postgresql-config-file-extra-config
+
+            <postgresql-configuration>
+            postgresql-configuration
             postgresql-configuration?
+            postgresql-configuration-postgresql
+            postgresql-configuration-port
+            postgresql-configuration-locale
+            postgresql-configuration-file
+            postgresql-configuration-data-directory
+
             postgresql-service
             postgresql-service-type
+
+            memcached-service-type
+            <memcached-configuration>
+            memcached-configuration
+            memcached-configuration?
+            memcached-configuration-memecached
+            memcached-configuration-interfaces
+            memcached-configuration-tcp-port
+            memcached-configuration-udp-port
+            memcached-configuration-additional-options
+
+            <mongodb-configuration>
+            mongodb-configuration
+            mongodb-configuration?
+            mongodb-configuration-mongodb
+            mongodb-configuration-config-file
+            mongodb-configuration-data-directory
+            mongodb-service-type
 
             mysql-service
             mysql-service-type
@@ -48,18 +84,6 @@
 ;;;
 ;;; Code:
 
-(define-record-type* <postgresql-configuration>
-  postgresql-configuration make-postgresql-configuration
-  postgresql-configuration?
-  (postgresql     postgresql-configuration-postgresql ;<package>
-                  (default postgresql))
-  (port           postgresql-configuration-port
-                  (default 5432))
-  (locale         postgresql-configuration-locale
-                  (default "en_US.utf8"))
-  (config-file    postgresql-configuration-file)
-  (data-directory postgresql-configuration-data-directory))
-
 (define %default-postgres-hba
   (plain-file "pg_hba.conf"
               "
@@ -69,13 +93,64 @@ host	all	all	::1/128 	trust"))
 
 (define %default-postgres-ident
   (plain-file "pg_ident.conf"
-             "# MAPNAME       SYSTEM-USERNAME         PG-USERNAME"))
+              "# MAPNAME       SYSTEM-USERNAME         PG-USERNAME"))
 
-(define %default-postgres-config
-  (mixed-text-file "postgresql.conf"
-                   "log_destination = 'syslog'\n"
-                   "hba_file = '" %default-postgres-hba "'\n"
-                   "ident_file = '" %default-postgres-ident "'\n"))
+(define-record-type* <postgresql-config-file>
+  postgresql-config-file make-postgresql-config-file
+  postgresql-config-file?
+  (log-destination postgresql-config-file-log-destination
+                   (default "syslog"))
+  (hba-file        postgresql-config-file-hba-file
+                   (default %default-postgres-hba))
+  (ident-file      postgresql-config-file-ident-file
+                   (default %default-postgres-ident))
+  (extra-config    postgresql-config-file-extra-config
+                   (default '())))
+
+(define-gexp-compiler (postgresql-config-file-compiler
+                       (file <postgresql-config-file>) system target)
+  (match file
+    (($ <postgresql-config-file> log-destination hba-file
+                                 ident-file extra-config)
+     (define (single-quote string)
+       (if string
+           (list "'" string "'")
+           '()))
+
+     (define contents
+       (append-map
+        (match-lambda
+          ((key) '())
+          ((key . #f) '())
+          ((key values ...) `(,key " = " ,@values "\n")))
+
+        `(("log_destination" ,@(single-quote log-destination))
+          ("hba_file" ,@(single-quote hba-file))
+          ("ident_file" ,@(single-quote ident-file))
+          ,@extra-config)))
+
+     (gexp->derivation
+      "postgresql.conf"
+      #~(call-with-output-file (ungexp output "out")
+          (lambda (port)
+            (display
+             (string-append #$@contents)
+             port)))
+      #:local-build? #t))))
+
+(define-record-type* <postgresql-configuration>
+  postgresql-configuration make-postgresql-configuration
+  postgresql-configuration?
+  (postgresql     postgresql-configuration-postgresql ;<package>
+                  (default postgresql))
+  (port           postgresql-configuration-port
+                  (default 5432))
+  (locale         postgresql-configuration-locale
+                  (default "en_US.utf8"))
+  (config-file    postgresql-configuration-file
+                  (default (postgresql-config-file)))
+  (data-directory postgresql-configuration-data-directory
+                  (default "/var/lib/postgresql/data")))
 
 (define %postgresql-accounts
   (list (user-group (name "postgres") (system? #t))
@@ -128,26 +203,33 @@ host	all	all	::1/128 	trust"))
 (define postgresql-shepherd-service
   (match-lambda
     (($ <postgresql-configuration> postgresql port locale config-file data-directory)
-     (let ((start-script
-            ;; Wrapper script that switches to the 'postgres' user before
-            ;; launching daemon.
-            (program-file "start-postgres"
-                          #~(let ((user (getpwnam "postgres"))
-                                  (postgres (string-append #$postgresql
-                                                           "/bin/postgres")))
-                              (setgid (passwd:gid user))
-                              (setuid (passwd:uid user))
-                              (system* postgres
-                                       (string-append "--config-file="
-                                                      #$config-file)
-                                       "-p" (number->string #$port)
-                                       "-D" #$data-directory)))))
+     (let* ((pg_ctl-wrapper
+             ;; Wrapper script that switches to the 'postgres' user before
+             ;; launching daemon.
+             (program-file
+              "pg_ctl-wrapper"
+              #~(begin
+                  (use-modules (ice-9 match)
+                               (ice-9 format))
+                  (match (command-line)
+                    ((_ mode)
+                     (let ((user (getpwnam "postgres"))
+                           (pg_ctl #$(file-append postgresql "/bin/pg_ctl"))
+                           (options (format #f "--config-file=~a -p ~d"
+                                            #$config-file #$port)))
+                       (setgid (passwd:gid user))
+                       (setuid (passwd:uid user))
+                       (execl pg_ctl pg_ctl "-D" #$data-directory "-o" options
+                              mode)))))))
+            (action (lambda args
+                      #~(lambda _
+                          (invoke #$pg_ctl-wrapper #$@args)))))
        (list (shepherd-service
               (provision '(postgres))
               (documentation "Run the PostgreSQL daemon.")
               (requirement '(user-processes loopback syslogd))
-              (start #~(make-forkexec-constructor #$start-script))
-              (stop #~(make-kill-destructor))))))))
+              (start (action "start"))
+              (stop (action "stop"))))))))
 
 (define postgresql-service-type
   (service-type (name 'postgresql)
@@ -157,12 +239,13 @@ host	all	all	::1/128 	trust"))
                        (service-extension activation-service-type
                                           postgresql-activation)
                        (service-extension account-service-type
-                                          (const %postgresql-accounts))))))
+                                          (const %postgresql-accounts))))
+                (default-value (postgresql-configuration))))
 
 (define* (postgresql-service #:key (postgresql postgresql)
                              (port 5432)
                              (locale "en_US.utf8")
-                             (config-file %default-postgres-config)
+                             (config-file (postgresql-config-file))
                              (data-directory "/var/lib/postgresql/data"))
   "Return a service that runs @var{postgresql}, the PostgreSQL database server.
 
@@ -175,6 +258,162 @@ and stores the database cluster in @var{data-directory}."
             (locale locale)
             (config-file config-file)
             (data-directory data-directory))))
+
+
+;;;
+;;; Memcached
+;;;
+
+(define-record-type* <memcached-configuration>
+  memcached-configuration make-memcached-configuration
+  memcached-configuration?
+  (memcached          memcached-configuration-memcached ;<package>
+                      (default memcached))
+  (interfaces         memcached-configuration-interfaces
+                      (default '("0.0.0.0")))
+  (tcp-port           memcached-configuration-tcp-port
+                      (default 11211))
+  (udp-port           memcached-configuration-udp-port
+                      (default 11211))
+  (additional-options memcached-configuration-additional-options
+                      (default '())))
+
+(define %memcached-accounts
+  (list (user-group (name "memcached") (system? #t))
+        (user-account
+         (name "memcached")
+         (group "memcached")
+         (system? #t)
+         (comment "Memcached server user")
+         (home-directory "/var/empty")
+         (shell (file-append shadow "/sbin/nologin")))))
+
+(define memcached-activation
+  #~(begin
+      (use-modules (guix build utils))
+      (let ((user (getpwnam "memcached")))
+        (mkdir-p "/var/run/memcached")
+        (chown "/var/run/memcached"
+               (passwd:uid user) (passwd:gid user)))))
+
+(define memcached-shepherd-service
+  (match-lambda
+    (($ <memcached-configuration> memcached interfaces tcp-port udp-port
+                                  additional-options)
+     (with-imported-modules (source-module-closure
+                             '((gnu build shepherd)))
+       (list (shepherd-service
+              (provision '(memcached))
+              (documentation "Run the Memcached daemon.")
+              (requirement '(user-processes loopback))
+              (modules '((gnu build shepherd)))
+              (start #~(make-forkexec-constructor
+                        `(#$(file-append memcached "/bin/memcached")
+                          "-l" #$(string-join interfaces ",")
+                          "-p" #$(number->string tcp-port)
+                          "-U" #$(number->string udp-port)
+                          "--daemon"
+                          ;; Memcached changes to the memcached user prior to
+                          ;; writing the pid file, so write it to a directory
+                          ;; that memcached owns.
+                          "-P" "/var/run/memcached/pid"
+                          "-u" "memcached"
+                          ,#$@additional-options)
+                        #:log-file "/var/log/memcached"
+                        #:pid-file "/var/run/memcached/pid"))
+              (stop #~(make-kill-destructor))))))))
+
+(define memcached-service-type
+  (service-type (name 'memcached)
+                (extensions
+                 (list (service-extension shepherd-root-service-type
+                                          memcached-shepherd-service)
+                       (service-extension activation-service-type
+                                          (const memcached-activation))
+                       (service-extension account-service-type
+                                          (const %memcached-accounts))))
+                (default-value (memcached-configuration))))
+
+
+;;;
+;;; MongoDB
+;;;
+
+(define %default-mongodb-configuration-file
+  (plain-file
+   "mongodb.yaml"
+   "# GNU Guix: MongoDB default configuration file
+processManagement:
+  pidFilePath: /var/run/mongodb/pid
+storage:
+  dbPath: /var/lib/mongodb
+"))
+
+
+(define-record-type* <mongodb-configuration>
+  mongodb-configuration make-mongodb-configuration
+  mongodb-configuration?
+  (mongodb             mongodb-configuration-mongodb
+                       (default mongodb))
+  (config-file         mongodb-configuration-config-file
+                       (default %default-mongodb-configuration-file))
+  (data-directory      mongodb-configuration-data-directory
+                       (default "/var/lib/mongodb")))
+
+(define %mongodb-accounts
+  (list (user-group (name "mongodb") (system? #t))
+        (user-account
+         (name "mongodb")
+         (group "mongodb")
+         (system? #t)
+         (comment "Mongodb server user")
+         (home-directory "/var/lib/mongodb")
+         (shell (file-append shadow "/sbin/nologin")))))
+
+(define mongodb-activation
+  (match-lambda
+    (($ <mongodb-configuration> mongodb config-file data-directory)
+     #~(begin
+         (use-modules (guix build utils))
+         (let ((user (getpwnam "mongodb")))
+           (for-each
+            (lambda (directory)
+              (mkdir-p directory)
+              (chown directory
+                     (passwd:uid user) (passwd:gid user)))
+            '("/var/run/mongodb" #$data-directory)))))))
+
+(define mongodb-shepherd-service
+  (match-lambda
+    (($ <mongodb-configuration> mongodb config-file data-directory)
+     (shepherd-service
+      (provision '(mongodb))
+      (documentation "Run the Mongodb daemon.")
+      (requirement '(user-processes loopback))
+      (start #~(make-forkexec-constructor
+                `(,(string-append #$mongodb "/bin/mongod")
+                  "--config"
+                  ,#$config-file)
+                #:user "mongodb"
+                #:group "mongodb"
+                #:pid-file "/var/run/mongodb/pid"
+                #:log-file "/var/log/mongodb.log"))
+      (stop #~(make-kill-destructor))))))
+
+(define mongodb-service-type
+  (service-type
+   (name 'mongodb)
+   (description "Run the MongoDB document database server.")
+   (extensions
+    (list (service-extension shepherd-root-service-type
+                             (compose list
+                                      mongodb-shepherd-service))
+          (service-extension activation-service-type
+                             mongodb-activation)
+          (service-extension account-service-type
+                             (const %mongodb-accounts))))
+   (default-value
+     (mongodb-configuration))))
 
 
 ;;;
@@ -283,7 +522,8 @@ FLUSH PRIVILEGES;
           (service-extension activation-service-type
                              %mysql-activation)
           (service-extension shepherd-root-service-type
-                             mysql-shepherd-service)))))
+                             mysql-shepherd-service)))
+   (default-value (mysql-configuration))))
 
 (define* (mysql-service #:key (config (mysql-configuration)))
   "Return a service that runs @command{mysqld}, the MySQL or MariaDB
@@ -365,4 +605,5 @@ The optional @var{config} argument specifies the configuration for
                        (service-extension activation-service-type
                                           redis-activation)
                        (service-extension account-service-type
-                                          (const %redis-accounts))))))
+                                          (const %redis-accounts))))
+                (default-value (redis-configuration))))

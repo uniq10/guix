@@ -4,15 +4,16 @@
 ;;; Copyright © 2014, 2015, 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Paul van der Walt <paul@denknerd.org>
 ;;; Copyright © 2016 Roel Janssen <roel@gnu.org>
-;;; Coypright © 2016 ng0 <ng0@we.make.ritual.n0.is>
-;;; Coypright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Coypright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
-;;; Coypright © 2016 Ludovic Courtès <ludo@gnu.org>
-;;; Coypright © 2016 Julien Lepiller <julien@lepiller.eu>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016 Julien Lepiller <julien@lepiller.eu>
 ;;; Copyright © 2016 Arun Isaac <arunisaac@systemreboot.net>
 ;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Alex Vong <alexvong1995@gmail.com>
 ;;; Copyright © 2017 Rene Saavedra <rennes@openmailbox.org>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -40,52 +41,53 @@
   #:use-module (guix build-system trivial)
   #:use-module (gnu packages)
   #:use-module (gnu packages autotools)
+  #:use-module (gnu packages backup)
   #:use-module (gnu packages base)
   #:use-module (gnu packages bash)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
-  #:use-module (gnu packages fontutils)
-  #:use-module (gnu packages game-development)
-  #:use-module (gnu packages ghostscript)
-  #:use-module (gnu packages gnupg)
+  #:use-module (gnu packages curl)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages djvu)
+  #:use-module (gnu packages fontutils)
+  #:use-module (gnu packages game-development)
   #:use-module (gnu packages gettext)
-  #:use-module (gnu packages backup)
+  #:use-module (gnu packages ghostscript)
+  #:use-module (gnu packages gl)
+  #:use-module (gnu packages glib)
+  #:use-module (gnu packages gnome)
+  #:use-module (gnu packages gnupg)
+  #:use-module (gnu packages gtk)
+  #:use-module (gnu packages image)
+  #:use-module (gnu packages imagemagick)
+  #:use-module (gnu packages javascript)
   #:use-module (gnu packages lesstif)
   #:use-module (gnu packages linux)
-  #:use-module (gnu packages xdisorg)
-  #:use-module (gnu packages imagemagick)
-  #:use-module (gnu packages gl)
-  #:use-module (gnu packages photo)
-  #:use-module (gnu packages image)
-  #:use-module (gnu packages pkg-config)
-  #:use-module (gnu packages qt)
-  #:use-module (gnu packages xorg)
-  #:use-module (gnu packages gnome)
-  #:use-module (gnu packages glib)
-  #:use-module (gnu packages gtk)
   #:use-module (gnu packages lua)
-  #:use-module (gnu packages curl)
   #:use-module (gnu packages pcre)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages photo)
+  #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages qt)
   #:use-module (gnu packages sdl)
   #:use-module (gnu packages tls)
+  #:use-module (gnu packages xdisorg)
+  #:use-module (gnu packages xorg)
   #:use-module (srfi srfi-1))
 
 (define-public poppler
   (package
    (name "poppler")
-   (replacement poppler/fixed)
-   (version "0.52.0")
+   (version "0.62.0")
    (source (origin
             (method url-fetch)
             (uri (string-append "https://poppler.freedesktop.org/poppler-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "14hrrac2f1phi5j0qn283457w06vsp9gr075yqjrm7w370bnd2sj"))))
-   (build-system gnu-build-system)
+              "1ii9ly1pngyvs0aiq2wxpya08hidpl54y7nsb8b1vxnnskgp76jv"))))
+   (build-system cmake-build-system)
    ;; FIXME:
    ;;  use libcurl:        no
    (inputs `(("fontconfig" ,fontconfig)
@@ -94,7 +96,7 @@
              ("libpng" ,libpng)
              ("libtiff" ,libtiff)
              ("lcms" ,lcms)
-             ("openjpeg-1" ,openjpeg-1) ; prefers openjpeg-1
+             ("openjpeg" ,openjpeg)
              ("zlib" ,zlib)
 
              ;; To build poppler-glib (as needed by Evince), we need Cairo and
@@ -110,50 +112,30 @@
    (arguments
     `(#:tests? #f ; no test data provided with the tarball
       #:configure-flags
-      '("--enable-xpdf-headers" ; to install header files
-        "--enable-zlib"
-
-        ;; Saves 8 MiB of .a files.
-        "--disable-static")
-      #:phases
-      (modify-phases %standard-phases
-        (add-before 'configure 'setenv
-          (lambda _
-            (setenv "CPATH"
-                    (string-append (assoc-ref %build-inputs "openjpeg-1")
-                                   "/include/openjpeg-1.5"
-                                   ":" (or (getenv "CPATH") "")))
-            #t)))))
+      (let* ((out (assoc-ref %outputs "out"))
+             (lib (string-append out "/lib")))
+        (list "-DENABLE_XPDF_HEADERS=ON" ; to install header files
+              "-DENABLE_ZLIB=ON"
+              (string-append "-DCMAKE_INSTALL_LIBDIR=" lib)
+              (string-append "-DCMAKE_INSTALL_RPATH=" lib)))))
    (synopsis "PDF rendering library")
    (description
     "Poppler is a PDF rendering library based on the xpdf-3.0 code base.")
    (license license:gpl2+)
    (home-page "https://poppler.freedesktop.org/")))
 
-(define poppler/fixed
-  (package (inherit poppler)
-  (source
-    (origin
-      (inherit (package-source poppler))
-      (patches (search-patches "poppler-fix-crash-with-broken-documents.patch"
-                               "poppler-CVE-2017-9776.patch"))))))
-
 (define-public poppler-qt4
-  (package/inherit poppler
+  (package (inherit poppler)
    (name "poppler-qt4")
    (inputs `(("qt-4" ,qt-4)
              ,@(package-inputs poppler)))
    (synopsis "Qt4 frontend for the Poppler PDF rendering library")))
 
 (define-public poppler-qt5
-  (package/inherit poppler
+  (package (inherit poppler)
    (name "poppler-qt5")
    (inputs `(("qtbase" ,qtbase)
              ,@(package-inputs poppler)))
-   (arguments
-    (substitute-keyword-arguments (package-arguments poppler)
-     ((#:configure-flags flags)
-       `(cons "CXXFLAGS=-std=gnu++11" ,flags))))
    (synopsis "Qt5 frontend for the Poppler PDF rendering library")))
 
 (define-public python-poppler-qt4
@@ -263,7 +245,7 @@ Poppler PDF rendering library.")
                            (assoc-ref %build-inputs "libpng")))
       #:phases
       (modify-phases %standard-phases
-        (add-before 'configure 'autogen
+        (add-after 'unpack 'autogen
           (lambda _ (zero? (system* "autoreconf" "-vif")))))))
    (inputs
     `(("zlib" ,zlib)
@@ -309,19 +291,19 @@ reading and editing of existing PDF files.")
                              (assoc-ref %build-inputs "freetype")
                              "/include/freetype2"))
       #:phases
-       (alist-replace
-        'install
-        (lambda* (#:key outputs inputs #:allow-other-keys #:rest args)
-         (let* ((install (assoc-ref %standard-phases 'install))
-                (out (assoc-ref outputs "out"))
-                (xpdfrc (string-append out "/etc/xpdfrc"))
-                (gs-fonts (assoc-ref inputs "gs-fonts")))
-               (apply install args)
-               (substitute* xpdfrc
+      (modify-phases %standard-phases
+        (replace 'install
+          (lambda* (#:key outputs inputs #:allow-other-keys #:rest args)
+            (let* ((install (assoc-ref %standard-phases 'install))
+                   (out (assoc-ref outputs "out"))
+                   (xpdfrc (string-append out "/etc/xpdfrc"))
+                   (gs-fonts (assoc-ref inputs "gs-fonts")))
+              (apply install args)
+              (substitute* xpdfrc
                 (("/usr/local/share/ghostscript/fonts")
                  (string-append gs-fonts "/share/fonts/type1/ghostscript"))
-                (("#fontFile") "fontFile"))))
-        %standard-phases)))
+                (("#fontFile") "fontFile")))
+            #t)))))
    (synopsis "Viewer for PDF files based on the Motif toolkit")
    (description
     "Xpdf is a viewer for Portable Document Format (PDF) files.")
@@ -331,7 +313,7 @@ reading and editing of existing PDF files.")
 (define-public zathura-cb
   (package
     (name "zathura-cb")
-    (version "0.1.6")
+    (version "0.1.7")
     (source (origin
               (method url-fetch)
               (uri
@@ -339,11 +321,9 @@ reading and editing of existing PDF files.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "1fim4mpm8l2g3msj1vg70ks3c9lrwllv3yh4jv8l9f8k3r19b3l8"))))
+                "0r4viisycj39kaz4281cmkr7n9w5q96dmlf7nf45n8zq8qy2npw3"))))
     (native-inputs `(("pkg-config" ,pkg-config)))
-    (propagated-inputs `(("girara" ,girara)))
     (inputs `(("libarchive" ,libarchive)
-              ("gtk+" ,gtk+)
               ("zathura" ,zathura)))
     (build-system gnu-build-system)
     (arguments
@@ -352,7 +332,7 @@ reading and editing of existing PDF files.")
                           "CC=gcc")
        #:tests? #f ; Package does not contain tests.
        #:phases
-       (alist-delete 'configure %standard-phases)))
+       (modify-phases %standard-phases (delete 'configure))))
     (home-page "https://pwmt.org/projects/zathura-cb/")
     (synopsis "Comic book support for zathura (libarchive backend)")
     (description "The zathura-cb plugin adds comic book support to zathura
@@ -362,7 +342,7 @@ using libarchive.")
 (define-public zathura-ps
   (package
     (name "zathura-ps")
-    (version "0.2.4")
+    (version "0.2.5")
     (source (origin
               (method url-fetch)
               (uri
@@ -370,11 +350,9 @@ using libarchive.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "1nxbl0glnzpan78fhdfzhkcd0cikcvrkzf9m56mb0pvnwzlwg7zv"))))
+                "1x4knqja8pw2a5cb3y2209nr3iddj1z8nwasy48v5nprj61fdxqj"))))
     (native-inputs `(("pkg-config" ,pkg-config)))
-    (propagated-inputs `(("girara" ,girara)))
     (inputs `(("libspectre" ,libspectre)
-              ("gtk+" ,gtk+)
               ("zathura" ,zathura)))
     (build-system gnu-build-system)
     (arguments
@@ -383,7 +361,7 @@ using libarchive.")
                           "CC=gcc")
        #:tests? #f ; Package does not contain tests.
        #:phases
-       (alist-delete 'configure %standard-phases)))
+       (modify-phases %standard-phases (delete 'configure))))
     (home-page "https://pwmt.org/projects/zathura-ps/")
     (synopsis "PS support for zathura (libspectre backend)")
     (description "The zathura-ps plugin adds PS support to zathura
@@ -393,7 +371,7 @@ using libspectre.")
 (define-public zathura-djvu
   (package
     (name "zathura-djvu")
-    (version "0.2.6")
+    (version "0.2.7")
     (source (origin
               (method url-fetch)
               (uri
@@ -401,12 +379,10 @@ using libspectre.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "0py0ra44f65cg064xzds0qr6vnglj2a5bwhnbwa0dyh2nyizdzmf"))))
+                "1sbfdsyp50qc85xc4458sn4w1rv1qbygdwmcr5kjlfpsmdq98vhd"))))
     (native-inputs `(("pkg-config" ,pkg-config)))
-    (propagated-inputs `(("girara" ,girara)))
     (inputs
      `(("djvulibre" ,djvulibre)
-       ("gtk+" ,gtk+)
        ("zathura" ,zathura)))
     (build-system gnu-build-system)
     (arguments
@@ -415,17 +391,50 @@ using libspectre.")
                           "CC=gcc")
        #:tests? #f ; Package does not contain tests.
        #:phases
-       (alist-delete 'configure %standard-phases)))
+       (modify-phases %standard-phases (delete 'configure))))
     (home-page "https://pwmt.org/projects/zathura-djvu/")
     (synopsis "DjVu support for zathura (DjVuLibre backend)")
     (description "The zathura-djvu plugin adds DjVu support to zathura
 using the DjVuLibre library.")
     (license license:zlib)))
 
+(define-public zathura-pdf-mupdf
+  (package
+    (name "zathura-pdf-mupdf")
+    (version "0.3.2")
+    (source (origin
+              (method url-fetch)
+              (uri
+               (string-append "https://pwmt.org/projects/zathura-pdf-mupdf"
+                              "/download/zathura-pdf-mupdf-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0xkajc3is7ncmb2fmymbzfgrran2bz12i7zsm1vvxhxds728h7ck"))))
+    (native-inputs `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("jbig2dec" ,jbig2dec)
+       ("libjpeg" ,libjpeg)
+       ("mupdf" ,mupdf)
+       ("openjpeg" ,openjpeg)
+       ("openssl" ,openssl)
+       ("zathura" ,zathura)))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags (list (string-append "PREFIX=" %output)
+                          (string-append "PLUGINDIR=" %output "/lib/zathura")
+                          "CC=gcc")
+       #:tests? #f ;No tests.
+       #:phases (modify-phases %standard-phases (delete 'configure))))
+    (home-page "https://pwmt.org/projects/zathura-pdf-mupdf/")
+    (synopsis "PDF support for zathura (mupdf backend)")
+    (description "The zathura-pdf-mupdf plugin adds PDF support to zathura
+by using the @code{mupdf} rendering library.")
+    (license license:zlib)))
+
 (define-public zathura-pdf-poppler
   (package
     (name "zathura-pdf-poppler")
-    (version "0.2.7")
+    (version "0.2.8")
     (source (origin
               (method url-fetch)
               (uri
@@ -433,14 +442,11 @@ using the DjVuLibre library.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "1h43sgxpsbrsnn5z19661642plzhpv6b0y3f4kyzshv1rr6lwplq"))))
+                "1m55m7s7f8ng8a7lmcw9z4n5zv7xk4vp9n6fp9j84z6rk2imf7a2"))))
     (native-inputs `(("pkg-config" ,pkg-config)))
-    (propagated-inputs `(("girara" ,girara)))
     (inputs
      `(("poppler" ,poppler)
-       ("gtk+" ,gtk+)
-       ("zathura" ,zathura)
-       ("cairo" ,cairo)))
+       ("zathura" ,zathura)))
     (build-system gnu-build-system)
     (arguments
      `(#:make-flags (list (string-append "PREFIX=" %output)
@@ -448,7 +454,7 @@ using the DjVuLibre library.")
                           "CC=gcc")
        #:tests? #f ; Package does not include tests.
        #:phases
-       (alist-delete 'configure %standard-phases)))
+       (modify-phases %standard-phases (delete 'configure))))
     (home-page "https://pwmt.org/projects/zathura-pdf-poppler/")
     (synopsis "PDF support for zathura (poppler backend)")
     (description "The zathura-pdf-poppler plugin adds PDF support to zathura
@@ -458,7 +464,7 @@ by using the poppler rendering engine.")
 (define-public zathura
   (package
     (name "zathura")
-    (version "0.3.7")
+    (version "0.3.8")
     (source (origin
               (method url-fetch)
               (uri
@@ -466,14 +472,20 @@ by using the poppler rendering engine.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "1w0g74dq4z2vl3f99s2gkaqrb5pskgzig10qhbxj4gq9yj4zzbr2"))
+                "0dz5pky3vmf3s2cp2rv1c099gb1s49p9xlgm3ghyy4pzyxc8bgs6"))
               (patches (search-patches
                         "zathura-plugindir-environment-variable.patch"))))
     (native-inputs `(("pkg-config" ,pkg-config)
-                     ("gettext" ,gettext-minimal)))
-    (inputs `(("girara" ,girara)
-              ("sqlite" ,sqlite)
-              ("gtk+" ,gtk+)))
+                     ("gettext" ,gettext-minimal)
+                     ("glib:bin" ,glib "bin")
+
+                     ;; For tests.
+                     ("check" ,check)
+                     ("xorg-server" ,xorg-server-1.19.3)))
+    (inputs `(("sqlite" ,sqlite)))
+    ;; Listed in 'Requires.private' of 'zathura.pc'.
+    (propagated-inputs `(("cairo" ,cairo)
+                         ("girara" ,girara)))
     (native-search-paths
      (list (search-path-specification
             (variable "ZATHURA_PLUGIN_PATH")
@@ -483,10 +495,25 @@ by using the poppler rendering engine.")
      `(#:make-flags
        `(,(string-append "PREFIX=" (assoc-ref %outputs "out"))
          "CC=gcc" "COLOR=0")
-       #:tests? #f ; Tests fail: "Gtk cannot open display".
        #:test-target "test"
-       #:phases
-       (alist-delete 'configure %standard-phases)))
+       #:disallowed-references (,xorg-server-1.19.3)
+       #:phases (modify-phases %standard-phases
+                  (delete 'configure)
+                  (add-before 'check 'start-xserver
+                    ;; Tests require a running X server.
+                    (lambda* (#:key inputs #:allow-other-keys)
+                      (let ((xorg-server (assoc-ref inputs "xorg-server"))
+                            (display ":1"))
+                        (setenv "DISPLAY" display)
+
+                        ;; On busy machines, tests may take longer than
+                        ;; the default of four seconds.
+                        (setenv "CK_DEFAULT_TIMEOUT" "20")
+
+                        ;; Don't fail due to missing '/etc/machine-id'.
+                        (setenv "DBUS_FATAL_WARNINGS" "0")
+                        (zero? (system (string-append xorg-server "/bin/Xvfb "
+                                                      display " &")))))))))
     (home-page "https://pwmt.org/projects/zathura/")
     (synopsis "Lightweight keyboard-driven PDF viewer")
     (description "Zathura is a customizable document viewer.  It provides a
@@ -519,14 +546,14 @@ interaction.")
      `(#:configure-flags '("-DPODOFO_BUILD_SHARED=ON"
                            "-DPODOFO_BUILD_STATIC=ON")
        #:phases
-         (alist-cons-before
-         'configure 'patch
-         (lambda* (#:key inputs #:allow-other-keys)
-           (let ((freetype (assoc-ref inputs "freetype")))
-             ;; Look for freetype include files in the correct place.
-             (substitute* "cmake/modules/FindFREETYPE.cmake"
-               (("/usr/local") freetype))))
-         %standard-phases)))
+       (modify-phases %standard-phases
+         (add-before 'configure 'patch
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((freetype (assoc-ref inputs "freetype")))
+               ;; Look for freetype include files in the correct place.
+               (substitute* "cmake/modules/FindFREETYPE.cmake"
+                 (("/usr/local") freetype)))
+             #t)))))
     (home-page "http://podofo.sourceforge.net")
     (synopsis "Tools to work with the PDF file format")
     (description
@@ -540,39 +567,32 @@ extracting content or merging files.")
 (define-public mupdf
   (package
     (name "mupdf")
-    (version "1.11")
+    (version "1.12.0")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "http://mupdf.com/downloads/archive/"
-                            name "-" version "-source.tar.gz"))
+        (uri (string-append "https://mupdf.com/downloads/archive/"
+                            name "-" version "-source.tar.xz"))
+        (patches (search-patches "mupdf-build-with-latest-openjpeg.patch"
+                                 "mupdf-CVE-2017-17858.patch"
+                                 "mupdf-CVE-2018-6544.patch"
+                                 "mupdf-CVE-2018-1000051.patch"))
         (sha256
          (base32
-          "02phamcchgsmvjnb3ir7r5sssvx9fcrscn297z73b82n1jl79510"))
-        (patches (search-patches "mupdf-build-with-openjpeg-2.1.patch"))
+          "0b9j0gqbc3jhmx87r6idcsh8lnb30840c3hyx6dk2gdjqqh3hysp"))
         (modules '((guix build utils)))
-        (snippet
-            ;; Delete all the bundled libraries except for mujs, which is
-            ;; developed by the same team as mupdf and has no releases.
-            ;; TODO Package mujs and don't use the bundled copy.
-            '(for-each delete-file-recursively
-                       '("thirdparty/curl"
-                         "thirdparty/freetype"
-                         "thirdparty/glfw"
-                         "thirdparty/harfbuzz"
-                         "thirdparty/jbig2dec"
-                         "thirdparty/libjpeg"
-                         "thirdparty/openjpeg"
-                         "thirdparty/zlib")))))
+        (snippet '(delete-file-recursively "thirdparty"))))
     (build-system gnu-build-system)
     (inputs
       `(("curl" ,curl)
+        ("freeglut" ,freeglut)
         ("freetype" ,freetype)
         ("harfbuzz" ,harfbuzz)
         ("jbig2dec" ,jbig2dec)
         ("libjpeg" ,libjpeg)
         ("libx11" ,libx11)
         ("libxext" ,libxext)
+        ("mujs" ,mujs)
         ("openjpeg" ,openjpeg)
         ("openssl" ,openssl)
         ("zlib" ,zlib)))
@@ -585,7 +605,7 @@ extracting content or merging files.")
                            (string-append "prefix=" (assoc-ref %outputs "out")))
         #:phases (modify-phases %standard-phases
                   (delete 'configure))))
-    (home-page "http://mupdf.com")
+    (home-page "https://mupdf.com")
     (synopsis "Lightweight PDF viewer and toolkit")
     (description
       "MuPDF is a C library that implements a PDF and XPS parsing and
@@ -594,8 +614,8 @@ but also provides support for other operations such as searching and
 listing the table of contents and hyperlinks.
 
 The library ships with a rudimentary X11 viewer, and a set of command
-line tools for batch rendering (pdfdraw), rewriting files (pdfclean),
-and examining the file structure (pdfshow).")
+line tools for batch rendering @command{pdfdraw}, rewriting files
+@command{pdfclean}, and examining the file structure @command{pdfshow}.")
     (license license:agpl3+)))
 
 (define-public qpdf
@@ -681,13 +701,13 @@ using a stylus.")
 (define-public python-reportlab
   (package
     (name "python-reportlab")
-    (version "3.3.0")
+    (version "3.4.0")
     (source (origin
               (method url-fetch)
               (uri (pypi-uri "reportlab" version))
               (sha256
                (base32
-                "0rz2pg04wnzjjm2f5a8ik9v8s54mv4xrjhv5liqjijqv6awh12gl"))))
+                "0hy304pzsz9lblmk7mrbk2682bi911lxgvzx2kcfpmfzb5gg7sjv"))))
     (build-system python-build-system)
     (arguments
      '(;; FIXME: There is one test failure, but it does not cause the
@@ -695,7 +715,7 @@ using a stylus.")
        #:test-target "tests"))
     (propagated-inputs
      `(("python-pillow" ,python-pillow)))
-    (home-page "http://www.reportlab.com")
+    (home-page "https://www.reportlab.com")
     (synopsis "Python library for generating PDFs and graphics")
     (description "This is the ReportLab PDF Toolkit.  It allows rapid creation
 of rich PDF documents, and also creation of charts in a variety of bitmap and
@@ -720,7 +740,7 @@ vector formats.")
     (build-system python-build-system)
 
     ;; TODO: Add dependency on pdftk.
-    (inputs `(("python-pygame" ,python-pygame)
+    (inputs `(("python2-pygame" ,python2-pygame)
               ("python2-pillow" ,python2-pillow)
               ("sdl" ,sdl)
               ("xpdf" ,xpdf)))
@@ -772,12 +792,13 @@ the PDF pages.")
                 "0bw224vb7jh0lrqaf4jgxk48xglvxs674qcpj5y0axyfbh896cfk"))))
     (build-system gnu-build-system)
     (arguments
-      '(#:phases (alist-cons-after
-                  'unpack 'patch-ldconfig
-                  (lambda _
-                   (substitute* "mk/Autoconf.mk"
-                    (("/sbin/ldconfig -p") "echo lib")) #t)
-                  (alist-delete 'configure %standard-phases))
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-ldconfig
+           (lambda _
+             (substitute* "mk/Autoconf.mk"
+               (("/sbin/ldconfig -p") "echo lib")) #t))
+         (delete 'configure))
         #:tests? #f
         #:make-flags (list "CC=gcc"
                            (string-append "prefix=" (assoc-ref %outputs "out")))))

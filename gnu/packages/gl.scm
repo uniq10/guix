@@ -3,11 +3,13 @@
 ;;; Copyright © 2013 Joshua Grant <tadni@riseup.net>
 ;;; Copyright © 2014, 2016 David Thompson <davet@gnu.org>
 ;;; Copyright © 2014, 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 David Thompson <davet@gnu.org>
-;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2017, 2018 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,6 +32,7 @@
   #:use-module (gnu packages bison)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages documentation)
+  #:use-module (gnu packages elf)
   #:use-module (gnu packages flex)
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages freedesktop)
@@ -40,6 +43,7 @@
   #:use-module (gnu packages llvm)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages tls)
   #:use-module (gnu packages video)
   #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xml)
@@ -156,6 +160,8 @@ the X-Consortium license.")
     (inputs `(("libx11" ,libx11)
               ("mesa" ,mesa)
               ("glu" ,glu)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
     (home-page "http://ftgl.sourceforge.net")
     (synopsis "Font rendering library for OpenGL applications")
     (description
@@ -216,20 +222,21 @@ also known as DXTn or DXTC) for Mesa.")
 (define-public mesa
   (package
     (name "mesa")
-    (version "17.0.6")
+    (version "17.3.6")
     (source
       (origin
         (method url-fetch)
-        (uri (list (string-append "ftp://ftp.freedesktop.org/pub/mesa/"
+        (uri (list (string-append "https://mesa.freedesktop.org/archive/"
+                                  "mesa-" version ".tar.xz")
+                   (string-append "ftp://ftp.freedesktop.org/pub/mesa/"
                                   "mesa-" version ".tar.xz")
                    (string-append "ftp://ftp.freedesktop.org/pub/mesa/"
                                   version "/mesa-" version ".tar.xz")))
         (sha256
          (base32
-          "17d60jjzg4ddm95gk2cqx0xz6b9anmmz6ax4majwr3gis2yg7v49"))
+          "1y7vawz2sbpzdqk4b60w8kfrxb2rfkdjkifyxxfx1jaasj05d4g5"))
         (patches
-         (search-patches "mesa-fix-32bit-test-failures.patch"
-                         "mesa-wayland-egl-symbols-check-mips.patch"
+         (search-patches "mesa-wayland-egl-symbols-check-mips.patch"
                          "mesa-skip-disk-cache-test.patch"))))
     (build-system gnu-build-system)
     (propagated-inputs
@@ -246,32 +253,39 @@ also known as DXTn or DXTC) for Mesa.")
       `(("expat" ,expat)
         ("dri2proto" ,dri2proto)
         ("dri3proto" ,dri3proto)
+        ("libelf" ,libelf)    ;required for r600 when using llvm
         ("libva" ,(force libva-without-mesa))
         ("libxml2" ,libxml2)
         ;; TODO: Add 'libxml2-python' for OpenGL ES 1.1 and 2.0 support
         ("libxvmc" ,libxvmc)
         ,@(match (%current-system)
             ((or "x86_64-linux" "i686-linux")
-             `(("llvm" ,llvm)))
+             `(("llvm" ,llvm-3.9.1))) ; exactly 3.9.0 or 3.9.1 for swrast
             (_
              `()))
         ("makedepend" ,makedepend)
         ("presentproto" ,presentproto)
-        ("s2tc" ,s2tc)
-        ("wayland" ,wayland)))
+        ("wayland" ,wayland)
+        ("wayland-protocols" ,wayland-protocols)))
     (native-inputs
       `(("pkg-config" ,pkg-config)
-        ("python" ,python-2)))
+        ("python" ,python-2)
+        ("python2-mako" ,python2-mako)
+        ("which" ,(@ (gnu packages base) which))))
     (arguments
      `(#:configure-flags
        '(,@(match (%current-system)
-             ((or "armhf-linux" "aarch64-linux")
-              '("--with-gallium-drivers=freedreno,nouveau,r300,r600,svga,swrast,vc4,virgl"))
+             ("armhf-linux"
+              ;; TODO: Add etnaviv,imx when libdrm supports etnaviv.
+              '("--with-gallium-drivers=freedreno,nouveau,r300,r600,swrast,vc4,virgl"))
+             ("aarch64-linux"
+              ;; TODO: Fix svga driver for aarch64 and armhf.
+              '("--with-gallium-drivers=freedreno,nouveau,pl111,r300,r600,swrast,vc4,virgl"))
              (_
-              '("--with-gallium-drivers=i915,nouveau,r300,r600,svga,swrast,virgl")))
+              '("--with-gallium-drivers=i915,nouveau,r300,r600,radeonsi,svga,swrast,virgl")))
          ;; Enable various optional features.  TODO: opencl requires libclc,
          ;; omx requires libomxil-bellagio
-         "--with-egl-platforms=x11,drm,wayland"
+         "--with-platforms=x11,drm,wayland,surfaceless"
          "--enable-glx-tls"        ;Thread Local Storage, improves performance
          ;; "--enable-opencl"
          ;; "--enable-omx"
@@ -285,6 +299,16 @@ also known as DXTn or DXTC) for Mesa.")
          ;; are stuck at OpenGL 2.1 instead of OpenGL 3.0+.
          "--enable-texture-float"
 
+         ;; Enable Vulkan on i686-linux and x86-64-linux.
+         ,@(match (%current-system)
+             ("x86_64-linux"
+              '("--with-vulkan-drivers=intel,radeon"))
+             ;; TODO: Fix intel driver on i686-linux.
+             ("i686-linux"
+              '("--with-vulkan-drivers=radeon"))
+             (_
+              '("")))
+
          ;; Also enable the tests.
          "--enable-gallium-tests"
 
@@ -293,9 +317,13 @@ also known as DXTn or DXTC) for Mesa.")
          ,@(match (%current-system)
              ((or "x86_64-linux" "i686-linux")
               '("--with-dri-drivers=i915,i965,nouveau,r200,radeon,swrast"
-                "--enable-gallium-llvm")) ; default is x86/x86_64 only
+                "--enable-llvm"))         ; default is x86/x86_64 only
              (_
               '("--with-dri-drivers=nouveau,r200,radeon,swrast"))))
+       #:modules ((ice-9 match)
+                  (srfi srfi-1)
+                  (guix build utils)
+                  (guix build gnu-build-system))
        #:phases
        (modify-phases %standard-phases
          (add-after
@@ -330,13 +358,48 @@ also known as DXTn or DXTC) for Mesa.")
                  ;; egl_gallium support.
                  (("\"gbm_dri\\.so")
                   (string-append "\"" out "/lib/dri/gbm_dri.so")))
+               #t)))
+         (add-after 'install 'symlinks-instead-of-hard-links
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; All the drivers and gallium targets create hard links upon
+             ;; installation (search for "hardlink each megadriver instance"
+             ;; in the makefiles).  This is no good for us since we'd produce
+             ;; nars that contain several copies of these files.  Thus, turn
+             ;; them into symlinks, which saves ~124 MiB.
+             (let* ((out    (assoc-ref outputs "out"))
+                    (lib    (string-append out "/lib"))
+                    (files  (find-files lib
+                                        (lambda (file stat)
+                                          (and (string-contains file ".so")
+                                               (eq? 'regular
+                                                    (stat:type stat))))))
+                    (inodes (map (compose stat:ino stat) files)))
+               (for-each (lambda (inode)
+                           (match (filter-map (match-lambda
+                                                ((file ino)
+                                                 (and (= ino inode) file)))
+                                              (zip files inodes))
+                             ((_)
+                              #f)
+                             ((reference others ..1)
+                              (format #t "creating ~a symlinks to '~a'~%"
+                                      (length others) reference)
+                              (for-each delete-file others)
+                              (for-each (lambda (file)
+                                          (if (string=? (dirname file)
+                                                        (dirname reference))
+                                              (symlink (basename reference)
+                                                       file)
+                                              (symlink reference file)))
+                                        others))))
+                         (delete-duplicates inodes))
                #t))))))
     (home-page "https://mesa3d.org/")
-    (synopsis "OpenGL implementation")
-    (description "Mesa is a free implementation of the OpenGL specification -
-a system for rendering interactive 3D graphics.  A variety of device drivers
-allows Mesa to be used in many different environments ranging from software
-emulation to complete hardware acceleration for modern GPUs.")
+    (synopsis "OpenGL and Vulkan implementations")
+    (description "Mesa is a free implementation of the OpenGL and Vulkan
+specifications - systems for rendering interactive 3D graphics.  A variety of
+device drivers allows Mesa to be used in many different environments ranging
+from software emulation to complete hardware acceleration for modern GPUs.")
     (license license:x11)))
 
 (define-public mesa-headers
@@ -365,14 +428,14 @@ emulation to complete hardware acceleration for modern GPUs.")
 (define (mesa-demos-source version)
   (origin
     (method url-fetch)
-    (uri (string-append "ftp://ftp.freedesktop.org/pub/mesa/demos/" version
+    (uri (string-append "ftp://ftp.freedesktop.org/pub/mesa/demos"
                         "/mesa-demos-" version ".tar.bz2"))
-    (sha256 (base32 "1vqb7s5m3fcg2csbiz45mha1pys2xx6rhw94fcyvapqdpm5iawy1"))))
+    (sha256 (base32 "0zgzbz55a14hz83gbmm0n9gpjnf5zadzi2kjjvkn6khql2a9rs81"))))
 
 (define-public mesa-utils
   (package
     (name "mesa-utils")
-    (version "8.3.0")
+    (version "8.4.0")
     (source (mesa-demos-source version))
     (build-system gnu-build-system)
     (inputs
@@ -420,7 +483,7 @@ glxgears, glxheads, and glxinfo.")
                   (("/lib64") "/lib")))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-delete 'configure %standard-phases)
+     '(#:phases (modify-phases %standard-phases (delete 'configure))
        #:make-flags (list (string-append "GLEW_PREFIX="
                                          (assoc-ref %outputs "out"))
                           (string-append "GLEW_DEST="
@@ -493,7 +556,7 @@ OpenGL graphics API.")
 (define-public libepoxy
   (package
     (name "libepoxy")
-    (version "1.4.1")
+    (version "1.5.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -501,7 +564,7 @@ OpenGL graphics API.")
                     version "/libepoxy-" version ".tar.xz"))
               (sha256
                (base32
-                "19hsyap2p0sflj75ycf4af9bsp453bamymbcgnmrphigabsspil8"))))
+                "1md58amxyp34yjnw4xa185hw5jm0hnb2xnhdc28zdsx6k19rk52c"))))
     (arguments
      `(#:phases
        (modify-phases %standard-phases
@@ -512,10 +575,6 @@ OpenGL graphics API.")
                    (mesa (assoc-ref inputs "mesa")))
                (substitute* "src/gen_dispatch.py"
                  (("/usr/bin/env python") python))
-               ;; Add support for aarch64, see upstream:
-               ;; https://github.com/anholt/libepoxy/pull/114
-               (substitute* "test/dlwrap.c"
-                 (("GLIBC_2.4") "GLIBC_2.17\", \"GLIBC_2.4"))
                (substitute* (find-files "." "\\.[ch]$")
                  (("libGL.so.1") (string-append mesa "/lib/libGL.so.1"))
                  (("libEGL.so.1") (string-append mesa "/lib/libEGL.so.1")))
@@ -639,7 +698,7 @@ and visualizations.")
 (define-public gl2ps
   (package
     (name "gl2ps")
-    (version "1.3.9")
+    (version "1.4.0")
     (source
      (origin
        (method url-fetch)
@@ -648,7 +707,7 @@ and visualizations.")
              version ".tgz"))
        (sha256
         (base32
-         "0h1nrhmkc4qjw2ninwpj2zbgwhc0qg6pdhpsibbvry0d2bzhns4a"))))
+         "1qpidkz8x3bxqf69hlhyz1m0jmfi9kq24fxsp7rq6wfqzinmxjq3"))))
     (build-system cmake-build-system)
     (inputs
      `(("libpng" ,libpng)
@@ -664,6 +723,41 @@ capable of handling intersecting and stretched polygons, as well as
 non-manifold objects.  GL2PS provides many features including advanced
 smooth shading and text rendering, culling of invisible primitives and
 mixed vector/bitmap output.")
+    ;; GL2PS is dual-licenced and can be used under the terms of either.
     (license (list license:lgpl2.0+
                    (license:fsf-free "http://www.geuz.org/gl2ps/COPYING.GL2PS"
                                      "GPL-incompatible copyleft license")))))
+
+(define-public virtualgl
+  (package
+    (name "virtualgl")
+    (version "2.5.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/VirtualGL/virtualgl/archive/"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0rnid3hwrry9d5d4m7sygq00xxx976rgk00a3557m9r5kxbmy476"))))
+    (arguments
+     `(#:tests? #f ;; no tests are available
+       #:configure-flags (list
+                           (string-append "-DCMAKE_INSTALL_LIBDIR="
+                                          (assoc-ref %outputs "out") "/lib")
+                           "-DVGL_USESSL=1"))) ;; use OpenSSL
+    (build-system cmake-build-system)
+    (inputs `(("glu" ,glu)
+              ("libjpeg-turbo" ,libjpeg-turbo)
+              ("mesa" ,mesa)
+              ("openssl" ,openssl)))
+    (native-inputs `(("pkg-config" ,pkg-config)))
+    (home-page "https://www.virtualgl.org")
+    (synopsis "Redirects 3D commands from an OpenGL application onto a 3D
+graphics card")
+    (description "VirtualGL redirects the 3D rendering commands from OpenGL
+applications to 3D accelerator hardware in a dedicated server and displays the
+rendered output interactively to a thin client located elsewhere on the
+network.")
+    (license license:wxwindows3.1+)))

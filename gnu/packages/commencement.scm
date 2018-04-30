@@ -1,8 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2012 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2014, 2015, 2017 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -46,6 +47,7 @@
   #:use-module (guix download)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system trivial)
+  #:use-module (guix memoization)
   #:use-module (guix utils)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
@@ -63,6 +65,15 @@
 ;;;
 ;;; To avoid circular dependencies, this module should not be imported
 ;;; directly from anywhere.
+;;;
+;;; Below, we frequently use "inherit" to create modified packages.  The
+;;; reason why we use "inherit" instead of "package/inherit" is because we do
+;;; not want these commencement packages to inherit grafts.  By definition,
+;;; these packages are not depended on at run time by any of the packages we
+;;; use.  Thus it does not make sense to inherit grafts.  Furthermore, those
+;;; grafts would often lead to extra overhead for users who would end up
+;;; downloading those "-boot0" packages just to build package replacements
+;;; that are in fact not going to be used.
 ;;;
 ;;; Code:
 
@@ -149,23 +160,22 @@
         #:modules ((guix build gnu-build-system)
                    (guix build utils)
                    (ice-9 ftw))                    ; for 'scandir'
-        #:phases (alist-cons-after
-                  'install 'add-symlinks
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    ;; The cross-gcc invokes 'as', 'ld', etc, without the
-                    ;; triplet prefix, so add symlinks.
-                    (let ((out (assoc-ref outputs "out"))
-                          (triplet-prefix (string-append ,(boot-triplet) "-")))
-                      (define (has-triplet-prefix? name)
-                        (string-prefix? triplet-prefix name))
-                      (define (remove-triplet-prefix name)
-                        (substring name (string-length triplet-prefix)))
-                      (with-directory-excursion (string-append out "/bin")
-                        (for-each (lambda (name)
-                                    (symlink name (remove-triplet-prefix name)))
-                                  (scandir "." has-triplet-prefix?)))
-                      #t))
-                  %standard-phases)
+        #:phases (modify-phases %standard-phases
+                   (add-after 'install 'add-symlinks
+                     (lambda* (#:key outputs #:allow-other-keys)
+                       ;; The cross-gcc invokes 'as', 'ld', etc, without the
+                       ;; triplet prefix, so add symlinks.
+                       (let ((out (assoc-ref outputs "out"))
+                             (triplet-prefix (string-append ,(boot-triplet) "-")))
+                         (define (has-triplet-prefix? name)
+                           (string-prefix? triplet-prefix name))
+                         (define (remove-triplet-prefix name)
+                           (substring name (string-length triplet-prefix)))
+                         (with-directory-excursion (string-append out "/bin")
+                           (for-each (lambda (name)
+                                       (symlink name (remove-triplet-prefix name)))
+                                     (scandir "." has-triplet-prefix?)))
+                         #t))))
 
         ,@(substitute-keyword-arguments (package-arguments binutils)
             ((#:configure-flags cf)
@@ -173,12 +183,28 @@
                     ,cf)))))
      (inputs %boot0-inputs))))
 
+;; gcc-4.9 was fixed late in the core-update cycle and so this GCC is only
+;; needed to prevent a full world rebuild, and can be replaced with gcc-4.9.
+(define gcc-for-libstdc++
+  (package (inherit gcc-4.9)
+    (version "4.9.4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnu/gcc/gcc-"
+                                  version "/gcc-" version ".tar.bz2"))
+              (sha256
+               (base32
+                "14l06m7nvcvb0igkbip58x59w3nq6315k6jcz3wr9ch1rn9d44bc"))
+              (patches (search-patches "gcc-arm-bug-71399.patch"
+                                       "gcc-libvtv-runpath.patch"
+                                       "gcc-fix-texi2pod.patch"))))))
+
 (define libstdc++-boot0
   ;; GCC's libcc1 is always built as a shared library (the top-level
   ;; 'Makefile.def' forcefully adds --enable-shared) and thus needs to refer
   ;; to libstdc++.so.  We cannot build libstdc++-5.3 because it relies on
-  ;; C++14 features missing in our bootstrap compiler.
-  (let ((lib (package-with-bootstrap-guile (make-libstdc++ gcc-4.9))))
+  ;; C++14 features missing in some of our bootstrap compilers.
+  (let ((lib (package-with-bootstrap-guile (make-libstdc++ gcc-for-libstdc++))))
     (package
       (inherit lib)
       (name "libstdc++-boot0")
@@ -286,9 +312,8 @@
                ("libc-native" ,@(assoc-ref %boot0-inputs "libc"))
                ,@(alist-delete "libc" %boot0-inputs)))
 
-     ;; No need for Texinfo at this stage.
-     (native-inputs (alist-delete "texinfo"
-                                  (package-native-inputs gcc))))))
+     ;; No need for the native-inputs to build the documentation at this stage.
+     (native-inputs `()))))
 
 (define perl-boot0
   (let ((perl (package
@@ -356,18 +381,21 @@
                                    (current-source-location)
                                    #:guile %bootstrap-guile))))
 
-(define (linux-libre-headers-boot0)
-  "Return Linux-Libre header files for the bootstrap environment."
-  ;; Note: this is wrapped in a thunk to nicely handle circular dependencies
-  ;; between (gnu packages linux) and this module.
-  (package-with-bootstrap-guile
-   (package (inherit linux-libre-headers)
-     (arguments `(#:guile ,%bootstrap-guile
-                  #:implicit-inputs? #f
-                  ,@(package-arguments linux-libre-headers)))
-     (native-inputs
-      `(("perl" ,perl-boot0)
-        ,@%boot0-inputs)))))
+(define linux-libre-headers-boot0
+  (mlambda ()
+    "Return Linux-Libre header files for the bootstrap environment."
+    ;; Note: this is wrapped in a thunk to nicely handle circular dependencies
+    ;; between (gnu packages linux) and this module.  Additionally, memoize
+    ;; the result to play well with further memoization and code that relies
+    ;; on pointer identity; see <https://bugs.gnu.org/30155>.
+    (package-with-bootstrap-guile
+     (package (inherit linux-libre-headers)
+              (arguments `(#:guile ,%bootstrap-guile
+                           #:implicit-inputs? #f
+                           ,@(package-arguments linux-libre-headers)))
+              (native-inputs
+               `(("perl" ,perl-boot0)
+                 ,@%boot0-inputs))))))
 
 (define gnumach-headers-boot0
   (package-with-bootstrap-guile
@@ -408,18 +436,19 @@
                                    (current-source-location)
                                    #:guile %bootstrap-guile))))
 
-(define (hurd-core-headers-boot0)
-  "Return the Hurd and Mach headers as well as initial Hurd libraries for
+(define hurd-core-headers-boot0
+  (mlambda ()
+    "Return the Hurd and Mach headers as well as initial Hurd libraries for
 the bootstrap environment."
-  (package-with-bootstrap-guile
-   (package (inherit hurd-core-headers)
-            (arguments `(#:guile ,%bootstrap-guile
-                                 ,@(package-arguments hurd-core-headers)))
-            (inputs
-             `(("gnumach-headers" ,gnumach-headers-boot0)
-               ("hurd-headers" ,hurd-headers-boot0)
-               ("hurd-minimal" ,hurd-minimal-boot0)
-               ,@%boot0-inputs)))))
+    (package-with-bootstrap-guile
+     (package (inherit hurd-core-headers)
+              (arguments `(#:guile ,%bootstrap-guile
+                           ,@(package-arguments hurd-core-headers)))
+              (inputs
+               `(("gnumach-headers" ,gnumach-headers-boot0)
+                 ("hurd-headers" ,hurd-headers-boot0)
+                 ("hurd-minimal" ,hurd-minimal-boot0)
+                 ,@%boot0-inputs))))))
 
 (define* (kernel-headers-boot0 #:optional (system (%current-system)))
   (match system
@@ -466,7 +495,7 @@ the bootstrap environment."
   ;; built just below; the only difference is that this one uses the
   ;; bootstrap Bash.
   (package-with-bootstrap-guile
-   (package/inherit glibc
+   (package (inherit glibc)
      (name "glibc-intermediate")
      (arguments
       `(#:guile ,%bootstrap-guile
@@ -509,14 +538,7 @@ the bootstrap environment."
      (propagated-inputs `(("kernel-headers" ,(kernel-headers-boot0))))
      (native-inputs
       `(("texinfo" ,texinfo-boot0)
-        ("perl" ,perl-boot0)
-        ;; Apply this patch only on i686 to avoid a full rebuild.
-        ;; TODO: Remove in the next update cycle.
-        ,@(if (string-prefix? "i686" (or (%current-target-system)
-                                         (%current-system)))
-              `(("glibc-memchr-overflow-i686.patch"
-                 ,(search-patch "glibc-memchr-overflow-i686.patch")))
-              '())))
+        ("perl" ,perl-boot0)))
      (inputs
       `(;; The boot inputs.  That includes the bootstrap libc.  We don't want
         ;; it in $CPATH, hence the 'pre-configure' phase above.
@@ -590,12 +612,24 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
   (let* ((gcc  (cross-gcc-wrapper gcc-boot0 binutils-boot0
                                   glibc-final-with-bootstrap-bash
                                   (car (assoc-ref %boot1-inputs "bash"))))
-         (bash (package (inherit static-bash)
+         (bash (package
+                 (inherit static-bash)
                  (arguments
-                  `(#:guile ,%bootstrap-guile
-                    ,@(package-arguments static-bash)))))
+                  (substitute-keyword-arguments
+                      (package-arguments static-bash)
+                    ((#:guile _ #f)
+                     '%bootstrap-guile)
+                    ((#:configure-flags flags '())
+                     ;; Add a '-L' flag so that the pseudo-cross-ld of
+                     ;; BINUTILS-BOOT0 can find libc.a.
+                     `(append ,flags
+                              (list (string-append "LDFLAGS=-static -L"
+                                                   (assoc-ref %build-inputs
+                                                              "libc:static")
+                                                   "/lib"))))))))
          (inputs `(("gcc" ,gcc)
                    ("libc" ,glibc-final-with-bootstrap-bash)
+                   ("libc:static" ,glibc-final-with-bootstrap-bash "static")
                    ,@(fold alist-delete %boot1-inputs
                            '("gcc" "libc")))))
     (package-with-bootstrap-guile
@@ -639,27 +673,32 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 
 (define glibc-final
   ;; The final glibc, which embeds the statically-linked Bash built above.
-  (package/inherit glibc-final-with-bootstrap-bash
-    (name "glibc")
-    (inputs `(("static-bash" ,static-bash-for-glibc)
-              ,@(alist-delete
-                 "static-bash"
-                 (package-inputs glibc-final-with-bootstrap-bash))))
+  ;; Use 'package/inherit' so we get the 'replacement' of 'glibc', if any.
+  (let ((glibc (package-with-bootstrap-guile glibc)))
+    (package/inherit glibc
+      (name "glibc")
+      (inputs `(("static-bash" ,static-bash-for-glibc)
+                ,@(alist-delete
+                   "static-bash"
+                   (package-inputs glibc-final-with-bootstrap-bash))))
 
-    ;; This time we need 'msgfmt' to install all the libc.mo files.
-    (native-inputs `(,@(package-native-inputs glibc-final-with-bootstrap-bash)
-                     ("gettext" ,gettext-boot0)))
+      ;; This time we need 'msgfmt' to install all the libc.mo files.
+      (native-inputs `(,@(package-native-inputs glibc-final-with-bootstrap-bash)
+                       ("gettext" ,gettext-boot0)))
 
-    ;; The final libc only refers to itself, but the 'debug' output contains
-    ;; references to GCC-BOOT0 and to the Linux headers.  XXX: Would be great
-    ;; if 'allowed-references' were per-output.
-    (arguments
-     `(#:allowed-references
-       ,(cons* `(,gcc-boot0 "lib") (kernel-headers-boot0)
-               static-bash-for-glibc
-               (package-outputs glibc-final-with-bootstrap-bash))
+      (propagated-inputs
+       (package-propagated-inputs glibc-final-with-bootstrap-bash))
 
-       ,@(package-arguments glibc-final-with-bootstrap-bash)))))
+      ;; The final libc only refers to itself, but the 'debug' output contains
+      ;; references to GCC-BOOT0 and to the Linux headers.  XXX: Would be great
+      ;; if 'allowed-references' were per-output.
+      (arguments
+       `(#:allowed-references
+         ,(cons* `(,gcc-boot0 "lib") (kernel-headers-boot0)
+                 static-bash-for-glibc
+                 (package-outputs glibc-final-with-bootstrap-bash))
+
+         ,@(package-arguments glibc-final-with-bootstrap-bash))))))
 
 (define gcc-boot0-wrapped
   ;; Make the cross-tools GCC-BOOT0 and BINUTILS-BOOT0 available under the
@@ -670,6 +709,7 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 (define %boot2-inputs
   ;; 3rd stage inputs.
   `(("libc" ,glibc-final)
+    ("libc:static" ,glibc-final "static")
     ("gcc" ,gcc-boot0-wrapped)
     ,@(fold alist-delete %boot1-inputs '("libc" "gcc"))))
 
@@ -686,34 +726,29 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 (define libstdc++
   ;; Intermediate libstdc++ that will allow us to build the final GCC
   ;; (remember that GCC-BOOT0 cannot build libstdc++.)
-  ;; TODO: Write in terms of 'make-libstdc++'.
-  (package-with-bootstrap-guile
-   (package (inherit gcc)
-     (name "libstdc++")
-     (arguments
-      `(#:guile ,%bootstrap-guile
-        #:implicit-inputs? #f
-        #:allowed-references ("out")
-        #:out-of-source? #t
-        #:phases (alist-cons-before
-                  'configure 'chdir
-                  (lambda _
-                    (chdir "libstdc++-v3"))
-                  %standard-phases)
-        #:configure-flags `("--disable-shared"
-                            "--disable-libstdcxx-threads"
-                            "--disable-libstdcxx-pch"
-                            ,(string-append "--with-gxx-include-dir="
-                                            (assoc-ref %outputs "out")
-                                            "/include"
-                                            ;; "/include/c++/"
-                                            ;; ,(package-version gcc)
-                                            ))))
-     (outputs '("out"))
-     (inputs %boot2-inputs)
-     (native-inputs '())
-     (propagated-inputs '())
-     (synopsis "GNU C++ standard library (intermediate)"))))
+  (let ((lib (package-with-bootstrap-guile (make-libstdc++ gcc))))
+    (package
+      (inherit lib)
+      (arguments
+       `(#:guile ,%bootstrap-guile
+         #:implicit-inputs? #f
+         #:allowed-references ("out")
+
+         ;; XXX: libstdc++.so NEEDs ld.so for some reason.
+         #:validate-runpath? #f
+
+         ;; All of the package arguments from 'make-libstdc++
+         ;; except for the configure-flags.
+         ,@(package-arguments lib)
+         #:configure-flags `("--disable-shared"
+                             "--disable-libstdcxx-threads"
+                             "--disable-libstdcxx-pch"
+                             ,(string-append "--with-gxx-include-dir="
+                                             (assoc-ref %outputs "out")
+                                             "/include"))))
+      (outputs '("out"))
+      (inputs %boot2-inputs)
+      (synopsis "GNU C++ standard library (intermediate)"))))
 
 (define zlib-final
   ;; Zlib used by GCC-FINAL.
@@ -786,6 +821,7 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
     ;; scripts such as 'mkheaders' and 'fixinc.sh' (XXX: who cares about these
     ;; scripts?).
     (native-inputs `(("texinfo" ,texinfo-boot0)
+                     ("perl" ,perl-boot0) ;for manpages
                      ("static-bash" ,static-bash-for-glibc)
                      ,@(package-native-inputs gcc-boot0)))
 
@@ -806,13 +842,14 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 
 (define bash-final
   ;; Link with `-static-libgcc' to make sure we don't retain a reference
-  ;; to the bootstrap GCC.
+  ;; to the bootstrap GCC.  Use "bash-minimal" to avoid an extra dependency
+  ;; on Readline and ncurses.
   (let ((bash (package
-                (inherit bash)
+                (inherit bash-minimal)
                 (arguments
                  `(#:disallowed-references
                    ,(assoc-ref %boot3-inputs "coreutils&co")
-                   ,@(package-arguments bash))))))
+                   ,@(package-arguments bash-minimal))))))
     (package-with-bootstrap-guile
      (package-with-explicit-inputs (static-libgcc-package bash)
                                    %boot3-inputs
@@ -828,7 +865,7 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
   ;; This package must be public because other modules refer to it.  However,
   ;; mark it as hidden so that 'fold-packages' ignores it.
   (package-with-bootstrap-guile
-   (package-with-explicit-inputs (hidden-package guile-2.0/fixed)
+   (package-with-explicit-inputs (hidden-package guile-2.2/fixed)
                                  %boot4-inputs
                                  (current-source-location)
                                  #:guile %bootstrap-guile)))
@@ -849,12 +886,10 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 
 (define-public ld-wrapper
   ;; The final 'ld' wrapper, which uses the final Guile and Binutils.
-  (package (inherit ld-wrapper-boot3)
-    (name "ld-wrapper")
-    (inputs `(("guile" ,guile-final)
-              ("bash"  ,bash-final)
-              ,@(fold alist-delete (package-inputs ld-wrapper-boot3)
-                      '("guile" "bash"))))))
+  (make-ld-wrapper "ld-wrapper"
+                   #:binutils binutils-final
+                   #:guile guile-final
+                   #:bash bash-final))
 
 (define %boot5-inputs
   ;; Now with UTF-8 locales.  Remember that the bootstrap binaries were built
@@ -891,6 +926,7 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
   (package-with-bootstrap-guile
    (package-with-explicit-inputs (package
                                    (inherit grep)
+                                   (inputs '())   ;no PCRE support
                                    (native-inputs `(("perl" ,perl-boot0))))
                                  %boot5-inputs
                                  (current-source-location)
@@ -931,12 +967,13 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
       ("binutils" ,binutils-final)
       ("gcc" ,gcc-final)
       ("libc" ,glibc-final)
+      ("libc:static" ,glibc-final "static")
       ("locales" ,glibc-utf8-locales-final))))
 
 (define-public canonical-package
   (let ((name->package (fold (lambda (input result)
                                (match input
-                                 ((_ package)
+                                 ((_ package . outputs)
                                   (vhash-cons (package-full-name package)
                                               package result))))
                              vlist-null
@@ -947,7 +984,7 @@ exec ~a/bin/~a-~a -B~a/lib -Wl,-dynamic-linker -Wl,~a/~a \"$@\"~%"
 the implicit inputs of 'gnu-build-system', return that one, otherwise return
 PACKAGE.
 
-The goal is to avoid duplication in cases like GUILE-FINAL vs. GUILE-2.0,
+The goal is to avoid duplication in cases like GUILE-FINAL vs. GUILE-2.2,
 COREUTILS-FINAL vs. COREUTILS, etc."
       ;; XXX: This doesn't handle dependencies of the final inputs, such as
       ;; libunistring, GMP, etc.
@@ -967,7 +1004,7 @@ COREUTILS-FINAL vs. COREUTILS, etc."
 ;;; GCC toolchain.
 ;;;
 
-(define (gcc-toolchain gcc)
+(define (make-gcc-toolchain gcc)
   "Return a complete toolchain for GCC."
   (package
     (name "gcc-toolchain")
@@ -989,7 +1026,10 @@ COREUTILS-FINAL vs. COREUTILS, etc."
 
                      (union-build (assoc-ref %outputs "debug")
                                   (list (assoc-ref %build-inputs
-                                                   "libc-debug")))))))
+                                                   "libc-debug")))
+                     (union-build (assoc-ref %outputs "static")
+                                  (list (assoc-ref %build-inputs
+                                                   "libc-static")))))))
 
     (native-search-paths (package-native-search-paths gcc))
     (search-paths (package-search-paths gcc))
@@ -1001,7 +1041,7 @@ COREUTILS-FINAL vs. COREUTILS, etc."
 be installed in user profiles.  This includes GCC, as well as libc (headers
 and binaries, plus debugging symbols in the 'debug' output), and Binutils.")
     (home-page "https://gcc.gnu.org/")
-    (outputs '("out" "debug"))
+    (outputs '("out" "debug" "static"))
 
     ;; The main raison d'être of this "meta-package" is (1) to conveniently
     ;; install everything that we need, and (2) to make sure ld-wrapper comes
@@ -1010,21 +1050,25 @@ and binaries, plus debugging symbols in the 'debug' output), and Binutils.")
               ("ld-wrapper" ,(car (assoc-ref %final-inputs "ld-wrapper")))
               ("binutils" ,binutils-final)
               ("libc" ,glibc-final)
-              ("libc-debug" ,glibc-final "debug")))))
+              ("libc-debug" ,glibc-final "debug")
+              ("libc-static" ,glibc-final "static")))))
 
 (define-public gcc-toolchain-4.8
-  (gcc-toolchain gcc-4.8))
+  (make-gcc-toolchain gcc-4.8))
 
 (define-public gcc-toolchain-4.9
-  (gcc-toolchain gcc-4.9))
+  (make-gcc-toolchain gcc-4.9))
+
+(define-public gcc-toolchain
+  (make-gcc-toolchain gcc-final))
 
 (define-public gcc-toolchain-5
-  (gcc-toolchain gcc-final))
+  gcc-toolchain)
 
 (define-public gcc-toolchain-6
-  (gcc-toolchain gcc-6))
+  (make-gcc-toolchain gcc-6))
 
 (define-public gcc-toolchain-7
-  (gcc-toolchain gcc-7))
+  (make-gcc-toolchain gcc-7))
 
 ;;; commencement.scm ends here

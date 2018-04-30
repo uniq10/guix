@@ -4,6 +4,10 @@
 ;;; Copyright © 2015 Tomáš Čech <sleep_walker@suse.cz>
 ;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Roel Janssen <roel@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -24,11 +28,16 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix git-download)
+  #:use-module (guix utils)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system go)
   #:use-module (gnu packages)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages golang)
   #:use-module (gnu packages groff)
   #:use-module (gnu packages gsasl)
+  #:use-module (gnu packages guile)
   #:use-module (gnu packages libidn)
   #:use-module (gnu packages openldap)
   #:use-module (gnu packages perl)
@@ -40,15 +49,15 @@
 (define-public curl
   (package
    (name "curl")
-   (replacement curl-7.54.1)
-   (version "7.53.0")
+   (version "7.57.0")
+   (replacement curl-7.59.0)
    (source (origin
             (method url-fetch)
             (uri (string-append "https://curl.haxx.se/download/curl-"
-                                version ".tar.lzma"))
+                                version ".tar.xz"))
             (sha256
              (base32
-              "1k0i31xygb804c61llhin5wbpcscg4gfqmbxcfkpdr1alwh7igrq"))))
+              "0y3qbjjcxhcvm1yawp3spfssjbskv0g6gyzld6ckif5pf8ygvxpm"))))
    (build-system gnu-build-system)
    (outputs '("out"
               "doc"))                             ;1.2 MiB of man3 pages
@@ -64,6 +73,15 @@
        ("groff" ,groff)
        ("pkg-config" ,pkg-config)
        ("python" ,python-2)))
+   (native-search-paths
+    ;; Note: This search path is respected by the `curl` command-line tool only.
+    ;; Ideally we would bake this into libcurl itself so other users can benefit,
+    ;; but it's not supported upstream due to thread safety concerns.
+    (list (search-path-specification
+           (variable "CURL_CA_BUNDLE")
+           (file-type 'regular)
+           (separator #f)                         ;single entry
+           (files '("etc/ssl/certs/ca-certificates.crt")))))
    (arguments
     `(#:configure-flags '("--with-gnutls" "--with-gssapi")
       ;; Add a phase to patch '/bin/sh' occurances in tests/runtests.pl
@@ -121,15 +139,107 @@ tunneling, and so on.")
                                   "See COPYING in the distribution."))
    (home-page "https://curl.haxx.se/")))
 
-(define curl-7.54.1
+(define-public curl-7.59.0
   (package
     (inherit curl)
-    (version "7.54.1")
+    (version "7.59.0")
     (source
       (origin
         (method url-fetch)
         (uri (string-append "https://curl.haxx.se/download/curl-"
-                            version ".tar.lzma"))
+                            version ".tar.xz"))
         (sha256
          (base32
-          "0vnv3cz0s1l5cjby86hm0x6pgzqijmdm97qa9q5px200956z6yib"))))))
+          "1z310hrjm2vmbcpkyp81dcmj9rk127zkjyawpy2pah0nz6yslkp4"))))))
+
+(define-public kurly
+  (package
+    (name "kurly")
+    (version "1.2.1")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                     (url "https://github.com/davidjpeacock/kurly.git")
+                     (commit (string-append "v" version))))
+              (file-name (git-file-name name version))
+              (sha256
+               (base32
+                "01kp33gvzxmk6ipz7323wqwmbc90q2mwzsjig8rzpqsm4kji5hi6"))))
+    (build-system go-build-system)
+    (arguments
+     `(#:import-path "github.com/davidjpeacock/kurly"
+       #:install-source? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'install-documentation
+           (lambda* (#:key import-path outputs #:allow-other-keys)
+             (let* ((source (string-append "src/" import-path))
+                    (out (assoc-ref outputs "out"))
+                    (doc (string-append out "/share/doc/" ,name "-" ,version))
+                    (man (string-append out "/share/man/man1")))
+               (with-directory-excursion source
+                 (install-file "README.md" doc)
+                 (mkdir-p man)
+                 (copy-file "meta/kurly.man"
+                            (string-append man "/kurly.1")))
+               #t))))))
+    (inputs
+     `(("go-github-com-alsm-ioprogress" ,go-github-com-alsm-ioprogress)
+       ("go-github-com-aki237-nscjar" ,go-github-com-aki237-nscjar)
+       ("go-github-com-davidjpeacock-cli" ,go-github-com-davidjpeacock-cli)))
+    (synopsis "Command-line HTTP client")
+    (description "kurly is an alternative to the @code{curl} program written in
+Go.  kurly is designed to operate in a similar manner to curl, with select
+features.  Notably, kurly is not aiming for feature parity, but common flags and
+mechanisms particularly within the HTTP(S) realm are to be expected.  kurly does
+not offer a replacement for libcurl.")
+    (home-page "https://github.com/davidjpeacock/kurly")
+    (license license:asl2.0)))
+
+(define-public guile-curl
+  (package
+   (name "guile-curl")
+   (version "0.5")
+   (source (origin
+            (method url-fetch)
+            (uri (string-append
+                  "http://www.lonelycactus.com/tarball/guile-curl-"
+                  version ".tar.gz"))
+            (sha256
+             (base32
+              "1846rxgc0ylh8768lr79irc7nwjichzb7qb7lzs2k42m0i53sc46"))))
+   (build-system gnu-build-system)
+   (arguments
+    `(#:configure-flags (list (string-append
+                               "--with-guilesitedir="
+                               (assoc-ref %outputs "out")
+                               "/share/guile/site/2.2")
+                              (string-append
+                               "-with-guileextensiondir="
+                               (assoc-ref %outputs "out")
+                               "/lib/guile/2.2/extensions"))
+      #:phases
+      (modify-phases %standard-phases
+        (add-after 'install 'patch-extension-path
+          (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out      (assoc-ref outputs "out"))
+                    (curl.scm (string-append
+                               out "/share/guile/site/2.2/curl.scm"))
+                    (curl.go  (string-append
+                               out "/lib/guile/2.2/site-ccache/curl.go"))
+                    (ext      (string-append out "/lib/guile/2.2/"
+                                             "extensions/libguile-curl")))
+               (substitute* curl.scm (("libguile-curl") ext))
+               ;; The build system does not actually compile the Scheme module.
+               ;; So we can compile it and put it in the right place in one go.
+               (invoke "guild" "compile" curl.scm "-o" curl.go)))))))
+   (native-inputs `(("pkg-config" ,pkg-config)))
+   (inputs
+    `(("curl" ,curl)
+      ("guile" ,guile-2.2)))
+   (home-page "http://www.lonelycactus.com/guile-curl.html")
+   (synopsis "Curl bindings for Guile")
+   (description "@code{guile-curl} is a project that has procedures that allow
+Guile to do client-side URL transfers, like requesting documents from HTTP or
+FTP servers.  It is based on the curl library.")
+   (license license:gpl3+)))

@@ -1,7 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2012 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -20,6 +22,7 @@
 
 (define-module (gnu packages libidn)
   #:use-module (gnu packages)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages libunistring)
   #:use-module (guix licenses)
   #:use-module (guix packages)
@@ -36,7 +39,17 @@
                                 ".tar.gz"))
             (sha256
              (base32
-              "068fjg2arlppjqqpzd714n1lf6gxkpac9v5yyvp1qwmv6nvam9s4"))))
+              "068fjg2arlppjqqpzd714n1lf6gxkpac9v5yyvp1qwmv6nvam9s4"))
+            (modules '((guix build utils)))
+            (snippet
+             '(begin
+                ;; The gnulib test-lock test is prone to writer starvation
+                ;; with our glibc@2.25, which prefers readers, so disable it.
+                ;; The gnulib commit b20e8afb0b2 should fix this once
+                ;; incorporated here.
+                (substitute* "lib/gltests/Makefile.in"
+                  (("test-lock\\$\\(EXEEXT\\) ") ""))
+                #t))))
    (build-system gnu-build-system)
 ;; FIXME: No Java and C# libraries are currently built.
    (synopsis "Internationalized string processing library")
@@ -53,48 +66,26 @@ Java libraries.")
 (define-public libidn2
   (package
     (name "libidn2")
-    (version "0.16")
+    (version "2.0.4")
     (source (origin
               (method url-fetch)
-              (uri (string-append "ftp://alpha.gnu.org/gnu/libidn/libidn2-"
-                                  version ".tar.gz"))
+              (uri (string-append "mirror://gnu/libidn/" name "-" version
+                                  ".tar.lz"))
               (sha256
                (base32
-                "13v8kh4d5nfkymai88zlw3h7k4x9khrpdpv97waf4ah8ykzrxb9g"))))
-    ;; XXX: Make sure to remove the 'create-pkg-config' phase
-    ;; below when this package is updated to >= 0.17.
+                "00f2fyw5kwr9is3cdn5h9arzxp0lnvg0z9bb9zyfs0dq81gaqim4"))))
+    (native-inputs
+     `(("lzip" ,lzip)))
     (inputs
      `(("libunistring" ,libunistring)))
     (build-system gnu-build-system)
-    (arguments
-     `(#:phases
-       (modify-phases %standard-phases
-         (add-after 'install 'create-pkgconfig-file
-           (lambda* (#:key outputs #:allow-other-keys)
-             (let* ((out (assoc-ref outputs "out"))
-                    (pkgconfig (string-append out "/lib/pkgconfig")))
-               (mkdir-p pkgconfig)
-               (call-with-output-file (string-append pkgconfig "/libidn2.pc")
-                 (lambda (port)
-                   (format port "prefix=~a
-exec_prefix=${prefix}
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
-
-Name: Libidn2
-Description: Library implementing IDNA2008 and TR46
-Version: ~a
-Libs: -L${libdir} -lidn2
-Cflags: -I${includedir}
-"
-                           out ,version)))
-               #t))))))
     (synopsis "Internationalized domain name library for IDNA2008")
     (description "Libidn2 is an internationalized domain library implementing
 the IDNA2008 specifications.   Libidn2 is believed to be a complete IDNA2008
 implementation, but has yet to be as extensively used as the original Libidn
 library.")
     (home-page "https://www.gnu.org/software/libidn/#libidn2")
+    (properties '((ftp-directory . "/gnu/libidn")))
     ;; The command-line tool 'idn2' is GPL3+, while the library is dual-licensed
     ;; GPL2+ or LGPL3+.
     (license (list gpl2+ gpl3+ lgpl3+))))

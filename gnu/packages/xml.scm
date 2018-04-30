@@ -1,21 +1,24 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013, 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Sou Bunnbu <iyzsong@gmail.com>
-;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2015, 2016, 2017, 2018 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2015 Raimon Grau <raimonster@gmail.com>
 ;;; Copyright © 2016 Mathieu Lirzin <mthl@gnu.org>
 ;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Ben Woodcroft <donttrustben@gmail.com>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
-;;; Copyright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Adriano Peluso <catonano@gmail.com>
 ;;; Copyright © 2017 Gregor Giesen <giesen@zaehlwerk.net>
+;;; Copyright © 2017 Alex Vong <alexvong1995@gmail.com>
+;;; Copyright © 2017 Petter <petter@mykolab.ch>
+;;; Copyright © 2017 Stefan Reichör <stefan@xsteve.at>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -37,7 +40,12 @@
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages gnupg)
+  #:use-module (gnu packages java)
+  #:use-module (gnu packages gnuzilla)
+  #:use-module (gnu packages haskell)
+  #:use-module (gnu packages haskell-check)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages python)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages web)
@@ -49,25 +57,23 @@
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system perl)
   #:use-module (guix build-system python)
+  #:use-module (guix build-system haskell)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages pkg-config))
 
 (define-public expat
   (package
     (name "expat")
-    (version "2.2.0")
-    (replacement expat-2.2.2)
+    (version "2.2.5")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://sourceforge/expat/expat/"
                                  version "/expat-" version ".tar.bz2"))
-             (patches
-               (search-patches "expat-CVE-2016-0718-fix-regression.patch"))
              (sha256
               (base32
-               "1zq4lnwjlw8s9mmachwfvfjf2x3lk24jm41746ykhdcvs7r0zrfr"))))
+               "1xpd78sp7m34jqrw5x13bz7kgz0n6aj15wn4zj4gfx3ypbpk5p6r"))))
     (build-system gnu-build-system)
-    (home-page "http://www.libexpat.org/")
+    (home-page "https://libexpat.github.io/")
     (synopsis "Stream-oriented XML parser library written in C")
     (description
      "Expat is an XML parser library written in C.  It is a
@@ -75,52 +81,38 @@ stream-oriented parser in which an application registers handlers for
 things the parser might find in the XML document (like start tags).")
     (license license:expat)))
 
-(define expat-2.2.2  ; Fixes CVE-2017-9233, CVE-2016-9063 and other issues.
-  (package
-    (inherit expat)
-    (version "2.2.2")
-    (source (origin
-             (method url-fetch)
-             (uri (string-append "mirror://sourceforge/expat/expat/"
-                                 version "/expat-" version ".tar.bz2"))
-             (sha256
-              (base32
-               "0ik0r39ala9c6hj4kxrk933klgwkzlkbrfhvhaykx8l1rwgr2xj3"))))))
-
 (define-public libebml
   (package
     (name "libebml")
-    (version "1.3.4")
+    (version "1.3.5")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://dl.matroska.org/downloads/"
-                           name "/" name "-" version ".tar.bz2"))
+                           name "/" name "-" version ".tar.xz"))
        (sha256
         (base32
-         "11zka6z9ncywyjr1gfm5cnii33ln7y3w6s86kiacchip2g7kw3f5"))))
+         "005a0ipqnfbsq47zrc61zszi439jw32q5xd6dc1jyb3lc0zl266q"))))
     (build-system gnu-build-system)
-    (home-page "https://www.matroska.org")
-    (synopsis "C++ libary to parse EBML files")
-    (description "libebml is a C++ library to read and write EBML (Extensible
-Binary Meta Language) files.  EBML was designed to be a simplified binary
-extension of XML for the purpose of storing and manipulating data in a
+    (home-page "https://matroska-org.github.io/libebml/")
+    (synopsis "C++ library to parse EBML files")
+    (description "libebml is a C++ library to read and write @dfn{EBML}
+(Extensible Binary Meta Language) files.  EBML was designed to be a simplified
+binary extension of XML for the purpose of storing and manipulating data in a
 hierarchical form with variable field lengths.")
     (license license:lgpl2.1)))
 
 (define-public libxml2
   (package
     (name "libxml2")
-    (version "2.9.4")
+    (version "2.9.7")
     (source (origin
              (method url-fetch)
              (uri (string-append "ftp://xmlsoft.org/libxml2/libxml2-"
                                  version ".tar.gz"))
-             (patches (search-patches "libxml2-CVE-2016-4658.patch"
-                                      "libxml2-CVE-2016-5131.patch"))
              (sha256
               (base32
-               "0g336cr0bw6dax1q48bblphmchgihx9p1pjmxdnrd6sh3qci3fgz"))))
+               "034hylzspvkm0p4bczqbf8q05a7r2disr8dz725x4bin61ymwg7n"))))
     (build-system gnu-build-system)
     (home-page "http://www.xmlsoft.org/")
     (synopsis "C parser for XML")
@@ -141,7 +133,7 @@ project (but it is usable outside of the Gnome platform).")
     (license license:x11)))
 
 (define-public python-libxml2
-  (package (inherit libxml2)
+  (package/inherit libxml2
     (name "python-libxml2")
     (build-system python-build-system)
     (arguments
@@ -172,15 +164,14 @@ project (but it is usable outside of the Gnome platform).")
 (define-public libxslt
   (package
     (name "libxslt")
-    (version "1.1.29")
+    (version "1.1.32")
     (source (origin
              (method url-fetch)
              (uri (string-append "ftp://xmlsoft.org/libxslt/libxslt-"
                                  version ".tar.gz"))
-             (patches (search-patches "libxslt-CVE-2016-4738.patch"))
              (sha256
               (base32
-               "1klh81xbm9ppzgqk339097i39b7fnpmlj8lzn8bpczl3aww6x5xm"))
+               "0q2l6m56iv3ysxgm2walhg4c9wp7q183jb328687i9zlp85csvjj"))
              (patches (search-patches "libxslt-generated-ids.patch"))))
     (build-system gnu-build-system)
     (home-page "http://xmlsoft.org/XSLT/index.html")
@@ -193,6 +184,15 @@ project (but it is usable outside of the Gnome platform).")
      "Libxslt is an XSLT C library developed for the GNOME project.  It is
 based on libxml for XML parsing, tree manipulation and XPath support.")
     (license license:x11)))
+
+(define libxslt/fixed
+  (package
+    (inherit libxslt)
+    (source (origin
+              (inherit (package-source libxslt))
+              (patches (search-patches "libxslt-CVE-2016-4738.patch"
+                                       "libxslt-CVE-2017-5029.patch"
+                                       "libxslt-generated-ids.patch"))))))
 
 (define-public perl-graph-readwrite
   (package
@@ -229,18 +229,30 @@ the @code{Graph} class and write it out in a specific file format.")
 (define-public perl-xml-atom
   (package
     (name "perl-xml-atom")
-    (version "0.41")
+    (version "0.42")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/MI/MIYAGAWA/"
                                   "XML-Atom-" version ".tar.gz"))
               (sha256
                (base32
-                "17lnkb9ymrhk2z642bhj5i2bv3q1da3kpp2lvsl0yhqshk3wdjj8"))))
+                "1wa8kfy1w4mg7kzxim4whyprkn48a2il6fap0b947zywknw4c6y6"))))
     (build-system perl-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'set-perl-search-path
+           (lambda _
+             (setenv "PERL5LIB"
+                     (string-append (getcwd) ":"
+                                    (getenv "PERL5LIB")))
+             #t)))))
     (native-inputs
      `(("perl-datetime" ,perl-datetime)
        ;; TODO package: perl-datetime-format-atom
+       ("perl-html-tagset" ,perl-html-tagset)
+       ("perl-module-build-tiny" ,perl-module-build-tiny)
+       ("perl-module-install" ,perl-module-install)
        ("perl-xml-xpath" ,perl-xml-xpath)))
     (inputs
      `(("perl-class-data-inheritable" ,perl-class-data-inheritable)
@@ -365,7 +377,7 @@ module.")
 (define-public perl-xml-libxml
   (package
     (name "perl-xml-libxml")
-    (version "2.0128")
+    (version "2.0132")
     (source
      (origin
        (method url-fetch)
@@ -373,7 +385,7 @@ module.")
                            "XML-LibXML-" version ".tar.gz"))
        (sha256
         (base32
-         "0awgd2gjzy7kn38bqblsigikzl81xsi561phkz9f9b9v3x2vmrr6"))))
+         "0xnl281hb590i287fxpl947f1s4zl9dnvc4ajvsqi89w23im453j"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-xml-namespacesupport" ,perl-xml-namespacesupport)
@@ -413,7 +425,7 @@ XML parser and the high performance DOM implementation.")
 (define-public perl-xml-libxslt
   (package
     (name "perl-xml-libxslt")
-    (version "1.95")
+    (version "1.96")
     (source
      (origin
        (method url-fetch)
@@ -421,7 +433,7 @@ XML parser and the high performance DOM implementation.")
                            "XML-LibXSLT-" version ".tar.gz"))
        (sha256
         (base32
-         "0dggycql18kfxzkb1kw3yc7gslxlrrgyyn2r2ygsylycb89j3jpi"))))
+         "0wyl8klgr65j8y8fzgwz9jlvfjwvxazna8j3dg9gksd2v973fpia"))))
     (build-system perl-build-system)
     (inputs
      `(("libxslt" ,libxslt)))
@@ -436,7 +448,7 @@ libxslt library.")
 (define-public perl-xml-namespacesupport
   (package
     (name "perl-xml-namespacesupport")
-    (version "1.11")
+    (version "1.12")
     (source
      (origin
        (method url-fetch)
@@ -444,7 +456,7 @@ libxslt library.")
                            "XML-NamespaceSupport-" version ".tar.gz"))
        (sha256
         (base32
-         "1sklgcldl3w6gn706vx1cgz6pm4y5lfgsjxnfqyk20pilgq530bd"))))
+         "1vz5pbi4lm5fhq2slrs2hlp6bnk29863abgjlcx43l4dky2rbsa7"))))
     (build-system perl-build-system)
     (home-page "http://search.cpan.org/dist/XML-NamespaceSupport")
     (synopsis "XML namespace support class")
@@ -457,14 +469,14 @@ checks.")
 (define-public perl-xml-rss
   (package
     (name "perl-xml-rss")
-    (version "1.59")
+    (version "1.60")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/S/SH/SHLOMIF/"
                                   "XML-RSS-" version ".tar.gz"))
               (sha256
                (base32
-                "0v6vfizn2psy6av057kp7fv3z3y73s6b3w56jm3zr6hlq48llsx2"))))
+                "0xw6aaqka3vqwbv152sbh6fbi8j306q1gvg7v83br8miif3mjcsb"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-module-build" ,perl-module-build)
@@ -492,7 +504,7 @@ that allow you to generate HTML from an RSS, convert between 0.9, 0.91, and
 (define-public perl-xml-sax
   (package
     (name "perl-xml-sax")
-    (version "0.99")
+    (version "1.00")
     (source
      (origin
        (method url-fetch)
@@ -500,7 +512,7 @@ that allow you to generate HTML from an RSS, convert between 0.9, 0.91, and
                            "XML-SAX-" version ".tar.gz"))
        (sha256
         (base32
-         "115dypb50w1l94y3iwihv5nkixbsv1cxiqkd93y4rk5n6s74pc1j"))))
+         "1qra9k3wszjxvsgbragl55z3qba4nri0ipmjaxfib4l6xxj6bsj5"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-xml-namespacesupport" ,perl-xml-namespacesupport)
@@ -526,7 +538,7 @@ building Perl SAX2 XML parsers, filters, and drivers.")
 (define-public perl-xml-sax-base
   (package
     (name "perl-xml-sax-base")
-    (version "1.08")
+    (version "1.09")
     (source
      (origin
        (method url-fetch)
@@ -534,7 +546,7 @@ building Perl SAX2 XML parsers, filters, and drivers.")
                            "XML-SAX-Base-" version ".tar.gz"))
        (sha256
         (base32
-         "17i161rq1ngjlk0c8vdkrkkc56y1pf51k1g54y28py0micqp0qk6"))))
+         "1l1ai9g1z11ja7mvnfl5mj346r13jyckbg9qlw6c2izglidkbjv6"))))
     (build-system perl-build-system)
     (home-page "http://search.cpan.org/dist/XML-SAX-Base")
     (synopsis "Base class for SAX Drivers and Filters")
@@ -548,7 +560,7 @@ callback.")
 (define-public perl-xml-simple
   (package
     (name "perl-xml-simple")
-    (version "2.22")
+    (version "2.25")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -556,7 +568,7 @@ callback.")
                    version ".tar.gz"))
              (sha256
               (base32
-               "0jgbk30jizafpl7078jhw1di1yh08gf8d85dsvjllr595vr0widr"))))
+               "1y6vh328zrh085d40852v4ij2l4g0amxykswxd1nfhd2pspds7sk"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-xml-parser" ,perl-xml-parser)
@@ -672,14 +684,14 @@ a schema.")
 (define-public perl-xml-compile-cache
   (package
     (name "perl-xml-compile-cache")
-    (version "1.05")
+    (version "1.06")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/MA/MARKOV/"
                                   "XML-Compile-Cache-" version ".tar.gz"))
               (sha256
                (base32
-                "0xbwlszhi9hg8sxm5ylglm2qvnb689i595p913awrj2g4mp9yfsw"))))
+                "181qf1s7ymgi7saph3cf9p6dbxkxyh1ja23na4dchhi8v5mi66sr"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-log-report" ,perl-log-report)
@@ -695,14 +707,14 @@ a schema.")
 (define-public perl-xml-compile-soap
   (package
     (name "perl-xml-compile-soap")
-    (version "3.21")
+    (version "3.24")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/MA/MARKOV/"
                                   "XML-Compile-SOAP-" version ".tar.gz"))
               (sha256
                (base32
-                "0rxidh7kjyhnw2y789bqbwccnp8n0m3xskn524y9c752s64qpjcz"))))
+                "0pkcph562l2ij7rlwlvm58v6y062qsbydfpaz2qnph2ixqy0xfd1"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-file-slurp-tiny" ,perl-file-slurp-tiny)
@@ -812,7 +824,7 @@ the form of functions.")
 (define-public pugixml
   (package
     (name "pugixml")
-    (version "1.8.1")
+    (version "1.9")
     (source
      (origin
       (method url-fetch)
@@ -820,13 +832,13 @@ the form of functions.")
                           version "/pugixml-" version ".tar.gz"))
       (sha256
        (base32
-        "0fcgggry5x5bn0zhb09ij9hb0p45nb0sv0d9fw3cm1cf62hp9n80"))))
+        "19nv3zhik3djp4blc4vrjwrl8dfhzmal8b21sq7y907nhddx6mni"))))
     (build-system cmake-build-system)
     (arguments
      `(#:configure-flags '("-DCMAKE_CXX_FLAGS=-shared -fPIC"
                            "-DCMAKE_C_FLAGS=-shared -fPIC")
        #:tests? #f))                    ; no tests
-    (home-page "http://pugixml.org")
+    (home-page "https://pugixml.org")
     (synopsis "Light-weight, simple and fast XML parser for C++ with XPath support")
     (description
      "pugixml is a C++ XML processing library, which consists of a DOM-like
@@ -841,13 +853,13 @@ parsing/saving.")
 (define-public python-pyxb
   (package
     (name "python-pyxb")
-    (version "1.2.5")
+    (version "1.2.6")
     (source (origin
               (method url-fetch)
               (uri (pypi-uri "PyXB" version))
               (sha256
                (base32
-                "0rzzwibfqa28gxgcxx4cybx1qcg0g6fand06ykj3gz7z5kp653sf"))))
+                "1d17pyixbfvjyi2lb0cfp0ch8wwdf44mmg3r5pwqhyyqs66z601a"))))
     (build-system python-build-system)
     (home-page "http://pyxb.sourceforge.net/")
     (synopsis "Python XML Schema Bindings")
@@ -899,14 +911,14 @@ XSL-T processor.  It also performs any necessary post-processing.")
 (define-public xmlsec
   (package
     (name "xmlsec")
-    (version "1.2.20")
+    (version "1.2.25")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://www.aleksey.com/xmlsec/download/"
                                  name "1-" version ".tar.gz"))
              (sha256
               (base32
-               "01bkbv2y3x8d1sf4dcln1x3y2jyj391s3208d9a2ndhglly5j89j"))))
+               "1lpwj8dxwhha54sby0v5axjk79h56jnhjjiwiasbbk15vwzahz4n"))))
     (build-system gnu-build-system)
     (propagated-inputs ; according to xmlsec1.pc
      `(("libxml2" ,libxml2)
@@ -917,7 +929,7 @@ XSL-T processor.  It also performs any necessary post-processing.")
        ("libltdl" ,libltdl)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
-    (home-page "http://www.libexpat.org/")
+    (home-page "https://www.aleksey.com/xmlsec/")
     (synopsis "XML Security Library")
     (description
      "The XML Security Library is a C library based on Libxml2.  It
@@ -927,21 +939,40 @@ Libxml2).")
     (license (license:x11-style "file://COPYING"
                                 "See 'COPYING' in the distribution."))))
 
+(define-public xmlsec-nss
+  (package
+    (inherit xmlsec)
+    (name "xmlsec-nss")
+    (inputs
+     `(("nss" ,nss)
+       ("libltdl" ,libltdl)))
+    (synopsis "XML Security Library (using NSS instead of GnuTLS)")))
+
 (define-public minixml
   (package
     (name "minixml")
-    (version "2.10")
+    (version "2.11")
     (source (origin
-              (method url-fetch)
+              (method url-fetch/tarbomb)
               (uri (string-append "https://github.com/michaelrsweet/mxml/"
-                                  "releases/download/release-" version
+                                  "releases/download/v" version
                                   "/mxml-" version ".tar.gz"))
               (sha256
                (base32
-                "14bqfq4lymhb31snz6wsvzhlavy0573v1nki1lbngiyxcj5zazr6"))))
+                "13xsw8vvkxd10vca42ccdyl9rs64lcvhbfz57aknpl3xcfn8mxma"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:tests? #f))  ;no "check" target
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'fix-permissions
+           ;; FIXME: url-fetch/tarbomb resets all permissions to 555/444.
+           (lambda _
+             (for-each
+              (lambda (file)
+                (chmod file #o644))
+              (find-files "doc" "\\."))
+             #t)))
+       #:tests? #f))                    ; tests are run during build
     (home-page "https://michaelrsweet.github.io/mxml")
     (synopsis "Small XML parsing library")
     (description
@@ -962,6 +993,7 @@ UTF-8 and UTF-16 encoding.")
                                   version "/tinyxml_"
                                   (string-join (string-split version #\.) "_")
                                   ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
                 "14smciid19lvkxqznfig77jxn5s4iq3jpb47vh5a6zcaqp7gvg8m"))
@@ -975,12 +1007,12 @@ UTF-8 and UTF-16 encoding.")
          (delete 'configure)
          (add-after 'build 'build-shared-library
            (lambda _
-             (zero? (system* "g++" "-Wall" "-O2" "-shared" "-fpic"
-                             "tinyxml.cpp" "tinyxmlerror.cpp"
-                             "tinyxmlparser.cpp" "tinystr.cpp"
-                             "-o" "libtinyxml.so"))))
+             (invoke "g++" "-Wall" "-O2" "-shared" "-fpic"
+                     "tinyxml.cpp" "tinyxmlerror.cpp"
+                     "tinyxmlparser.cpp" "tinystr.cpp"
+                     "-o" "libtinyxml.so")))
          (replace 'check
-           (lambda _ (zero? (system "./xmltest"))))
+           (lambda _ (invoke "./xmltest")))
          (replace 'install
            (lambda* (#:key outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
@@ -1029,9 +1061,10 @@ C++ programming language.")
        (method url-fetch)
        (uri (string-append "https://github.com/leethomason/tinyxml2/archive/"
                            version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-       (base32
-        "083z4r4khcndxi9k840lcr48sqxvar4gpsnf749xfdn1bkr8xcql"))))
+        (base32
+         "083z4r4khcndxi9k840lcr48sqxvar4gpsnf749xfdn1bkr8xcql"))))
     (build-system cmake-build-system)
     (arguments
      `(#:tests? #f))    ; no tests
@@ -1075,6 +1108,61 @@ match and extract data, and elements can be added, deleted or modified using
 XSLT and EXSLT.")
    (license license:x11)))
 
+(define-public html-xml-utils
+ (package
+   (name "html-xml-utils")
+   (version "7.6")
+   (source
+    (origin
+      (method url-fetch)
+      (uri (string-append
+            "https://www.w3.org/Tools/HTML-XML-utils/html-xml-utils-"
+            version ".tar.gz"))
+      (sha256
+       (base32
+        "0l97ps089byy62838wf2jwvvc465iw29z9r5kwmwcq7f3bn11y3m"))))
+   (build-system gnu-build-system)
+   (home-page "https://www.w3.org/Tools/HTML-XML-utils/")
+   (synopsis "Command line utilities to manipulate HTML and XML files")
+   (description "HTML-XML-utils provides a number of simple utilities for
+manipulating and converting HTML and XML files in various ways.  The suite
+consists of the following tools:
+
+@itemize
+ @item @command{asc2xml} convert from @code{UTF-8} to @code{&#nnn;} entities
+ @item @command{xml2asc} convert from @code{&#nnn;} entities to @code{UTF-8}
+ @item @command{hxaddid} add IDs to selected elements
+ @item @command{hxcite} replace bibliographic references by hyperlinks
+ @item @command{hxcite} mkbib - expand references and create bibliography
+ @item @command{hxclean} apply heuristics to correct an HTML file
+ @item @command{hxcopy} copy an HTML file while preserving relative links
+ @item @command{hxcount} count elements and attributes in HTML or XML files
+ @item @command{hxextract} extract selected elements
+ @item @command{hxincl} expand included HTML or XML files
+ @item @command{hxindex} create an alphabetically sorted index
+ @item @command{hxmkbib} create bibliography from a template
+ @item @command{hxmultitoc} create a table of contents for a set of HTML files
+ @item @command{hxname2id} move some @code{ID=} or @code{NAME=} from A
+elements to their parents
+ @item @command{hxnormalize} pretty-print an HTML file
+ @item @command{hxnsxml} convert output of hxxmlns back to normal XML
+ @item @command{hxnum} number section headings in an HTML file
+ @item @command{hxpipe} convert XML to a format easier to parse with Perl or AWK
+ @item @command{hxprintlinks} number links and add table of URLs at end of an HTML file
+ @item @command{hxprune} remove marked elements from an HTML file
+ @item @command{hxref} generate cross-references
+ @item @command{hxselect} extract elements that match a (CSS) selector
+ @item @command{hxtoc} insert a table of contents in an HTML file
+ @item @command{hxuncdata} replace CDATA sections by character entities
+ @item @command{hxunent} replace HTML predefined character entities to @code{UTF-8}
+ @item @command{hxunpipe} convert output of pipe back to XML format
+ @item @command{hxunxmlns} replace \"global names\" by XML Namespace prefixes
+ @item @command{hxwls} list links in an HTML file
+ @item @command{hxxmlns} replace XML Namespace prefixes by \"global names\"
+@end itemize
+")
+   (license license:expat)))
+
 (define-public xlsx2csv
   (package
     (name "xlsx2csv")
@@ -1110,14 +1198,14 @@ files.  It is designed to be fast and to handle large input files.")
 (define-public python-defusedxml
   (package
     (name "python-defusedxml")
-    (version "0.4.1")
+    (version "0.5.0")
     (source
      (origin
        (method url-fetch)
        (uri (pypi-uri "defusedxml" version))
        (sha256
         (base32
-         "0y147zy3jqmk6ly7fbhqmzn1hf41xcb53f2vcc3m8x4ba5d1smfd"))))
+         "1x54n0h8hl92vvwyymx883fbqpqjwn2mc8fb383bcg3z9zwz5mr4"))))
     (build-system python-build-system)
     (home-page "https://bitbucket.org/tiran/defusedxml")
     (synopsis "XML bomb protection for Python stdlib modules")
@@ -1163,14 +1251,14 @@ libxls cannot write Excel files.")
 (define-public freexl
   (package
     (name "freexl")
-    (version "1.0.2")
+    (version "1.0.5")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://www.gaia-gis.it/gaia-sins/"
                                   name  "-" version ".tar.gz"))
               (sha256
                (base32
-                "17a0yrjb0gln7819j0vp7y25imhvwpil2b0rm44mwgzml0a4i6mk"))))
+                "03bmwq6hngmzwpqpb7c2amqlspz4q69iv96nlf0f5c0qs98b3j9x"))))
     (build-system gnu-build-system)
     (home-page "https://www.gaia-gis.it/fossil/freexl/index")
     (synopsis "Read Excel files")
@@ -1221,7 +1309,8 @@ SAX2 APIs.")
                                   version ".zip"))
               (sha256
                (base32
-                "0w19k1awslmihpwsxwjbg89hv0vjhk4k3i0vrfchy3mqknd988y5"))))
+                "0w19k1awslmihpwsxwjbg89hv0vjhk4k3i0vrfchy3mqknd988y5"))
+              (patches (search-patches "java-simple-xml-fix-tests.patch"))))
     (build-system ant-build-system)
     (arguments
      `(#:build-target "build"
@@ -1240,3 +1329,754 @@ This framework aids the development of XML systems with minimal effort and
 reduced errors.  It offers full object serialization and deserialization,
 maintaining each reference encountered.")
     (license license:asl2.0)))
+
+(define-public perl-xml-xpathengine
+  (package
+    (name "perl-xml-xpathengine")
+    (version "0.14")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://cpan/authors/id/M/MI/MIROD/"
+                                  "XML-XPathEngine-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0r72na14bmsxfd16s9nlza155amqww0k8wsa9x2a3sqbpp5ppznj"))))
+    (build-system perl-build-system)
+    (home-page "http://search.cpan.org/dist/XML-XPathEngine/")
+    (synopsis "Re-usable XPath engine for DOM-like trees")
+    (description
+     "This module provides an XPath engine, that can be re-used by other
+modules/classes that implement trees.
+
+In order to use the XPath engine, nodes in the user module need to mimick DOM
+nodes.  The degree of similitude between the user tree and a DOM dictates how
+much of the XPath features can be used.  A module implementing all of the DOM
+should be able to use this module very easily (you might need to add the
+@code{cmp} method on nodes in order to get ordered result sets).")
+    (license license:perl-license)))
+
+(define-public perl-tree-xpathengine
+  (package
+    (name "perl-tree-xpathengine")
+    (version "0.05")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://cpan/authors/id/M/MI/MIROD/"
+                                  "Tree-XPathEngine-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1vbbw8wxm79r3xbra8narw1dqvm34510q67wbmg2zmj6zd1k06r9"))))
+    (build-system perl-build-system)
+    (home-page "http://search.cpan.org/dist/Tree-XPathEngine/")
+    (synopsis "Re-usable XPath engine")
+    (description
+     "This module provides an XPath engine, that can be re-used by other
+module/classes that implement trees.  It is designed to be compatible with
+@code{Class::XPath}, ie it passes its tests if you replace @code{Class::XPath}
+by @code{Tree::XPathEngine}.")
+    (license license:perl-license)))
+
+(define-public perl-xml-filter-buffertext
+  (package
+    (name "perl-xml-filter-buffertext")
+    (version "1.01")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/R/RB/RBERJON/"
+                           "XML-Filter-BufferText-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0p5785c1dsk6kdp505vapb5h54k8krrz8699hpgm9igf7dni5llg"))))
+    (build-system perl-build-system)
+    (propagated-inputs
+     `(("perl-xml-sax-base" ,perl-xml-sax-base)))
+    (home-page "http://search.cpan.org/dist/XML-Filter-BufferText/")
+    (synopsis "Filter to put all characters() in one event")
+    (description "This is a very simple filter.  One common cause of
+grief (and programmer error) is that XML parsers aren't required to provide
+character events in one chunk.  They can, but are not forced to, and most
+don't.  This filter does the trivial but oft-repeated task of putting all
+characters into a single event.")
+    (license license:perl-license)))
+
+(define-public perl-xml-sax-writer
+  (package
+    (name "perl-xml-sax-writer")
+    (version "0.57")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "mirror://cpan/authors/id/P/PE/PERIGRIN/"
+                    "XML-SAX-Writer-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1w1cd1ybxdvhmnxdlkywi3x5ka3g4md42kyynksjc09vyizd0q9x"))))
+    (build-system perl-build-system)
+    (propagated-inputs
+     `(("perl-libxml" ,perl-libxml)
+       ("perl-xml-filter-buffertext" ,perl-xml-filter-buffertext)
+       ("perl-xml-namespacesupport" ,perl-xml-namespacesupport)
+       ("perl-xml-sax-base" ,perl-xml-sax-base)))
+    (home-page "http://search.cpan.org/dist/XML-SAX-Writer/")
+    (synopsis "SAX2 XML Writer")
+    (description
+     "This is an XML writer that understands SAX2.  It is based on
+@code{XML::Handler::YAWriter}.")
+    (license license:perl-license)))
+
+(define-public perl-xml-handler-yawriter
+  (package
+    (name "perl-xml-handler-yawriter")
+    (version "0.23")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/K/KR/KRAEHE/"
+                           "XML-Handler-YAWriter-" version ".tar.gz"))
+       (sha256
+        (base32
+         "11d45a1sz862va9rry3p2m77pwvq3kpsvgwhc5ramh9mbszbnk77"))))
+    (build-system perl-build-system)
+    (propagated-inputs
+     `(("perl-libxml" ,perl-libxml)))
+    (home-page "http://search.cpan.org/dist/XML-Handler-YAWriter/")
+    (synopsis "Yet another Perl SAX XML Writer")
+    (description "YAWriter implements Yet Another @code{XML::Handler::Writer}.
+It provides a flexible escaping technique and pretty printing.")
+    (license license:perl-license)))
+
+(define-public perl-xml-twig
+  (package
+    (name "perl-xml-twig")
+    (version "3.52")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://cpan/authors/id/M/MI/MIROD/"
+                                  "XML-Twig-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1bc0hrz4jp6199hi29sdxmb9gyy45whla9hd19yqfasgq8k5ixzy"))))
+    (build-system perl-build-system)
+    (inputs
+     `(("expat" ,expat)))
+    (propagated-inputs
+     `(("perl-html-tidy" ,perl-html-tidy)
+       ("perl-html-tree" ,perl-html-tree)
+       ("perl-io-captureoutput" ,perl-io-captureoutput)
+       ("perl-io-string" ,perl-io-string)
+       ("perl-io-stringy" ,perl-io-stringy)
+       ("perl-libxml" ,perl-libxml)
+       ("perl-xml-filter-buffertext" ,perl-xml-filter-buffertext)
+       ("perl-xml-handler-yawriter" ,perl-xml-handler-yawriter)
+       ("perl-xml-parser" ,perl-xml-parser)
+       ("perl-xml-sax-writer" ,perl-xml-sax-writer)
+       ("perl-xml-simple" ,perl-xml-simple)
+       ("perl-xml-xpathengine" ,perl-xml-xpathengine)
+       ("perl-test-pod" ,perl-test-pod)
+       ("perl-tree-xpathengine" ,perl-tree-xpathengine)))
+    (home-page "http://search.cpan.org/dist/XML-Twig/")
+    (synopsis "Perl module for processing huge XML documents in tree mode")
+    (description "@code{XML::Twig} is an XML transformation module.  Its
+strong points: can be used to process huge documents while still being in tree
+mode; not bound by DOM or SAX, so it is very perlish and offers a very
+comprehensive set of methods; simple to use; DWIMs as much as possible.
+
+What it doesn't offer: full SAX support (it can export SAX, but only reads
+XML), full XPath support (unless you use @code{XML::Twig::XPath}), nor DOM
+support.")
+    (license license:perl-license)))
+
+;; TODO: Debian builds several jars out of this: jaxp-1.4.jar,
+;; xml-apis.jar and xml-apis-1.4.01.jar.
+(define-public java-jaxp
+  (package
+    (name "java-jaxp")
+    (version "1.4.01")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://apache/xerces/xml-commons/source/"
+                           "xml-commons-external-" version "-src.tar.gz"))
+       (sha256
+        (base32 "0rhq32a7dl9yik7zx9h0naz2iz068qgcdiayak91wp4wr26xhjyk"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jaxp.jar"
+       #:jdk ,icedtea-8
+       #:source-dir ".."
+       #:tests? #f)); no tests
+    (home-page "http://xerces.apache.org/xml-commons/")
+    (synopsis "Java XML parser and transformer APIs (DOM, SAX, JAXP, TrAX)")
+    (description "Jaxp from the Apache XML Commons project is used by
+the Xerces-J XML parser and Xalan-J XSLT processor and specifies these APIs:
+
+@itemize
+@item Document Object Model (DOM)
+@item Simple API for XML (SAX)
+@item Java APIs for XML Processing (JAXP)
+@item Transformation API for XML (TrAX)
+@item Document Object Model (DOM) Load and Save
+@item JSR 206 Java API for XML Processing
+@end itemize")
+    (license (list license:asl2.0
+                   license:w3c ;; Files under org.w3c
+                   license:public-domain)))) ;; org.xml.sax
+
+(define-public java-apache-xml-commons-resolver
+  (package
+    (name "java-apache-xml-commons-resolver")
+    (version "1.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://apache/xerces/xml-commons/"
+                           "xml-commons-resolver-" version ".tar.gz"))
+       (sha256
+        (base32 "1zhy4anc3fg9f8y348bj88vmab15aavrg6nf419ifb25asyygnsm"))
+       (modules '((guix build utils)))
+       (snippet
+        '(begin
+           (for-each delete-file (find-files "." ".*\\.(jar|zip)"))
+           #t))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name (string-append "xml-resolver.jar")
+       #:tests? #f)); no tests
+    (inputs
+     `(("java-junit" ,java-junit)))
+    (home-page "http://xerces.apache.org/xml-commons/")
+    (synopsis "Catalog-based entity and URI resolution")
+    (description "The resolver class implements the full semantics of OASIS Technical
+Resolution 9401:1997 (Amendment 2 to TR 9401) catalogs and the 06 Aug
+2001 Committee Specification of OASIS XML Catalogs.
+
+It also includes a framework of classes designed to read catalog files
+in a number of formats:
+
+@itemize
+@item The plain-text flavor described by TR9401.
+@item The XCatalog XML format defined by John Cowan
+@item The XML Catalog format defined by the OASIS Entity Resolution
+      Technical Committee.
+@end itemize")
+    (license license:asl2.0)))
+
+;; Jaxen requires java-dom4j and java-xom that in turn require jaxen.
+;; This package is a bootstrap version without dependencies on dom4j and xom.
+(define java-jaxen-bootstrap
+  (package
+    (name "java-jaxen-bootstrap")
+    (version "1.1.6")
+    (source (origin
+              (method url-fetch)
+              ;; No release on github
+              (uri (string-append "https://repo1.maven.org/maven2/jaxen/jaxen/"
+                                  version "/jaxen-" version "-sources.jar"))
+              (sha256
+               (base32
+                "18pa8mks3gfhazmkyil8wsp6j1g1x7rggqxfv4k2mnixkrj5x1kx"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jaxen.jar"
+       #:source-dir "src"
+       #:tests? #f; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'remove-dom4j
+           (lambda _
+             (delete-file-recursively "src/org/jaxen/dom4j")
+             (delete-file-recursively "src/org/jaxen/xom")
+             #t)))))
+    (inputs
+     `(("java-jdom" ,java-jdom)))
+    (home-page "https://github.com/jaxen-xpath/jaxen")
+    (synopsis "XPath library")
+    (description "Jaxen is an XPath library written in Java.  It is adaptable
+to many different object models, including DOM, XOM, dom4j, and JDOM.  It is
+also possible to write adapters that treat non-XML trees such as compiled
+Java byte code or Java beans as XML, thus enabling you to query these trees
+with XPath too.")
+    (license license:bsd-3)))
+
+(define-public java-jaxen
+  (package
+    (inherit java-jaxen-bootstrap)
+    (name "java-jaxen")
+    (inputs
+     `(("java-jdom" ,java-jdom)
+       ("java-xom" ,java-xom)
+       ("java-dom4j" ,java-dom4j)))))
+
+(define-public java-xom
+  (package
+    (name "java-xom")
+    (version "127")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/elharo/xom/archive/XOM_"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "04m69db1irqja12a9rfxrac8cbn9psqa1k136wh4ls4pxfsdr5wg"))
+              (modules '((guix build utils)))
+              (snippet
+               '(begin
+                  (for-each delete-file
+                            (find-files "." "\\.jar$"))
+                  #t))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "xom.jar"
+       #:jdk ,icedtea-8
+       #:tests? #f; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'fix-tagsoup-dep
+           (lambda _
+             ;; FIXME: Where is tagsoup source?
+             (delete-file "src/nu/xom/tools/XHTMLJavaDoc.java")
+             #t)))))
+    (inputs
+     `(("java-jdom" ,java-jdom)
+       ("java-junit" ,java-junit)
+       ("java-classpathx-servletapi" ,java-classpathx-servletapi)
+       ("java-jaxen-bootstrap" ,java-jaxen-bootstrap)
+       ("java-xerces" ,java-xerces)))
+    (home-page "https://xom.nu/")
+    (synopsis "XML Object Model")
+    (description "XOM is a new XML Object Model for processing XML with Java 
+that strives for correctness and simplicity.")
+    ;; 2.1 only
+    (license license:lgpl2.1)))
+
+(define-public java-xsdlib
+  (package
+    (name "java-xsdlib")
+    (version "2013.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://central.maven.org/maven2/com/sun/msv/"
+                                  "datatype/xsd/xsdlib/" version "/xsdlib-"
+                                  version "-sources.jar"))
+              (sha256
+               (base32
+                "185i48p1xp09wbq03i9zgfl701qa262rq46yf4cajzmk3336kqim"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:tests? #f; no tests
+       #:jar-name "xsdlib.jar"
+       #:jdk ,icedtea-8))
+    (inputs
+     `(("java-xerces" ,java-xerces)))
+    (home-page "http://central.maven.org/maven2/com/sun/msv/datatype/xsd/xsdlib/")
+    (synopsis "Sun Multi-Schema Validator")
+    (description "Xsdlib contains an implementation of sun.com.msv, an XML
+validator.")
+    (license license:bsd-2)))
+
+(define-public java-xpp3
+  (package
+    (name "java-xpp3")
+    (version "1.1.4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://www.extreme.indiana.edu/dist/"
+                                  "java-repository/xpp3/distributions/xpp3-"
+                                  version "_src.tgz"))
+              (sha256
+               (base32
+                "1b99zrhyij5qwyhilyjdl1ykxvhk902vsvflh6gx4fir8hfvdl5p"))
+              (modules '((guix build utils)))
+              (snippet
+                '(begin ;; Delete bundled jar archives.
+                   (for-each delete-file (find-files "." ".*\\.jar"))
+                   #t))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:tests? #f; no tests
+       #:build-target "jar"
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'install (install-jars "build")))))
+    (home-page "http://www.extreme.indiana.edu/xgws/xsoap/xpp/")
+    (synopsis "Streaming pull XML parser")
+    (description "Xml Pull Parser (in short XPP) is a streaming pull XML
+parser and should be used when there is a need to process quickly and
+efficiently all input elements (for example in SOAP processors). This
+package is a stable XmlPull parsing engine that is based on ideas from XPP
+and in particular XPP2 but completely revised and rewritten to take the best
+advantage of JIT JVMs.")
+    (license (license:non-copyleft "file://LICENSE.txt"))))
+
+(define-public java-xmlpull2
+  (package
+    (name "java-xmlpull2")
+    (version "2.1.10")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://www.extreme.indiana.edu/xgws/xsoap/"
+                                  "PullParser/PullParser" version ".tgz"))
+              (sha256
+               (base32
+                "1kw9nhyqb7bzhn2zjbwlpi5vp5rzj89amzi3hadw2acyh2dmd0md"))
+              (modules '((guix build utils)))
+              (snippet
+                '(begin ;; Delete bundled jar archives.
+                   (for-each delete-file (find-files "." ".*\\.jar"))
+                   #t))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:tests? #f; no tests
+       #:build-target "impl"
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'install (install-jars "build/lib")))))
+    (home-page "http://www.extreme.indiana.edu/xgws/xsoap/xpp/")
+    (synopsis "Streaming pull XML parser")
+    (description "Xml Pull Parser (in short XPP) is a streaming pull XML
+parser and should be used when there is a need to process quickly and
+efficiently all input elements (for example in SOAP processors).  This
+package is in maintenance mode.")
+    (license (license:non-copyleft "file:///LICENSE.txt"))))
+
+(define-public java-dom4j
+  (package
+    (name "java-dom4j")
+    (version "2.1.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/dom4j/dom4j/archive/"
+                                  "version-" version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "101drpnw6agmcvsi1jrfi0kn97r7liazrh5jbrip9vx26axn2fx9"))
+              (modules '((guix build utils)))
+              (snippet
+                '(begin ;; Delete bundled jar archives.
+                   (for-each delete-file (find-files "." ".*\\.jar"))
+                   #t))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "dom4j.jar"
+       #:jdk ,icedtea-8
+       #:source-dir "src/main/java"
+       ;; FIXME: Requires xalan, but xalan depends on java-cup which has a
+       ;; dependency on itself through jflex.
+       #:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'copy-jaxen-sources
+           ;; java-jaxen-bootstrap is not enough. These files have a circular
+           ;; dependency and there is no subset of dom4j that would allow
+           ;; breaking the circle.
+           (lambda* (#:key inputs #:allow-other-keys)
+             (mkdir-p "jaxen-sources")
+             (with-directory-excursion "jaxen-sources"
+               (system* "jar" "xf" (assoc-ref inputs "java-jaxen-sources")))
+             (mkdir-p "src/main/java/org/jaxen/dom4j")
+             (copy-file "jaxen-sources/org/jaxen/dom4j/DocumentNavigator.java"
+                        "src/main/java/org/jaxen/dom4j/DocumentNavigator.java")
+             (copy-file "jaxen-sources/org/jaxen/dom4j/Dom4jXPath.java"
+                        "src/main/java/org/jaxen/dom4j/Dom4jXPath.java")
+             #t))
+         (add-before 'build 'fix-old-xpp2
+           (lambda _
+             ;; This package normally depends on xpp2 2.0, but version 2.1.10
+             ;; is the only version whose source code is published.
+             (substitute* "src/main/java/org/dom4j/xpp/ProxyXmlStartTag.java"
+               (("public void resetStartTag")
+                "public boolean removeAttributeByRawName(String name) {\n
+  return false;\n
+}\n
+public boolean removeAttributeByName(String name, String name2) {\n
+  return false;\n
+}\n\npublic void resetStartTag")
+               (("Atttribute") "Attribute"))
+             #t)))))
+    (inputs
+     `(("java-jaxen-bootstrap" ,java-jaxen-bootstrap)
+       ("java-jaxen-sources" ,(package-source java-jaxen-bootstrap))
+       ("java-xmlpull2" ,java-xmlpull2)
+       ("java-xpp3" ,java-xpp3)
+       ("java-xsdlib" ,java-xsdlib)))
+    (native-inputs
+     `(("java-testng" ,java-testng)
+       ("java-xerces" ,java-xerces)))
+    (home-page "https://dom4j.github.io/")
+    (synopsis "Flexible XML framework for Java")
+    (description "Dom4j is a flexible XML framework for Java.  DOM4J works
+with DOM, SAX, XPath, and XSLT.  It can parse large XML documents with very
+low memory footprint.")
+    ;; some BSD-like 5-clause license
+    (license (license:non-copyleft "file://LICENSE"))))
+
+(define-public java-kxml2
+  (package
+    (name "java-kxml2")
+    (version "2.4.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/stefanhaustein/kxml2/archive/v"
+                                  version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "17kh04qf3vll1xx6sv06xlazw2hxa8qdmzyday9r6z2191jlj74w"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "kxml2.jar"
+       #:source-dir "src/main/java"
+       #:test-include (list "TestWb.java")
+       ;; Test failure: it was expected to get an XML entity but got the
+       ;; equivalent Unicode character instead.
+       #:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'copy-resources
+           (lambda _
+             (copy-recursively "src/main/resources" "build/classes"))))))
+    (inputs
+     `(("java-xpp3" ,java-xpp3)))
+    (native-inputs
+     `(("java-junit" ,java-junit)))
+    (home-page "http://kxml.org")
+    (synopsis "XML pull parser")
+    (description "kXML is a small XML pull parser, specially designed for
+constrained environments such as Applets, Personal Java or devices compliant
+with the Mobile Information Device Profile (MIDP).")
+    (license license:expat)))
+
+(define-public java-stax
+  (package
+    (name "java-stax")
+    (version "1.2.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://repo1.maven.org/maven2/stax/stax/"
+                                  version "/stax-" version "-sources.jar"))
+              (sha256
+               (base32
+                "04ba4qvbrps45j8bldbakxq31k7gjlsay9pppa9yn13fr00q586z"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "stax.jar"
+       #:tests? #f; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'fix-utf8
+           (lambda _
+             ;; This file is ISO-8859-1 but java expects UTF-8.
+             ;; Remove special characters in comments.
+             (with-fluids ((%default-port-encoding "ISO-8859-1"))
+               (substitute* "src/com/wutka/dtd/Scanner.java"
+                 (("//.*") "\n")))
+             #t)))))
+    (home-page "https://repo1.maven.org/maven2/stax/stax/")
+    (synopsis "Streaming API for XML")
+    (description "This package provides the reference implementation of the
+@dfn{Streaming API for XML} (StAX).  It is used for streaming XML data to
+and from a Java application.  It provides a standard pull parser interface.")
+    (license license:asl2.0)))
+
+(define-public java-jettison
+  (package
+    (name "java-jettison")
+    (version "1.3.7")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/codehaus/jettison/archive/"
+                                  "jettison-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0rdhfyxywvga5wiwasc04iqnxyixn3rd8wj01c9ymhvwc3h6dpqg"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jettison.jar"
+       #:source-dir "src/main/java"
+       #:test-exclude (list "**/Abstract*.java"
+                            ;; Abstract classes
+                            "**/DOMTest.java"
+                            "**/BadgerFishDOMTest.java"
+                            "**/MappedDOMTest.java")))
+    (native-inputs
+     `(("java-junit" ,java-junit)))
+    (home-page "https://github.com/codehaus/jettison")
+    (synopsis "StAX implementation for JSON")
+    (description "Jettison is a Java library for converting XML to JSON and
+vice-versa with the help of the @dfn{Streaming API for XML} (StAX).  It
+implements @code{XMLStreamWriter} and @code{XMLStreamReader} and supports
+@code{Mapped} and @code{BadgerFish} conventions.")
+    (license license:asl2.0)))
+
+(define-public java-jdom2
+  (package
+    (name "java-jdom")
+    (version "2.0.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/hunterhacker/jdom/archive/JDOM-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "0p8n7inqq2a25wk9ljinl3ixlx1x2la9qaman8ngd75xxjb02yc1"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:build-target "package"
+       #:tests? #f; tests are run as part of the build process
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'install
+           (install-jars "build")))))
+    (home-page "http://jdom.org/")
+    (synopsis "Access, manipulate, and output XML data")
+    (description "Jdom is a Java-based solution for accessing, manipulating, and
+outputting XML data from Java code.")
+    (license license:bsd-4)))
+
+(define-public java-xstream
+  (package
+    (name "java-xstream")
+    (version "1.4.10")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                     "https://github.com/x-stream/xstream/archive/XSTREAM_"
+                     (string-map (lambda (x) (if (eq? x #\.) #\_ x)) version)
+                     ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "10zbkam05wirxipvgrjimdwsyqrwl4a0n7lhvxbsssqpv727469g"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "xstream.jar"
+       ;; FIXME: Tests are not in a java subdirectory as assumed by ant-build-system
+       #:tests? #f
+       #:jdk ,icedtea-8
+       #:source-dir "xstream/src/java"))
+    (inputs
+     `(("java-jdom" ,java-jdom)
+       ("java-jdom2" ,java-jdom2)
+       ("java-cglib" ,java-cglib)
+       ("java-joda-time" ,java-joda-time)
+       ("java-jettison" ,java-jettison)
+       ("java-xom" ,java-xom)
+       ("java-xpp3" ,java-xpp3)
+       ("java-dom4j" ,java-dom4j)
+       ("java-stax2-api" ,java-stax2-api)
+       ("java-woodstox-core" ,java-woodstox-core)
+       ("java-kxml2" ,java-kxml2)
+       ("java-stax" ,java-stax)))
+    (home-page "https://x-stream.github.io")
+    (synopsis "XML serialization library")
+    (description "XStream is a simple library to serialize Java objects to XML
+and back again.")
+    (license license:bsd-3)))
+
+(define-public ghc-hxt-charproperties
+  (package
+    (name "ghc-hxt-charproperties")
+    (version "9.2.0.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://hackage.haskell.org/package/"
+                           "hxt-charproperties/hxt-charproperties-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1mml8wglvagqq891rchgli6r8rnkwrqhgsxfl6kb5403pzb18rp4"))))
+    (build-system haskell-build-system)
+    (home-page "https://github.com/UweSchmidt/hxt")
+    (synopsis "Character properties and classes for XML and Unicode")
+    (description
+     "The modules provided by this package contain predicates for Unicode
+blocks and char properties and character predicates defined by XML.  The
+supported Unicode version is 7.0.0")
+    (license license:expat)))
+
+(define-public ghc-hxt-unicode
+  (package
+    (name "ghc-hxt-unicode")
+    (version "9.0.2.4")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "https://hackage.haskell.org/package/hxt-unicode/hxt-unicode-"
+             version
+             ".tar.gz"))
+       (sha256
+        (base32
+         "0rj48cy8z4fl3zpg5bpa458kqr83adav6jnqv4i71dclpprj6n3v"))))
+    (build-system haskell-build-system)
+    (inputs
+     `(("ghc-hxt-charproperties" ,ghc-hxt-charproperties)))
+    (home-page
+     "http://www.fh-wedel.de/~si/HXmlToolbox/index.html https://github.com/UweSchmidt/hxt")
+    (synopsis
+     "Unicode en-/decoding functions for utf8, iso-latin-* and other encodings")
+    (description
+     "This package provides Unicode encoding and decoding functions for
+encodings used in the Haskell XML Toolbox.  ISO Latin 1-16, utf8, utf16, ASCII
+are supported. Decoding is done with lazy functions, errors may be detected or
+ignored.")
+    (license license:expat)))
+
+(define-public ghc-hxt-regex-xmlschema
+  (package
+    (name "ghc-hxt-regex-xmlschema")
+    (version "9.2.0.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://hackage.haskell.org/package/"
+                           "hxt-regex-xmlschema/hxt-regex-xmlschema-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1c4jr0439f5yc05h7iz53fa47g6l2wrvqp6gvwf01mlqajk3nx7l"))))
+    (build-system haskell-build-system)
+    (inputs
+     `(("ghc-hxt-charproperties" ,ghc-hxt-charproperties)
+       ("ghc-parsec" ,ghc-parsec)
+       ("ghc-text" ,ghc-text)
+       ("ghc-hunit" ,ghc-hunit)))
+    (home-page "http://www.haskell.org/haskellwiki/Regular_expressions_for_XML_Schema")
+    (synopsis "Regular expression library for W3C XML Schema regular expressions")
+    (description
+     "This library supports full W3C XML Schema regular expressions inclusive
+all Unicode character sets and blocks.  It is implemented by the technique of
+derivations of regular expressions.")
+    (license license:expat)))
+
+(define-public ghc-hxt
+  (package
+    (name "ghc-hxt")
+    (version "9.3.1.16")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "https://hackage.haskell.org/package/hxt/hxt-"
+             version
+             ".tar.gz"))
+       (sha256
+        (base32
+         "1qq3ykgn355rx242xjcbqqksgvwr6k2fdj5phw4iv28qqxff6m8d"))))
+    (build-system haskell-build-system)
+    (inputs
+     `(("ghc-parsec" ,ghc-parsec)
+       ("ghc-mtl" ,ghc-mtl)
+       ("ghc-hxt-charproperties" ,ghc-hxt-charproperties)
+       ("ghc-hxt-unicode" ,ghc-hxt-unicode)
+       ("ghc-hxt-regex-xmlschema" ,ghc-hxt-regex-xmlschema)
+       ("ghc-network-uri" ,ghc-network-uri)))
+    (home-page "https://github.com/UweSchmidt/hxt")
+    (synopsis "Collection of tools for processing XML with Haskell")
+    (description
+     "The Haskell XML Toolbox bases on the ideas of HaXml and HXML, but
+introduces a more general approach for processing XML with Haskell.")
+    (license license:expat)))

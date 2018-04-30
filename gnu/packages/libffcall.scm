@@ -1,7 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Joshua S. Grant <jgrant@parenthetical.io>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,7 +27,7 @@
 (define-public libffcall
    (package
     (name "libffcall")
-    (version "1.13")
+    (version "2.1")
     (source
      (origin
        (method url-fetch)
@@ -35,7 +35,7 @@
              "mirror://gnu/libffcall/libffcall-" version ".tar.gz"))
        (sha256
         (base32
-         "1rxwkfr0p7vdv6q6x8nmn13611nsq0lnk9cspqdpzxdvgmqcw1qp"))))
+         "0iwcad6w78jp84vd6xaz5fwqm84n3cb42bdf5m5cj5xzpa5zp4d0"))))
     (build-system gnu-build-system)
     (arguments `(#:parallel-build? #f))
     (synopsis "Foreign function calls from interpreters")

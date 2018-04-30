@@ -2,7 +2,8 @@
 ;;; Copyright © 2014 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2015 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2018 Mark H Weaver <mhw@netris.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -50,6 +51,8 @@
       (patches (search-patches "fltk-shared-lib-defines.patch"
                                "fltk-xfont-on-demand.patch"))))
    (build-system gnu-build-system)
+   (native-inputs
+    `(("pkg-config" ,pkg-config)))
    (inputs
     `(("libjpeg" ,libjpeg-8)     ;jpeg_read_header argument error in libjpeg-9
       ("libpng" ,libpng)
@@ -63,27 +66,27 @@
        (list "--enable-shared"
              (string-append "DSOFLAGS=-Wl,-rpath=" %output "/lib"))
        #:phases
-       (alist-cons-before
-        'configure 'patch-makeinclude
-        (lambda _
-          (substitute* "makeinclude.in"
-            (("/bin/sh") (which "sh"))))
-        (alist-cons-after
-         'install 'patch-config
-         ;; Provide -L flags for image libraries when querying fltk-config to
-         ;; avoid propagating inputs.
-         (lambda* (#:key inputs outputs #:allow-other-keys)
-           (use-modules (srfi srfi-26))
-           (let* ((conf (string-append (assoc-ref outputs "out")
-                                      "/bin/fltk-config"))
-                  (jpeg (assoc-ref inputs "libjpeg"))
-                  (png  (assoc-ref inputs "libpng"))
-                  (zlib (assoc-ref inputs "zlib")))
-             (substitute* conf
-               (("-ljpeg") (string-append "-L" jpeg "/lib -ljpeg"))
-               (("-lpng") (string-append "-L" png "/lib -lpng"))
-               (("-lz") (string-append "-L" zlib "/lib -lz")))))
-         %standard-phases))))
+       (modify-phases %standard-phases
+         (add-before 'configure 'patch-makeinclude
+           (lambda _
+             (substitute* "makeinclude.in"
+               (("/bin/sh") (which "sh")))
+             #t))
+         (add-after 'install 'patch-config
+           ;; Provide -L flags for image libraries when querying fltk-config to
+           ;; avoid propagating inputs.
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (use-modules (srfi srfi-26))
+             (let* ((conf (string-append (assoc-ref outputs "out")
+                                         "/bin/fltk-config"))
+                    (jpeg (assoc-ref inputs "libjpeg"))
+                    (png  (assoc-ref inputs "libpng"))
+                    (zlib (assoc-ref inputs "zlib")))
+               (substitute* conf
+                 (("-ljpeg") (string-append "-L" jpeg "/lib -ljpeg"))
+                 (("-lpng") (string-append "-L" png "/lib -lpng"))
+                 (("-lz") (string-append "-L" zlib "/lib -lz"))))
+             #t)))))
     (home-page "http://www.fltk.org")
     (synopsis "3D C++ GUI library")
     (description "FLTK is a C++ GUI toolkit providing modern GUI functionality

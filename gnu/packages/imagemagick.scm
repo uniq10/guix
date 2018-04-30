@@ -4,6 +4,8 @@
 ;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -45,14 +47,14 @@
     ;; The 7 release series has an incompatible API, while the 6 series is still
     ;; maintained. Don't update to 7 until we've made sure that the ImageMagick
     ;; users are ready for the 7-series API.
-    (version "6.9.9-0")
+    (version "6.9.9-39")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://imagemagick/ImageMagick-"
                                  version ".tar.xz"))
              (sha256
               (base32
-               "02xnvgjnmz2d4yv4iy1kh7an5w631p1s319jw23c8zpmqhfhk2ha"))))
+               "0cgrvfg8722cdv2y0hw2f7xhzdfmfiqc1348l71ki38dg4b0q4sn"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags '("--with-frozenpaths" "--without-gcc-arch")
@@ -104,7 +106,7 @@
     (native-inputs `(("pkg-config" ,pkg-config)))
     (outputs '("out"
                "doc"))                          ; 26 MiB of HTML documentation
-    (home-page "http://www.imagemagick.org/")
+    (home-page "https://www.imagemagick.org/")
     (synopsis "Create, edit, compose, or convert bitmap images")
     (description
      "ImageMagick is a software suite to create, edit, compose, or convert
@@ -163,7 +165,7 @@ script.")
 (define-public graphicsmagick
   (package
     (name "graphicsmagick")
-    (version "1.3.26")
+    (version "1.3.28")
     (source (origin
               (method url-fetch)
               (uri
@@ -175,7 +177,7 @@ script.")
                                  "/GraphicsMagick-" version ".tar.xz")))
               (sha256
                (base32
-                "122zgs96dqrys62mnh8x5yvfff6km4d3yrnvaxzg3mg5sprib87v"))))
+                "0jlrrimrajcmwp7llivyj14qnzb1mpqd8vw95dl6zbx5m2lnhall"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags

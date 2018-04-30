@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -104,10 +104,12 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
             ("cross-binutils" ,(cross-binutils target))
             ,@(%final-inputs)))
         `(("libc" ,(glibc-for-bootstrap))
+          ("libc:static" ,(glibc-for-bootstrap) "static")
           ("gcc" ,(package (inherit gcc)
                     (outputs '("out")) ; all in one so libgcc_s is easily found
                     (inputs
-                     `(("libc",(glibc-for-bootstrap))
+                     `(("libc" ,(glibc-for-bootstrap))
+                       ("libc:static" ,(glibc-for-bootstrap) "static")
                        ,@(package-inputs gcc)))))
           ,@(fold alist-delete (%final-inputs) '("libc" "gcc")))))
 
@@ -195,6 +197,18 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
 				   (("/bin/sh") "sh")
 				   (("execv ") "execvp "))
 				 #t)))))))
+        ;; We don't want to retain a reference to /gnu/store in the bootstrap
+        ;; versions of egrep/fgrep, so we remove the custom phase added since
+        ;; grep@2.25. The effect is 'egrep' and 'fgrep' look for 'grep' in
+        ;; $PATH.
+        (grep (package
+                (inherit grep)
+                (inputs '())                   ;remove PCRE, which is optional
+                (arguments
+                 (substitute-keyword-arguments (package-arguments grep)
+                   ((#:phases phases)
+                    `(modify-phases ,phases
+                       (delete 'fix-egrep-and-fgrep)))))))
         (finalize (compose static-package
                            package-with-relocatable-glibc)))
     `(,@(map (match-lambda
@@ -207,17 +221,7 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
                ("patch" ,patch)
                ("coreutils" ,coreutils)
                ("sed" ,sed)
-               ;; We don't want to retain a reference to /gnu/store in the
-               ;; bootstrap versions of egrep/fgrep, so we remove the custom
-               ;; phase added since grep@2.25. The effect is 'egrep' and
-               ;; 'fgrep' look for 'grep' in $PATH.
-               ("grep" ,(package
-                          (inherit grep)
-                          (arguments
-                            (substitute-keyword-arguments (package-arguments grep)
-                              ((#:phases phases)
-                               `(modify-phases ,phases
-                                  (delete 'fix-egrep-and-fgrep)))))))
+               ("grep" ,grep)
                ("gawk" ,gawk)))
       ("bash" ,static-bash))))
 
@@ -502,48 +506,56 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
   ;; .scm and .go files relative to its installation directory, rather
   ;; than in hard-coded configure-time paths.
   (let* ((patches (cons* (search-patch "guile-relocatable.patch")
-                         (search-patch "guile-default-utf8.patch")
+                         (search-patch "guile-2.2-default-utf8.patch")
                          (search-patch "guile-linux-syscalls.patch")
-                         (origin-patches (package-source guile-2.0))))
-         (source  (origin (inherit (package-source guile-2.0))
+                         (origin-patches (package-source guile-2.2))))
+         (source  (origin (inherit (package-source guile-2.2))
                     (patches patches)))
-         (guile (package (inherit guile-2.0)
-                  (name (string-append (package-name guile-2.0) "-static"))
+         (guile (package (inherit guile-2.2)
+                  (name (string-append (package-name guile-2.2) "-static"))
                   (source source)
                   (synopsis "Statically-linked and relocatable Guile")
 
                   ;; Remove the 'debug' output (see above for the reason.)
-                  (outputs (delete "debug" (package-outputs guile-2.0)))
+                  (outputs (delete "debug" (package-outputs guile-2.2)))
 
                   (propagated-inputs
                    `(("bdw-gc" ,libgc)
                      ,@(alist-delete "bdw-gc"
-                                     (package-propagated-inputs guile-2.0))))
+                                     (package-propagated-inputs guile-2.2))))
                   (arguments
-                   `(;; When `configure' checks for ltdl availability, it
-                     ;; doesn't try to link using libtool, and thus fails
-                     ;; because of a missing -ldl.  Work around that.
-                     #:configure-flags '("LDFLAGS=-ldl")
+                   (substitute-keyword-arguments (package-arguments guile-2.2)
+                     ((#:configure-flags flags '())
+                      ;; When `configure' checks for ltdl availability, it
+                      ;; doesn't try to link using libtool, and thus fails
+                      ;; because of a missing -ldl.  Work around that.
+                      ''("LDFLAGS=-ldl"))
+                     ((#:phases phases '%standard-phases)
+                      `(modify-phases ,phases
 
-                     #:phases (alist-cons-before
-                               'configure 'static-guile
-                               (lambda _
-                                 (substitute* "libguile/Makefile.in"
-                                   ;; Create a statically-linked `guile'
-                                   ;; executable.
-                                   (("^guile_LDFLAGS =")
-                                    "guile_LDFLAGS = -all-static")
+                         ;; Do not record the absolute file name of 'sh' in
+                         ;; (ice-9 popen).  This makes 'open-pipe' unusable in
+                         ;; a build chroot ('open-pipe*' is fine) but avoids
+                         ;; keeping a reference to Bash.
+                         (delete 'pre-configure)
 
-                                   ;; Add `-ldl' *after* libguile-2.0.la.
-                                   (("^guile_LDADD =(.*)$" _ ldadd)
-                                    (string-append "guile_LDADD = "
-                                                   (string-trim-right ldadd)
-                                                   " -ldl\n"))))
-                               %standard-phases)
+                         (add-before 'configure 'static-guile
+                           (lambda _
+                             (substitute* "libguile/Makefile.in"
+                               ;; Create a statically-linked `guile'
+                               ;; executable.
+                               (("^guile_LDFLAGS =")
+                                "guile_LDFLAGS = -all-static")
 
-                     ;; There are uses of `dynamic-link' in
-                     ;; {foreign,coverage}.test that don't fly here.
-                     #:tests? #f)))))
+                               ;; Add `-ldl' *after* libguile-2.2.la.
+                               (("^guile_LDADD =(.*)$" _ ldadd)
+                                (string-append "guile_LDADD = "
+                                               (string-trim-right ldadd)
+                                               " -ldl\n")))))))
+                     ((#:tests? _ #f)
+                      ;; There are uses of `dynamic-link' in
+                      ;; {foreign,coverage}.test that don't fly here.
+                      #f))))))
     (package-with-relocatable-glibc (static-package guile))))
 
 (define %guile-static-stripped
@@ -552,7 +564,9 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
     (name "guile-static-stripped")
     (build-system trivial-build-system)
     (arguments
-     `(#:modules ((guix build utils))
+     ;; The end result should depend on nothing but itself.
+     `(#:allowed-references ("out")
+       #:modules ((guix build utils))
        #:builder
        (let ()
          (use-modules (guix build utils))
@@ -561,13 +575,13 @@ for `sh' in $PATH, and without nscd, and with static NSS modules."
                 (out    (assoc-ref %outputs "out"))
                 (guile1 (string-append in "/bin/guile"))
                 (guile2 (string-append out "/bin/guile")))
-           (mkdir-p (string-append out "/share/guile/2.0"))
-           (copy-recursively (string-append in "/share/guile/2.0")
-                             (string-append out "/share/guile/2.0"))
+           (mkdir-p (string-append out "/share/guile/2.2"))
+           (copy-recursively (string-append in "/share/guile/2.2")
+                             (string-append out "/share/guile/2.2"))
 
-           (mkdir-p (string-append out "/lib/guile/2.0/ccache"))
-           (copy-recursively (string-append in "/lib/guile/2.0/ccache")
-                             (string-append out "/lib/guile/2.0/ccache"))
+           (mkdir-p (string-append out "/lib/guile/2.2/ccache"))
+           (copy-recursively (string-append in "/lib/guile/2.2/ccache")
+                             (string-append out "/lib/guile/2.2/ccache"))
 
            (mkdir (string-append out "/bin"))
            (copy-file guile1 guile2)

@@ -4,6 +4,8 @@
 ;;; Copyright © 2014 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2017 Sou Bunnbu <iyzsong@gmail.com>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -132,7 +134,7 @@ Qt-style API for Wayland clients.")
 (define-public sddm
   (package
     (name "sddm")
-    (version "0.14.0")
+    (version "0.17.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -141,14 +143,15 @@ Qt-style API for Wayland clients.")
                     "sddm-" version ".tar.xz"))
               (sha256
                (base32
-                "0y3pn8g2qj7q20zkmbasrfsj925lfzizk63sfrvzf84bc5c84d3y"))))
+                "0ch6rdppgy2vbzw0c2x9a4c6ry46vx7p6b76d8xbh2nvxh23xv0k"))))
     (build-system cmake-build-system)
     (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
        ("pkg-config" ,pkg-config)
        ("qttools" ,qttools)))
     (inputs
-     `(("glib" ,glib)
+     `(("elogind" ,elogind)
+       ("glib" ,glib)
        ("libxcb" ,libxcb)
        ("libxkbcommon" ,libxkbcommon)
        ("linux-pam" ,linux-pam)
@@ -159,13 +162,15 @@ Qt-style API for Wayland clients.")
     (arguments
      `(#:configure-flags
        (list
-        ;; Currently doesn't do anything
-        ;; Option added by enable wayland greeters PR
+        ;; This option currently does nothing, but will presumably be enabled
+        ;; if/when <https://github.com/sddm/sddm/pull/616> is merged.
         "-DENABLE_WAYLAND=ON"
         "-DENABLE_PAM=ON"
+        ;; Both flags are required for elogind support.
+        "-DNO_SYSTEMD=ON" "-DUSE_ELOGIND=ON"
         "-DCONFIG_FILE=/etc/sddm.conf"
-        ;; Set path to /etc/login.defs
-        ;; Alternatively use -DUID_MIN and -DUID_MAX
+        ;; Set path to /etc/login.defs.
+        ;; An alternative would be to use -DUID_MIN and -DUID_MAX.
         (string-append "-DLOGIN_DEFS_PATH="
                        (assoc-ref %build-inputs "shadow")
                        "/etc/login.defs")
@@ -180,6 +185,11 @@ Qt-style API for Wayland clients.")
                            (guix build qt-utils))
        #:phases
        (modify-phases %standard-phases
+         (add-after 'unpack 'embed-loginctl-reference
+           (lambda _
+             (substitute* "CMakeLists.txt"
+               (("/usr/bin/loginctl") (which "loginctl")))
+             #t))
          (add-after 'install 'wrap-programs
            (lambda* (#:key outputs #:allow-other-keys)
              (let ((out (assoc-ref outputs "out")))
@@ -198,7 +208,7 @@ create smooth, animated user interfaces.")
 (define-public lightdm
   (package
     (name "lightdm")
-    (version "1.22.0")
+    (version "1.24.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://launchpad.net/lightdm/"
@@ -207,7 +217,7 @@ create smooth, animated user interfaces.")
                                   version ".tar.xz"))
               (sha256
                (base32
-                "0a5bvfl2h7r873al6q7c819h0kg564k9fh51rl6489z6lyvazfg4"))))
+                "18j33bm54i8k7ncxcs69zqi4105s62n58jrydqn3ikrb71s9nl6d"))))
     (build-system gnu-build-system)
     (arguments
      '(#:parallel-tests? #f ; fails when run in parallel
@@ -329,17 +339,18 @@ GTK+, lets you select a desktop session and log in to it.")
     (native-inputs
      `(("pkg-config" ,pkg-config)))
     (arguments
-     '(#:phases (alist-cons-before
-		 'configure 'set-new-etc-location
-		 (lambda _
-		   (substitute* "CMakeLists.txt"
-		     (("/etc")
-		      (string-append (assoc-ref %outputs "out") "/etc"))
-                     (("install.*systemd.*")
-                      ;; The build system's logic here is: if "Linux", then
-                      ;; "systemd".  Strip that.
-                      "")))
-		 %standard-phases)
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'set-new-etc-location
+           (lambda _
+             (substitute* "CMakeLists.txt"
+               (("/etc")
+                (string-append (assoc-ref %outputs "out") "/etc"))
+               (("install.*systemd.*")
+               ;; The build system's logic here is: if "Linux", then
+                ;; "systemd".  Strip that.
+                ""))
+             #t)))
        #:configure-flags '("-DUSE_PAM=yes"
                            "-DUSE_CONSOLEKIT=no")
        #:tests? #f))

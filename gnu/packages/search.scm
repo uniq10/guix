@@ -3,6 +3,7 @@
 ;;; Copyright © 2015, 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2018 Adam Massmann <massmannak@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -24,27 +25,32 @@
                 #:select (gpl2 gpl2+ gpl3+ lgpl2.1+ bsd-3 x11))
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix utils)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages check)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages pdf)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages web)
   #:use-module (gnu packages xml))
 
 (define-public xapian
   (package
     (name "xapian")
-    (version "1.4.4")
+    (version "1.4.5")
+    ;; Note: When updating Xapian, remember to update xapian-bindings below.
     (source (origin
               (method url-fetch)
               (uri (string-append "https://oligarchy.co.uk/xapian/" version
                                   "/xapian-core-" version ".tar.xz"))
               (sha256
-               (base32 "1n9j2w2as0flih3hgim7gprfxsx6gimijs91rxsjsi8shjlqbad6"))))
+               (base32 "0axhqrj202hbll9mcx1qdm8gsqj19216w3z02gyjbycxvr9gkdc5"))))
     (build-system gnu-build-system)
     (inputs `(("zlib" ,zlib)
               ("util-linux" ,util-linux)))
@@ -82,14 +88,16 @@ rich set of boolean query operators.")
                                   "/xapian-bindings-" version ".tar.xz"))
               (sha256
                (base32
-                "0fca9nsf7pj3fq991xcm5iainz3s8yqik4ycvavm09y486n3wciv"))))
+                "0cwx39764w24xd25w271had4w78lnw1dgz36yvlw1g3i19rqcy34"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags '("--with-python3")
        #:make-flags
        (list (string-append "pkgpylibdir="
                             (assoc-ref %outputs "out")
-                            "/lib/python3.5/site-packages/xapian"))))
+                            "/lib/python" ,(version-major+minor
+                                            (package-version python))
+                            "/site-packages/xapian"))))
     (inputs
      `(("python" ,python)
        ("python-sphinx" ,python-sphinx) ; for documentation
@@ -133,7 +141,7 @@ rich set of boolean query operators.")
                                              "-Wl,-rpath=../src/.libs")))
                             (zero? (system* "make"))
                             (zero? (system* "./libtocctests")))))))))
-    (home-page "http://t-o-c-c.com/")
+    (home-page "https://t-o-c-c.com/")
     (synopsis "Tool for Obsessive Compulsive Classifiers")
     (description
      "libtocc is the engine of the Tocc project, a tag-based file management
@@ -157,7 +165,7 @@ files and directories.")
                   (add-after
                    'unpack 'chdir-source
                    (lambda _ (chdir "cli/src"))))))
-    (home-page "http://t-o-c-c.com/")
+    (home-page "https://t-o-c-c.com/")
     (synopsis "Command-line interface to libtocc")
     (description
      "Tocc is a tag-based file management system.  This package contains the
@@ -264,15 +272,17 @@ conflict with slocate compatibility.")
     ;; building: xpdf, catdoc, MP3::Tag, Spreadsheet::ParseExcel,
     ;; HTML::Entities.
     (inputs
-     `(("libxml" ,libxml2)
-       ("zlib" ,zlib)
-       ("perl" ,perl)
+     `(("perl" ,perl)
        ("perl-uri" ,perl-uri)
        ("perl-html-parser" ,perl-html-parser)
        ("perl-html-tagset" ,perl-html-tagset)
        ("perl-mime-types" ,perl-mime-types)))
     (arguments
-     `(#:phases (modify-phases %standard-phases
+     `(;; XXX: This fails to build with zlib (API mismatch) and tests fail
+       ;; with libxml2, so disable both.
+       #:configure-flags (list (string-append "--without-zlib")
+                               (string-append "--without-libxml2"))
+       #:phases (modify-phases %standard-phases
                   (add-after 'install 'wrap-programs
                     (lambda* (#:key inputs outputs #:allow-other-keys)
                       (let* ((out (assoc-ref outputs "out")))
@@ -300,5 +310,51 @@ conflict with slocate compatibility.")
 can quickly and easily index directories of files or remote web sites and
 search the generated indexes.")
     (license gpl2+)))                   ;with exception
+
+(define-public xapers
+  (package
+    (name "xapers")
+    (version "0.8.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "https://finestructure.net/xapers/releases/xapers-"
+             version ".tar.gz"))
+       (sha256
+        (base32
+         "0ykz6hn3qj46w3c99d6q0pi5ncq2894simcl7vapv047zm3cylmd"))))
+    (build-system python-build-system)
+    (propagated-inputs
+     `(("python-urwid" ,python-urwid)))
+    (inputs
+     `(("poppler" ,poppler)
+       ("python" ,python)
+       ("python-latexcodec" ,python-latexcodec)
+       ("python-pybtex" ,python-pybtex)
+       ("python-pycurl" ,python-pycurl)
+       ("python-pyyaml" ,python-pyyaml)
+       ("python-six" ,python-six)
+       ("python-xapian-bindings" ,python-xapian-bindings)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'install-doc
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin"))
+                    (man1 (string-append out "/share/man/man1")))
+               (install-file "man/man1/xapers.1"  man1)
+               (install-file "man/man1/xapers-adder.1" man1)
+               (install-file "bin/xapers-adder" bin)))))))
+    (home-page "https://finestructure.net/xapers/")
+    (synopsis "Personal document indexing system")
+    (description
+     "Xapers is a personal document indexing system,
+geared towards academic journal articles build on the Xapian search engine.
+Think of it as your own personal document search engine, or a local cache of
+online libraries.  It provides fast search of document text and
+bibliographic data and simple document and bibtex retrieval.")
+    (license gpl3+)))
 
 ;;; search.scm ends here

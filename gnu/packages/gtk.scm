@@ -9,12 +9,15 @@
 ;;; Copyright © 2015 Andy Wingo <wingo@igalia.com>
 ;;; Copyright © 2015 David Hashe <david.hashe@dhashe.com>
 ;;; Coypright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Fabian Harfert <fhmgufs@web.de>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
 ;;; Copyright © 2016 Patrick Hetu <patrick.hetu@auf.org>
-;;; Coypright © 2016 ng0 <ng0@we.make.ritual.n0.is>
-;;; Coypright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Alex Vong <alexvong1995@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -38,6 +41,7 @@
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system perl)
   #:use-module (guix build-system python)
   #:use-module (guix build-system waf)
   #:use-module (gnu packages)
@@ -73,7 +77,7 @@
 (define-public atk
   (package
    (name "atk")
-   (version "2.24.0")
+   (version "2.26.1")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -81,7 +85,7 @@
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0jbs90vacl95mwgvmqsizi1bwx5sw0rz70r9knksfwwch2dalbdv"))))
+              "1jwpx8az0iifw176dc2hl4mmg6gvxzxdkd1qvg4ds7c5hdmzy07g"))))
    (build-system gnu-build-system)
    (outputs '("out" "doc"))
    (arguments
@@ -105,14 +109,14 @@ tools have full access to view and control running applications.")
 (define-public cairo
   (package
    (name "cairo")
-   (version "1.14.8")
+   (version "1.14.10")
    (source (origin
             (method url-fetch)
             (uri (string-append "https://cairographics.org/releases/cairo-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "082ypjlh03ss5616amgjp9ap3xwwccyh2knyyrj1a4d4x65dkwni"))
+              "02banr0wxckq62nbhc3mqidfdh2q956i2r7w2hd9bjgjb238g1vy"))
             (patches (search-patches "cairo-CVE-2016-9082.patch"))))
    (build-system gnu-build-system)
    (propagated-inputs
@@ -171,7 +175,7 @@ affine transformation (scale, rotation, shear, etc.).")
 (define-public harfbuzz
   (package
    (name "harfbuzz")
-   (version "1.4.6")
+   (version "1.7.3")
    (source (origin
              (method url-fetch)
              (uri (string-append "https://www.freedesktop.org/software/"
@@ -179,7 +183,7 @@ affine transformation (scale, rotation, shear, etc.).")
                                  version ".tar.bz2"))
              (sha256
               (base32
-               "14yj514yfy373np3gxk930a443j1zgnwg6mm0kdzzjr0rn0qp9r1"))))
+               "1zh5n3q3mb6y6kr5m7zz1ags9z1vjwai57d6warx8qhzfrwn8lyd"))))
    (build-system gnu-build-system)
    (outputs '("out"
               "bin")) ; 160K, only hb-view depend on cairo
@@ -209,7 +213,7 @@ affine transformation (scale, rotation, shear, etc.).")
 (define-public pango
   (package
    (name "pango")
-   (version "1.40.6")
+   (version "1.40.14")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/pango/"
@@ -217,7 +221,7 @@ affine transformation (scale, rotation, shear, etc.).")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0wz5b5knpw4gfvz3ny8l6h2ca3bpqqyh55mffkyzgsd1hdrjn5fa"))))
+              "1qqpd8x1pl483ynj3mc5q4n8y2pxqhg2bv19vd94r7mzlzm1pbwh"))))
    (build-system gnu-build-system)
    (propagated-inputs
     `(("cairo" ,cairo)
@@ -279,16 +283,17 @@ functions which were removed.")
                 "0g7s5mp14qgbfjdql0k1s8464r21g47ssn5dws6jazsnw6njhl0l"))))
     (build-system waf-build-system)
     (arguments
-     `(#:phases (alist-cons-before
-                 'configure 'set-flags
-                 (lambda* (#:key outputs #:allow-other-keys)
-                   ;; Compile with C++11, required by gtkmm.
-                   (setenv "CXXFLAGS" "-std=c++11")
-                   ;; Allow 'bin/ganv_bench' to find libganv-1.so.
-                   (setenv "LDFLAGS"
-                           (string-append "-Wl,-rpath="
-                                          (assoc-ref outputs "out") "/lib")))
-                 %standard-phases)
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'set-flags
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Compile with C++11, required by gtkmm.
+             (setenv "CXXFLAGS" "-std=c++11")
+             ;; Allow 'bin/ganv_bench' to find libganv-1.so.
+             (setenv "LDFLAGS"
+                     (string-append "-Wl,-rpath="
+                                    (assoc-ref outputs "out") "/lib"))
+             #t)))
        #:tests? #f)) ; no check target
     (inputs
      `(("gtk" ,gtk+-2)
@@ -305,21 +310,22 @@ diagrams.")
     (license license:gpl3+)))
 
 (define-public ganv-devel
-  (let ((commit "31685d283e9b811b61014f820c42807f4effa071")
+  (let ((commit "12f7d6b0438c94dd87f773a92eee3453d971846e")
         (revision "1"))
     (package
       (inherit ganv)
       (name "ganv")
-      (version (string-append "1.4.2-" revision "."
+      (version (string-append "1.5.4-" revision "."
                               (string-take commit 9)))
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
                       (url "http://git.drobilla.net/ganv.git")
                       (commit commit)))
+                (file-name (git-file-name name version))
                 (sha256
                  (base32
-                  "0xmbykdl42jn9cgzrqrys5lng67d26nk5xq10wkkvjqldiwdck56")))))))
+                  "1cr8w02lr6bk9mkxa12j3imq721b2an2yn4bj5wnwmpm91ddn2gi")))))))
 
 (define-public gtksourceview-2
   (package
@@ -349,24 +355,24 @@ diagrams.")
      `(#:phases
        ;; Unfortunately, some of the tests in "make check" are highly dependent
        ;; on the environment therefore, some black magic is required.
-       (alist-cons-before
-        'check 'start-xserver
-        (lambda* (#:key inputs #:allow-other-keys)
-          (let ((xorg-server (assoc-ref inputs "xorg-server"))
-                (mime (assoc-ref inputs "shared-mime-info")))
+       (modify-phases %standard-phases
+         (add-before 'check 'start-xserver
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((xorg-server (assoc-ref inputs "xorg-server"))
+                   (mime (assoc-ref inputs "shared-mime-info")))
 
-            ;; There must be a running X server and make check doesn't start one.
-            ;; Therefore we must do it.
-            (system (format #f "~a/bin/Xvfb :1 &" xorg-server))
-            (setenv "DISPLAY" ":1")
+               ;; There must be a running X server and make check doesn't start one.
+               ;; Therefore we must do it.
+               (system (format #f "~a/bin/Xvfb :1 &" xorg-server))
+               (setenv "DISPLAY" ":1")
 
-            ;; The .lang files must be found in $XDG_DATA_HOME/gtksourceview-2.0
-            (system "ln -s gtksourceview gtksourceview-2.0")
-            (setenv "XDG_DATA_HOME" (getcwd))
+               ;; The .lang files must be found in $XDG_DATA_HOME/gtksourceview-2.0
+               (system "ln -s gtksourceview gtksourceview-2.0")
+               (setenv "XDG_DATA_HOME" (getcwd))
 
-            ;; Finally, the mimetypes must be available.
-            (setenv "XDG_DATA_DIRS" (string-append mime "/share/")) ))
-        %standard-phases)))
+               ;; Finally, the mimetypes must be available.
+               (setenv "XDG_DATA_DIRS" (string-append mime "/share/")))
+             #t)))))
     (synopsis "Widget that extends the standard GTK+ 2.x 'GtkTextView' widget")
     (description
      "GtkSourceView is a portable C library that extends the standard GTK+
@@ -379,7 +385,7 @@ printing and other features typical of a source code editor.")
 (define-public gtksourceview
  (package
    (name "gtksourceview")
-   (version "3.24.2")
+   (version "3.24.7")
    (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnome/sources/" name "/"
@@ -387,7 +393,7 @@ printing and other features typical of a source code editor.")
                                  name "-" version ".tar.xz"))
              (sha256
               (base32
-               "17xqrnh2v9gba57ij2m9kngxwh19fzsqkx1rfasnv4zaqvqqhv69"))))
+               "1rp8zspwyw3mmdgccsas3pa6v7s0hqjaaglg6n4kcls7ccx0vhm5"))))
    (build-system gnu-build-system)
    (arguments
     '(#:phases
@@ -427,7 +433,7 @@ highlighting and other features typical of a source code editor.")
 (define-public gdk-pixbuf
   (package
    (name "gdk-pixbuf")
-   (version "2.36.6")
+   (version "2.36.11")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -435,8 +441,7 @@ highlighting and other features typical of a source code editor.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "034279k49ydawnagqd7b1rz741n20k4y3grybzwp26zd146bjpj5"))
-            (patches (search-patches "gdk-pixbuf-list-dir.patch"))))
+              "1wz2vpciwdpdv612s8kbww08q80hgcs5dxrfsxp1a4q44n3snqmf"))))
    (build-system gnu-build-system)
    (arguments
     '(#:configure-flags '("--with-x11")
@@ -509,7 +514,7 @@ in the GNOME project.")
 (define-public at-spi2-core
   (package
    (name "at-spi2-core")
-   (version "2.24.1")
+   (version "2.26.2")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -517,7 +522,7 @@ in the GNOME project.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0nwvjmd30rgq6d1zznavx0bdfa1xwv3jl8wnkbkwzaipp5jd140y"))))
+              "0596ghkamkxgv08r4a1pdhm06qd5zzgcfqsv64038w9xbvghq3n8"))))
    (build-system gnu-build-system)
    (outputs '("out" "doc"))
    (arguments
@@ -554,7 +559,7 @@ is part of the GNOME accessibility project.")
 (define-public at-spi2-atk
   (package
    (name "at-spi2-atk")
-   (version "2.24.1")
+   (version "2.26.1")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -562,7 +567,7 @@ is part of the GNOME accessibility project.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0zcmsq7g4jg5dpmfzkyfpa0v6hx4119c4qwkdblzzf3l9yn91p30"))))
+              "0x9vc99ni46fg5dzlx67vbw0zqffr24gz8jvbdxbmzyvc5xw5w5l"))))
    (build-system gnu-build-system)
    (arguments
     '(#:phases
@@ -589,7 +594,7 @@ is part of the GNOME accessibility project.")
 (define-public gtk+-2
   (package
    (name "gtk+")
-   (version "2.24.31")
+   (version "2.24.32")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -597,7 +602,7 @@ is part of the GNOME accessibility project.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0n26jm09n03nqbd00d2ij63xrby3vik56sk5yj6w1vy768kr5hb8"))
+              "0bjq7ja9gwcv6n5q4qkvdjjx40wsdiikksz1zqxvxsm5vlyskj5n"))
             (patches (search-patches "gtk2-respect-GUIX_GTK2_PATH.patch"
                                      "gtk2-respect-GUIX_GTK2_IM_MODULE_FILE.patch"
                                      "gtk2-theme-paths.patch"))))
@@ -654,7 +659,7 @@ application suites.")
    (name "gtk+")
    ;; NOTE: When updating the version of 'gtk+', the hash of 'mate-themes' in
    ;;       mate.scm will also need to be updated.
-   (version "3.22.15")
+   (version "3.22.28")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/" name "/"
@@ -662,7 +667,7 @@ application suites.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "1nqgb71vx222g9fd2p017948hqybnyi69xs3n2d64clim7115868"))
+              "07syy63d2q12b7mkbhqpirq270365fsql5l9qsrdgzlc04mn36fj"))
             (patches (search-patches "gtk3-respect-GUIX_GTK3_PATH.patch"
                                      "gtk3-respect-GUIX_GTK3_IM_MODULE_FILE.patch"))))
    (outputs '("out" "bin" "doc"))
@@ -710,7 +715,9 @@ application suites.")
                               ;; by gnome-control-center
                               "--enable-wayland-backend"
                               ;; This is necessary to build both backends.
-                              "--enable-x11-backend")
+                              "--enable-x11-backend"
+                              ;; This enables the HTML5 websocket backend.
+                              "--enable-broadway-backend")
       #:phases (modify-phases %standard-phases
         (add-before 'configure 'pre-configure
           (lambda _
@@ -801,7 +808,7 @@ application suites.")
      `(("cairo" ,cairo)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
-    (home-page "http://www.nongnu.org/guile-cairo/")
+    (home-page "https://www.nongnu.org/guile-cairo/")
     (synopsis "Cairo bindings for GNU Guile")
     (description
      "Guile-Cairo wraps the Cairo graphics library for Guile Scheme.
@@ -838,7 +845,7 @@ exceptions, macros, and a dynamic programming environment.")
       (build-system gnu-build-system)
       (arguments
        `(#:phases (modify-phases %standard-phases
-                    (add-before 'configure 'bootstrap
+                    (add-after 'unpack 'bootstrap
                       (lambda _
                         (zero? (system* "autoreconf" "-vfi")))))))
       (native-inputs `(("pkg-config" ,pkg-config)
@@ -876,18 +883,19 @@ images onto Cairo surfaces.")
                    "godir = $(moddir)\n")))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-cons-after
-                 'install 'post-install
-                 (lambda* (#:key inputs outputs #:allow-other-keys)
-                   (let* ((out   (assoc-ref outputs "out"))
-                          (bin   (string-append out "/bin"))
-                          (guile (assoc-ref inputs "guile")))
-                     (substitute* (find-files bin ".*")
-                       (("guile")
-                        (string-append guile "/bin/guile -L "
-                                       out "/share/guile/site/2.0 -C "
-                                       out "/share/guile/site/2.0 ")))))
-                 %standard-phases)))
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'post-install
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out   (assoc-ref outputs "out"))
+                    (bin   (string-append out "/bin"))
+                    (guile (assoc-ref inputs "guile")))
+               (substitute* (find-files bin ".*")
+                 (("guile")
+                  (string-append guile "/bin/guile -L "
+                                 out "/share/guile/site/2.0 -C "
+                                 out "/share/guile/site/2.0 "))))
+             #t)))))
     (native-inputs `(("pkg-config" ,pkg-config)))
     (inputs `(("guile" ,guile-2.2)))
     (propagated-inputs
@@ -1035,7 +1043,7 @@ library.")
     (native-inputs `(("pkg-config" ,pkg-config)))
     (propagated-inputs
      `(("glibmm" ,glibmm) ("atk" ,atk)))
-    (home-page "http://www.gtkmm.org")
+    (home-page "https://www.gtkmm.org")
     (synopsis "C++ interface to the ATK accessibility library")
     (description
      "ATKmm provides a C++ programming interface to the ATK accessibility
@@ -1045,7 +1053,7 @@ toolkit.")
 (define-public gtkmm
   (package
     (name "gtkmm")
-    (version "3.22.0")
+    (version "3.22.2")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnome/sources/" name "/"
@@ -1053,11 +1061,11 @@ toolkit.")
                                  name "-" version ".tar.xz"))
              (sha256
               (base32
-               "1x8l0ny6r3ym53z82q9d5fan4m9vi93xy3b3hj1hrclgc95lvnh5"))))
+               "1400535lhyya462pfx8bp11k3mg3jsbdghlpygskd5ai665dkbwi"))))
     (build-system gnu-build-system)
     (native-inputs `(("pkg-config" ,pkg-config)
                      ("glib" ,glib "bin")        ;for 'glib-compile-resources'
-                     ("xorg-server" ,xorg-server)))
+                     ("xorg-server" ,xorg-server-1.19.3)))
     (propagated-inputs
      `(("pangomm" ,pangomm)
        ("cairomm" ,cairomm)
@@ -1065,7 +1073,11 @@ toolkit.")
        ("gtk+" ,gtk+)
        ("glibmm" ,glibmm)))
     (arguments
-     '(#:phases (modify-phases %standard-phases
+     `(;; XXX: Tests require C++14 or later.  Remove this when the default
+       ;; compiler is >= GCC6.
+       #:configure-flags '("CXXFLAGS=-std=gnu++14")
+       #:disallowed-references (,xorg-server-1.19.3)
+       #:phases (modify-phases %standard-phases
                   (add-before 'check 'run-xvfb
                     (lambda* (#:key inputs #:allow-other-keys)
                       (let ((xorg-server (assoc-ref inputs "xorg-server")))
@@ -1076,7 +1088,7 @@ toolkit.")
                         ;; Don't fail because of the missing /etc/machine-id.
                         (setenv "DBUS_FATAL_WARNINGS" "0")
                         #t))))))
-    (home-page "http://gtkmm.org/")
+    (home-page "https://gtkmm.org/")
     (synopsis
      "C++ interface to the GTK+ graphical user interface library")
     (description
@@ -1109,6 +1121,38 @@ extensive documentation, including API reference and a tutorial.")
        ("atkmm" ,atkmm)
        ("gtk+" ,gtk+-2)
        ("glibmm" ,glibmm)))))
+
+(define-public gtksourceviewmm
+  (package
+    (name "gtksourceviewmm")
+    (version "3.18.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnome/sources/" name "/"
+                                  (version-major+minor version)  "/"
+                                  name "-" version ".tar.xz"))
+              (sha256
+               (base32 "0fgvmhm4h4qmxig87qvangs6ijw53mi40siz7pixlxbrsgiil22i"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (propagated-inputs
+     ;; In 'Requires' of gtksourceviewmm-3.0.pc.
+     `(("glibmm" ,glibmm)
+       ("gtkmm" ,gtkmm)
+       ("gtksourceview" ,gtksourceview)))
+    (synopsis "C++ interface to the GTK+ 'GtkTextView' widget")
+    (description
+     "gtksourceviewmm is a portable C++ library that extends the standard GTK+
+framework for multiline text editing with support for configurable syntax
+highlighting, unlimited undo/redo, search and replace, a completion framework,
+printing and other features typical of a source code editor.")
+    (license license:lgpl2.1+)
+    (home-page "https://developer.gnome.org/gtksourceview/")))
+
+;;;
+;;; Python bindings.
+;;;
 
 (define-public python-pycairo
   (package
@@ -1161,7 +1205,7 @@ extensive documentation, including API reference and a tutorial.")
      `(#:python ,python-2
        ,@(substitute-keyword-arguments (package-arguments python-pycairo)
            ((#:phases phases)
-            `(alist-delete 'patch-waf ,phases))
+            `(modify-phases ,phases (delete 'patch-waf)))
            ((#:native-inputs native-inputs)
             `(alist-delete "python-waf" ,native-inputs)))))
     ;; Dual-licensed under LGPL 2.1 or Mozilla Public License 1.1
@@ -1232,10 +1276,99 @@ targeted at GTK 2.x, and can be used in conjunction with gnome-python to
 write GNOME applications.")
     (license license:lgpl2.1+)))
 
+(define-public perl-cairo
+  (package
+    (name "perl-cairo")
+    (version "1.106")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "mirror://cpan/authors/id/X/XA/XAOC/Cairo-"
+                    version ".tar.gz"))
+              (sha256
+               (base32
+                "1i25kks408c54k2zxskvg54l5k3qadzm8n72ffga9jy7ic0h6j76"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-extutils-depends" ,perl-extutils-depends)
+       ("perl-extutils-pkgconfig" ,perl-extutils-pkgconfig)))
+    (inputs
+     `(("cairo" ,cairo)))
+    (home-page "http://search.cpan.org/dist/Cairo/")
+    (synopsis "Perl interface to the cairo 2d vector graphics library")
+    (description "Cairo provides Perl bindings for the vector graphics library
+cairo.  It supports multiple output targets, including PNG, PDF and SVG.  Cairo
+produces identical output on all those targets.")
+    (license license:lgpl2.1+)))
+
+(define-public perl-gtk2
+  (package
+    (name "perl-gtk2")
+    (version "1.24992")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://cpan/authors/id/X/XA/XAOC/Gtk2-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "1044rj3wbfmgaif2jb0k28m2aczli6ai2n5yvn6pr7zjyw16kvd2"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-extutils-depends" ,perl-extutils-depends)
+       ("perl-extutils-pkgconfig" ,perl-extutils-pkgconfig)))
+    (inputs
+     `(("gtk+" ,gtk+-2)))
+    (propagated-inputs
+     `(("perl-pango" ,perl-pango)))
+    (home-page "http://search.cpan.org/dist/Gtk2/")
+    (synopsis "Perl interface to the 2.x series of the Gimp Toolkit library")
+    (description "Perl bindings to the 2.x series of the Gtk+ widget set.
+This module allows you to write graphical user interfaces in a Perlish and
+object-oriented way, freeing you from the casting and memory management in C,
+yet remaining very close in spirit to original API.")
+    (license license:lgpl2.1+)))
+
+(define-public perl-pango
+  (package
+    (name "perl-pango")
+    (version "1.227")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://cpan/authors/id/X/XA/XAOC/Pango-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "0wdcidnfnb6nm79fzfs39ivawj3x8m98a147fmcxgv1zvwia9c1l"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-extutils-depends" ,perl-extutils-depends)
+       ("perl-extutils-pkgconfig" ,perl-extutils-pkgconfig)))
+    (inputs
+     `(("pango" ,pango)))
+    (propagated-inputs
+     `(("perl-cairo" ,perl-cairo)
+       ("perl-glib" ,perl-glib)))
+    (home-page "http://search.cpan.org/dist/Pango/")
+    (synopsis "Layout and render international text")
+    (description "Pango is a library for laying out and rendering text, with an
+emphasis on internationalization.  Pango can be used anywhere that text layout
+is needed, but using Pango in conjunction with Cairo and/or Gtk2 provides a
+complete solution with high quality text handling and graphics rendering.
+
+Dynamically loaded modules handle text layout for particular combinations of
+script and font backend.  Pango provides a wide selection of modules, including
+modules for Hebrew, Arabic, Hangul, Thai, and a number of Indic scripts.
+Virtually all of the world's major scripts are supported.
+
+In addition to the low level layout rendering routines, Pango includes
+@code{Pango::Layout}, a high level driver for laying out entire blocks of text,
+and routines to assist in editing internationalized text.")
+    (license license:lgpl2.1+)))
+
 (define-public girara
   (package
     (name "girara")
-    (version "0.2.7")
+    (version "0.2.8")
     (source (origin
               (method url-fetch)
               (uri
@@ -1243,19 +1376,37 @@ write GNOME applications.")
                               version ".tar.gz"))
               (sha256
                (base32
-                "1r9jbhf9n40zj4ddqv1q5spijpjm683nxg4hr5lnir4a551s7rlq"))))
+                "18wss3sak3djip090v2vdbvq1mvkwcspfswc87zbvv3magihan98"))))
     (native-inputs `(("pkg-config" ,pkg-config)
-                     ("gettext" ,gettext-minimal)))
-    (inputs `(("gtk+" ,gtk+)
-              ("check" ,check)))
+                     ("check" ,check)
+                     ("gettext" ,gettext-minimal)
+                     ("glib:bin" ,glib "bin")
+                     ("xorg-server" ,xorg-server-1.19.3)))
+    ;; Listed in 'Requires.private' of 'girara.pc'.
+    (propagated-inputs `(("gtk+" ,gtk+)))
     (arguments
      `(#:make-flags
        `(,(string-append "PREFIX=" (assoc-ref %outputs "out"))
          "COLOR=0" "CC=gcc")
        #:test-target "test"
-       #:tests? #f ; Tests fail with "Gtk cannot open display:"
-       #:phases
-       (alist-delete 'configure %standard-phases)))
+       #:disallowed-references (,xorg-server-1.19.3)
+       #:phases (modify-phases %standard-phases
+                  (delete 'configure)
+                  (add-before 'check 'start-xserver
+                    ;; Tests require a running X server.
+                    (lambda* (#:key inputs #:allow-other-keys)
+                      (let ((xorg-server (assoc-ref inputs "xorg-server"))
+                            (display ":1"))
+                        (setenv "DISPLAY" display)
+
+                        ;; On busy machines, tests may take longer than
+                        ;; the default of four seconds.
+                        (setenv "CK_DEFAULT_TIMEOUT" "20")
+
+                        ;; Don't fail due to missing '/etc/machine-id'.
+                        (setenv "DBUS_FATAL_WARNINGS" "0")
+                        (zero? (system (string-append xorg-server "/bin/Xvfb "
+                                                      display " &")))))))))
     (build-system gnu-build-system)
     (home-page "https://pwmt.org/projects/girara/")
     (synopsis "Library for minimalistic gtk+3 user interfaces")
@@ -1355,7 +1506,7 @@ can also be used to document application code.")
     (inputs
      ;; Don't propagate GTK+ to reduce "profile pollution".
      `(("gtk+" ,gtk+-2))) ; required by gtk-engines-2.pc
-    (home-page "http://live.gnome.org/GnomeArt")
+    (home-page "https://live.gnome.org/GnomeArt")
     (synopsis "Theming engines for GTK+ 2.x")
     (description
      "This package contains the standard GTK+ 2.x theming engines including
@@ -1385,7 +1536,7 @@ Redmond95 and ThinIce.")
        ("intltool" ,intltool)))
     (propagated-inputs
      `(("gtk+" ,gtk+-2)))
-    (home-page "http://live.gnome.org/GnomeArt")
+    (home-page "https://live.gnome.org/GnomeArt")
     (synopsis "Cairo-based theming engine for GTK+ 2.x")
     (description
      "Murrine is a cairo-based GTK+ theming engine.  It is named after the
@@ -1395,14 +1546,14 @@ glass artworks done by Venicians glass blowers.")
 (define-public gtkspell3
   (package
     (name "gtkspell3")
-    (version "3.0.8")
+    (version "3.0.9")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/gtkspell/"
-                                  version "/" name "-" version ".tar.gz"))
+                                  version "/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "1zrz5pz4ryvcssk898liynmy2wyxgj95ak7mp2jv7x62yzihq6h1"))))
+                "09jdicmpipmj4v84gnkqwbmj4lh8v0i6pn967rb9jx4zg2ia9x54"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("intltool" ,intltool)
@@ -1412,6 +1563,8 @@ glass artworks done by Venicians glass blowers.")
        ("gobject-introspection" ,gobject-introspection)
        ("gtk+" ,gtk+)
        ("pango" ,pango)))
+    (propagated-inputs
+     `(("enchant" ,enchant))) ; gtkspell3-3.0.pc refers to it.
     (home-page "http://gtkspell.sourceforge.net")
     (synopsis "Spell-checking addon for GTK's TextView widget")
     (description

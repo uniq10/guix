@@ -1,9 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2014, 2015 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2014, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014 David Thompson <dthompson2@worcester.edu>
 ;;; Copyright © 2015, 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -37,7 +38,7 @@
 (define-public libpipeline
   (package
     (name "libpipeline")
-    (version "1.4.2")
+    (version "1.5.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -45,7 +46,7 @@
                     version ".tar.gz"))
               (sha256
                (base32
-                "1gkrfqkphdc6gk8gic68asallj59i3cfq6nd31ppks0cljdgrwgy"))))
+                "0avg525wvifcvjrwa6i1r6kvahmsswj0mpxrsxzzdzra9wpf2whd"))))
     (build-system gnu-build-system)
     (home-page "http://libpipeline.nongnu.org/")
     (synopsis "C library for manipulating pipelines of subprocesses")
@@ -57,17 +58,17 @@ a flexible and convenient way.")
 (define-public man-db
   (package
     (name "man-db")
-    (version "2.7.6.1")
+    (version "2.8.3")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://savannah/man-db/man-db-"
                                   version ".tar.xz"))
               (sha256
                (base32
-                "0gqgs4zc3r87apns0k5qp689p2ylxx2596s2mkmkxjjay99brv88"))))
+                "1b641kcgjvyc41pj67dn4p0zvwlj1vx3l6nf7qdcc7kf6v5a2cjr"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases
+     `(#:phases
        (modify-phases %standard-phases
          (add-after 'patch-source-shebangs 'patch-test-shebangs
            (lambda* (#:key outputs #:allow-other-keys)
@@ -87,6 +88,7 @@ a flexible and convenient way.")
              #t)))
        #:configure-flags
        (let ((groff (assoc-ref %build-inputs "groff"))
+             (groff-minimal (assoc-ref %build-inputs "groff-minimal"))
              (less  (assoc-ref %build-inputs "less"))
              (gzip  (assoc-ref %build-inputs "gzip"))
              (bzip2 (assoc-ref %build-inputs "bzip2"))
@@ -109,19 +111,29 @@ a flexible and convenient way.")
                        (string-append "--with-systemdtmpfilesdir="
                                       %output "/lib/tmpfiles.d"))
                  (map (lambda (prog)
-                        (string-append "--with-" prog "=" groff "/bin/" prog))
+                        (string-append "--with-" prog "=" groff-minimal
+                                       "/bin/" prog))
                       '("nroff" "eqn" "neqn" "tbl" "refer" "pic"))))
+
+       ;; At run time we should refer to GROFF-MINIMAL, not GROFF (the latter
+       ;; pulls in Perl.)
+       #:disallowed-references (,groff)
+
        #:modules ((guix build gnu-build-system)
                   (guix build utils)
                   (srfi srfi-1))))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
+     `(("pkg-config" ,pkg-config)
+       ("groff" ,groff)))   ;needed at build time (troff, grops, soelim, etc.)
     (inputs
      `(("flex" ,flex)
        ("gdbm" ,gdbm)
-       ("groff" ,groff)
+       ("groff-minimal" ,groff-minimal)
        ("less" ,less)
        ("libpipeline" ,libpipeline)
+       ;; FIXME: 4.8 and later can use libseccomp, but it causes test
+       ;; failures in the build chroot.
+       ;;("libseccomp" ,libseccomp)
        ("util-linux" ,util-linux)))
     (native-search-paths
      (list (search-path-specification
@@ -138,7 +150,7 @@ the traditional flat-text whatis databases.")
 (define-public man-pages
   (package
     (name "man-pages")
-    (version "4.12")
+    (version "4.15")
     (source (origin
               (method url-fetch)
               (uri
@@ -151,10 +163,10 @@ the traditional flat-text whatis databases.")
                     "man-pages-" version ".tar.xz")))
               (sha256
                (base32
-                "14z0zcwm0m98fk2m2b3pvr8rs2sb602mg8f7wwb4xl7yj7cpjvbg"))))
+                "01n1rq1kvambax85xamriawbga94mh63s5mgjmjljjgf50m7yw6f"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-delete 'configure %standard-phases)
+     '(#:phases (modify-phases %standard-phases (delete 'configure))
 
        ;; The 'all' target depends on three targets that directly populate
        ;; $(MANDIR) based on its current contents.  Doing that in parallel
@@ -177,7 +189,7 @@ Linux kernel and C library interfaces employed by user-space programs.")
 (define-public help2man
   (package
     (name "help2man")
-    (version "1.47.4")
+    (version "1.47.5")
     (source
      (origin
       (method url-fetch)
@@ -185,7 +197,7 @@ Linux kernel and C library interfaces employed by user-space programs.")
                           version ".tar.xz"))
       (sha256
        (base32
-        "0lvp4306f5nq08f3snffs5pp1zwv8l35z6f5g0dds51zs6bzdv6l"))))
+        "1cb14kp380jzk1yi4i7x9d8qplc8c5mgcbgycgs9ggpx34jhp9kw"))))
     (build-system gnu-build-system)
     (arguments `(;; There's no `check' target.
                  #:tests? #f))
@@ -220,7 +232,7 @@ automatically.")
     (arguments
      `(#:tests? #f ; no "check" target
        #:make-flags (list (string-append "prefix=" (assoc-ref %outputs "out")))
-       #:phases (alist-delete 'configure %standard-phases)))
+       #:phases (modify-phases %standard-phases (delete 'configure))))
     (inputs
      `(("gawk" ,gawk)))
     (home-page "https://github.com/mvertes/txt2man")

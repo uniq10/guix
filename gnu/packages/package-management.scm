@@ -1,7 +1,12 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2017 Muriithi Frederick Muriuki <fredmanglis@gmail.com>
+;;; Copyright © 2017 Oleg Pykhalov <go.wigust@gmail.com>
+;;; Copyright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Julien Lepiller <julien@lepiller.eu>
+;;; Copyright © 2018 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -19,43 +24,56 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu packages package-management)
-  #:use-module (guix packages)
-  #:use-module (guix download)
-  #:use-module (guix git-download)
-  #:use-module (guix gexp)
-  #:use-module (guix utils)
-  #:use-module (guix build-system gnu)
-  #:use-module (guix build-system python)
-  #:use-module ((guix licenses) #:select (gpl2+ gpl3+ lgpl2.1+ asl2.0 bsd-3))
   #:use-module (gnu packages)
-  #:use-module (gnu packages guile)
-  #:use-module (gnu packages file)
-  #:use-module (gnu packages backup)
-  #:use-module (gnu packages compression)
-  #:use-module (gnu packages gnupg)
-  #:use-module (gnu packages databases)
-  #:use-module (gnu packages graphviz)
-  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages acl)
   #:use-module (gnu packages autotools)
-  #:use-module (gnu packages gettext)
-  #:use-module (gnu packages texinfo)
-  #:use-module (gnu packages nettle)
-  #:use-module (gnu packages perl)
-  #:use-module (gnu packages curl)
-  #:use-module (gnu packages web)
-  #:use-module (gnu packages man)
+  #:use-module (gnu packages backup)
   #:use-module (gnu packages bdw-gc)
-  #:use-module (gnu packages patchutils)
-  #:use-module (gnu packages python)
-  #:use-module (gnu packages popt)
-  #:use-module (gnu packages gnuzilla)
+  #:use-module (gnu packages bootstrap)          ;for 'bootstrap-guile-origin'
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages cpio)
-  #:use-module (gnu packages tls)
-  #:use-module (gnu packages ssh)
-  #:use-module (gnu packages vim)
+  #:use-module (gnu packages curl)
+  #:use-module (gnu packages databases)
+  #:use-module (gnu packages file)
+  #:use-module (gnu packages gettext)
+  #:use-module (gnu packages glib)
+  #:use-module (gnu packages gnome)
+  #:use-module (gnu packages gnupg)
+  #:use-module (gnu packages gnuzilla)
+  #:use-module (gnu packages graphviz)
+  #:use-module (gnu packages guile)
+  #:use-module (gnu packages linux)
+  #:use-module (gnu packages lisp)
+  #:use-module (gnu packages man)
+  #:use-module (gnu packages nettle)
+  #:use-module (gnu packages patchutils)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages popt)
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages serialization)
-  #:use-module (srfi srfi-1)
-  #:use-module (ice-9 match))
+  #:use-module (gnu packages ssh)
+  #:use-module (gnu packages texinfo)
+  #:use-module (gnu packages time)
+  #:use-module (gnu packages tls)
+  #:use-module (gnu packages vim)
+  #:use-module (gnu packages web)
+  #:use-module (gnu packages xml)
+  #:use-module (guix build-system emacs)
+  #:use-module (guix build-system gnu)
+  #:use-module (guix build-system meson)
+  #:use-module (guix build-system python)
+  #:use-module (guix download)
+  #:use-module (guix gexp)
+  #:use-module (guix git-download)
+  #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (guix packages)
+  #:use-module (guix utils)
+  #:use-module (ice-9 match)
+  #:use-module (srfi srfi-1))
 
 (define (boot-guile-uri arch)
   "Return the URI for the bootstrap Guile tarball for ARCH."
@@ -75,9 +93,9 @@
   ;; Latest version of Guix, which may or may not correspond to a release.
   ;; Note: the 'update-guix-package.scm' script expects this definition to
   ;; start precisely like this.
-  (let ((version "0.13.0")
-        (commit "b547349d505c57fd679b6e48c472d8ab65469c96")
-        (revision 3))
+  (let ((version "0.14.0")
+        (commit "ab85cf7185da366da56314c53d8e43276e1cccc4")
+        (revision 11))
     (package
       (name "guix")
 
@@ -93,7 +111,7 @@
                       (commit commit)))
                 (sha256
                  (base32
-                  "0q6qr9hvrac1wj2ygn4jj4w89h1m35zkcjjd741sibc3l46pa93l"))
+                  "1c00yr2vgsdl3kmlbjppyws47ssahamdx88y0wg26x73px71rd19"))
                 (file-name (string-append "guix-" version "-checkout"))))
       (build-system gnu-build-system)
       (arguments
@@ -121,6 +139,7 @@
 
          #:modules ((guix build gnu-build-system)
                     (guix build utils)
+                    (srfi srfi-26)
                     (ice-9 popen)
                     (ice-9 rdelim))
 
@@ -132,35 +151,36 @@
                                     (chmod po #o666))
                                   (find-files "." "\\.po$"))
 
+                        (patch-shebang "build-aux/git-version-gen")
+
+                        (call-with-output-file ".tarball-version"
+                          (lambda (port)
+                            (display ,version port)))
+
                         (zero? (system* "sh" "bootstrap"))))
-                    (add-before
-                        'configure 'copy-bootstrap-guile
+                    (add-before 'check 'copy-bootstrap-guile
                       (lambda* (#:key system inputs #:allow-other-keys)
-                        (define (boot-guile-version arch)
-                          (cond ((string=? "armhf" arch)   "2.0.11")
-                                ((string=? "aarch64" arch) "2.0.14")
-                                (else "2.0.9")))
+                        ;; Copy the bootstrap guile tarball in the store used
+                        ;; by the test suite.
+                        (define (intern tarball)
+                          (let ((base (strip-store-file-name tarball)))
+                            (copy-file tarball base)
+                            (invoke "./test-env" "guix" "download"
+                                    (string-append "file://" (getcwd)
+                                                   "/" base))
+                            (delete-file base)))
 
-                        (define (copy arch)
-                          (let ((guile  (assoc-ref inputs
-                                                   (string-append "boot-guile/"
-                                                                  arch)))
-                                (target (string-append "gnu/packages/bootstrap/"
-                                                       arch "-linux/"
-                                                       "/guile-"
-                                                       (boot-guile-version arch)
-                                                       ".tar.xz")))
-                            (mkdir-p (dirname target)) ;XXX: eventually unneeded
-                            (copy-file guile target)))
 
-                        (copy "i686")
-                        (copy "x86_64")
-                        (copy "mips64el")
-                        (copy "armhf")
-                        (copy "aarch64")
+                        (intern (assoc-ref inputs "boot-guile"))
+
+                        ;; On x86_64 some tests need the i686 Guile.
+                        ,@(if (and (not (%current-target-system))
+                                   (string=? (%current-system)
+                                             "x86_64-linux"))
+                              '((intern (assoc-ref inputs "boot-guile/i686")))
+                              '())
                         #t))
-                    (add-after
-                        'unpack 'disable-container-tests
+                    (add-after 'unpack 'disable-failing-tests
                       ;; XXX FIXME: These tests fail within the build container.
                       (lambda _
                         (substitute* "tests/syscalls.scm"
@@ -182,26 +202,38 @@
                         #t))
                     (add-after 'install 'wrap-program
                       (lambda* (#:key inputs outputs #:allow-other-keys)
-                        ;; Make sure the 'guix' command finds GnuTLS and
-                        ;; Guile-JSON automatically.
+                        ;; Make sure the 'guix' command finds GnuTLS,
+                        ;; Guile-JSON, and Guile-Git automatically.
                         (let* ((out    (assoc-ref outputs "out"))
                                (guile  (assoc-ref inputs "guile"))
                                (json   (assoc-ref inputs "guile-json"))
+                               (git    (assoc-ref inputs "guile-git"))
+                               (bs     (assoc-ref inputs
+                                                  "guile-bytestructures"))
                                (ssh    (assoc-ref inputs "guile-ssh"))
                                (gnutls (assoc-ref inputs "gnutls"))
+                               (deps   (list json gnutls git bs ssh))
                                (effective
                                 (read-line
                                  (open-pipe* OPEN_READ
                                              (string-append guile "/bin/guile")
                                              "-c" "(display (effective-version))")))
-                               (path   (string-append
-                                        json "/share/guile/site/" effective ":"
-                                        ssh "/share/guile/site/" effective ":"
-                                        gnutls "/share/guile/site/" effective)))
+                               (path   (string-join
+                                        (map (cut string-append <>
+                                                  "/share/guile/site/"
+                                                  effective)
+                                             deps)
+                                        ":"))
+                               (gopath (string-join
+                                        (map (cut string-append <>
+                                                  "/lib/guile/" effective
+                                                  "/site-ccache")
+                                             deps)
+                                        ":")))
 
                           (wrap-program (string-append out "/bin/guix")
                             `("GUILE_LOAD_PATH" ":" prefix (,path))
-                            `("GUILE_LOAD_COMPILED_PATH" ":" prefix (,path)))
+                            `("GUILE_LOAD_COMPILED_PATH" ":" prefix (,gopath)))
 
                           #t))))))
       (native-inputs `(("pkg-config" ,pkg-config)
@@ -209,50 +241,36 @@
                        ;; XXX: Keep the development inputs here even though
                        ;; they're unnecessary, just so that 'guix environment
                        ;; guix' always contains them.
-                       ("autoconf" ,(autoconf-wrapper))
+                       ("autoconf" ,autoconf-wrapper)
                        ("automake" ,automake)
                        ("gettext" ,gettext-minimal)
                        ("texinfo" ,texinfo)
                        ("graphviz" ,graphviz)
-                       ("help2man" ,help2man)))
+                       ("help2man" ,help2man)
+                       ("po4a" ,po4a)))
       (inputs
-       (let ((boot-guile (lambda (arch hash)
-                           (origin
-                             (method url-fetch)
-                             (uri (boot-guile-uri arch))
-                             (sha256 hash)))))
-         `(("bzip2" ,bzip2)
-           ("gzip" ,gzip)
-           ("zlib" ,zlib)                         ;for 'guix publish'
+       `(("bzip2" ,bzip2)
+         ("gzip" ,gzip)
+         ("zlib" ,zlib)                           ;for 'guix publish'
 
-           ("sqlite" ,sqlite)
-           ("libgcrypt" ,libgcrypt)
-           ("guile" ,guile-2.2)
+         ("sqlite" ,sqlite)
+         ("libgcrypt" ,libgcrypt)
+         ("guile" ,guile-2.2)
 
-           ("boot-guile/i686"
-            ,(boot-guile "i686"
-                         (base32
-                          "0im800m30abgh7msh331pcbjvb4n02smz5cfzf1srv0kpx3csmxp")))
-           ("boot-guile/x86_64"
-            ,(boot-guile "x86_64"
-                         (base32
-                          "1w2p5zyrglzzniqgvyn1b55vprfzhgk8vzbzkkbdgl5248si0yq3")))
-           ("boot-guile/mips64el"
-            ,(boot-guile "mips64el"
-                         (base32
-                          "0fzp93lvi0hn54acc0fpvhc7bvl0yc853k62l958cihk03q80ilr")))
-           ("boot-guile/armhf"
-            ,(boot-guile "armhf"
-                         (base32
-                          "1mi3brl7l58aww34rawhvja84xc7l1b4hmwdmc36fp9q9mfx0lg5")))
-           ("boot-guile/aarch64"
-            ,(boot-guile "aarch64"
-                         (base32
-                          "1giy2aprjmn5fp9c4s9r125fljw4wv6ixy5739i5bffw4jgr0f9r"))))))
+         ;; Many tests rely on the 'guile-bootstrap' package, which is why we
+         ;; have it here.
+         ("boot-guile" ,(bootstrap-guile-origin (%current-system)))
+         ;; Some of the tests use "unshare" when it is available.
+         ("util-linux" ,util-linux)
+         ,@(if (and (not (%current-target-system))
+                    (string=? (%current-system) "x86_64-linux"))
+               `(("boot-guile/i686" ,(bootstrap-guile-origin "i686-linux")))
+               '())))
       (propagated-inputs
-       `(("gnutls" ,gnutls/guile-2.2)             ;for 'guix download' & co.
+       `(("gnutls" ,gnutls)
          ("guile-json" ,guile-json)
          ("guile-ssh" ,guile-ssh)
+         ("guile-git" ,guile-git)
          ("guile-sqlite3" ,guile-sqlite3)))
 
       (home-page "https://www.gnu.org/software/guix/")
@@ -263,11 +281,38 @@ also a distribution thereof.  It includes a virtual machine image.  Besides
 the usual package management features, it also supports transactional
 upgrades and roll-backs, per-user profiles, and much more.  It is based on
 the Nix package manager.")
-      (license gpl3+)
+      (license license:gpl3+)
       (properties '((ftp-server . "alpha.gnu.org"))))))
 
 ;; Alias for backward compatibility.
 (define-public guix-devel guix)
+
+(define-public guix-register
+  ;; This package is for internal consumption: it allows us to quickly build
+  ;; the 'guix-register' program, which is referred to by (guix config).
+  ;; TODO: Remove this hack when 'guix-register' has been superseded by Scheme
+  ;; code.
+  (package
+    (inherit guix)
+    (properties `((hidden? . #t)))
+    (name "guix-register")
+    (arguments
+     (substitute-keyword-arguments (package-arguments guix)
+       ((#:tests? #f #f)
+        #f)
+       ((#:phases phases '%standard-phases)
+        `(modify-phases ,phases
+           (replace 'build
+             (lambda _
+               (invoke "make" "nix/libstore/schema.sql.hh")
+               (invoke "make" "-j" (number->string
+                                    (parallel-job-count))
+                       "guix-register")))
+           (delete 'copy-bootstrap-guile)
+           (replace 'install
+             (lambda _
+               (invoke "make" "install-sbinPROGRAMS")))
+           (delete 'wrap-program)))))))
 
 (define-public guile2.0-guix
   (package
@@ -277,9 +322,10 @@ the Nix package manager.")
      `(("guile" ,guile-2.0)
        ,@(alist-delete "guile" (package-inputs guix))))
     (propagated-inputs
-     `(("gnutls" ,gnutls)
+     `(("gnutls" ,gnutls/guile-2.0)
        ("guile-json" ,guile2.0-json)
-       ("guile-ssh" ,guile2.0-ssh)))))
+       ("guile-ssh" ,guile2.0-ssh)
+       ("guile-git" ,guile2.0-git)))))
 
 (define (source-file? file stat)
   "Return true if FILE is likely a source file, false if it is a typical
@@ -298,10 +344,11 @@ generated file."
      #t)))
 
 (define-public current-guix
-  (let ((select? (delay (or (git-predicate
-                             (string-append (current-source-directory)
-                                            "/../.."))
-                            source-file?))))
+  (let* ((repository-root (canonicalize-path
+                           (string-append (current-source-directory)
+                                          "/../..")))
+         (select? (delay (or (git-predicate repository-root)
+                             source-file?))))
     (lambda ()
       "Return a package representing Guix built from the current source tree.
 This works by adding the current source tree to the store (after filtering it
@@ -309,7 +356,7 @@ out) and returning a package that uses that as its 'source'."
       (package
         (inherit guix)
         (version (string-append (package-version guix) "+"))
-        (source (local-file "../.." "guix-current"
+        (source (local-file repository-root "guix-current"
                             #:recursive? #t
                             #:select? (force select?)))))))
 
@@ -356,7 +403,7 @@ out) and returning a package that uses that as its 'source'."
               ("perl-www-curl" ,perl-www-curl)
               ("perl-dbi" ,perl-dbi)
               ("perl-dbd-sqlite" ,perl-dbd-sqlite)))
-    (home-page "http://nixos.org/nix/")
+    (home-page "https://nixos.org/nix/")
     (synopsis "The Nix package manager")
     (description
      "Nix is a purely functional package manager.  This means that it treats
@@ -365,7 +412,24 @@ Haskell—they are built by functions that don't have side-effects, and they
 never change after they have been built.  Nix stores packages in the Nix
 store, usually the directory /nix/store, where each package has its own unique
 sub-directory.")
-    (license lgpl2.1+)))
+    (license license:lgpl2.1+)))
+
+(define-public emacs-nix-mode
+  (package
+    (inherit nix)
+    (name "emacs-nix-mode")
+    (build-system emacs-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'chdir-elisp
+           ;; Elisp directory is not in root of the source.
+           (lambda _
+             (chdir "misc/emacs"))))))
+    (synopsis "Emacs major mode for editing Nix expressions")
+    (description "@code{nixos-mode} provides an Emacs major mode for editing
+Nix expressions.  It supports syntax highlighting, indenting and refilling of
+comments.")))
 
 (define-public stow
   (package
@@ -394,20 +458,20 @@ of data and makes them appear to be merged into the same directory.  It is
 typically used for managing software packages installed from source, by
 letting you install them apart in distinct directories and then create
 symlinks to the files in a common directory such as /usr/local.")
-    (license gpl2+)))
+    (license license:gpl2+)))
 
 (define-public rpm
   (package
     (name "rpm")
-    (version "4.12.0.1")
+    (version "4.13.0.2")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://rpm.org/releases/rpm-4.12.x/rpm-"
+              (uri (string-append "http://ftp.rpm.org/releases/rpm-"
+                                  (version-major+minor version) ".x/rpm-"
                                   version ".tar.bz2"))
               (sha256
                (base32
-                "0a82ym8phx7g0f3k6smvxnvzh7yv857l42xafk49689kzhld5pbp"))
-              (patches (search-patches "rpm-CVE-2014-8118.patch"))))
+                "1521y4ghjns449kzpwkjn9cksh686383xnfx0linzlalqc3jqgig"))))
     (build-system gnu-build-system)
     (arguments
      '(#:configure-flags '("--with-external-db"   ;use the system's bdb
@@ -467,22 +531,21 @@ description.  There is also a library permitting developers to manage such
 transactions from C or Python.")
 
     ;; The whole is GPLv2+; librpm itself is dual-licensed LGPLv2+ | GPLv2+.
-    (license gpl2+)))
+    (license license:gpl2+)))
 
 (define-public diffoscope
   (package
     (name "diffoscope")
-    (version "81")
+    (version "93")
     (source (origin
               (method url-fetch)
               (uri (pypi-uri name version))
               (sha256
                (base32
-                "093lxy6zj69i19fxdkj3jnai3b1ajqbksyqcvy8wqj3plaaxjna5"))))
+                "0g90nf7817jk03hzk36l3hymky4xqs50iynfld3r0in7hffly5nj"))))
     (build-system python-build-system)
     (arguments
      `(#:phases (modify-phases %standard-phases
-                  (add-before 'unpack 'n (lambda _ #t))
                   ;; setup.py mistakenly requires python-magic from PyPi, even
                   ;; though the Python bindings of `file` are sufficient.
                   ;; https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=815844
@@ -497,28 +560,40 @@ transactions from C or Python.")
                          (string-append "['" (which "xxd") "',")))
                       (substitute* "diffoscope/comparators/elf.py"
                         (("@tool_required\\('readelf'\\)") "")
-                        (("\\['readelf',")
-                         (string-append "['" (which "readelf") "',")))
+                        (("get_tool_name\\('readelf'\\)")
+                         (string-append "'" (which "readelf") "'")))
+                      (substitute* "diffoscope/comparators/directory.py"
+                        (("@tool_required\\('stat'\\)") "")
+                        (("@tool_required\\('getfacl'\\)") "")
+                        (("\\['stat',")
+                         (string-append "['" (which "stat") "',"))
+                        (("\\['getfacl',")
+                         (string-append "['" (which "getfacl") "',")))
+                      #t))
+                  (add-before 'check 'delete-failing-test
+                    (lambda _
+                      (delete-file "tests/test_tools.py") ;this requires /sbin to be on the path
                       #t)))))
     (inputs `(("rpm" ,rpm)                        ;for rpm-python
               ("python-file" ,python-file)
               ("python-debian" ,python-debian)
               ("python-libarchive-c" ,python-libarchive-c)
               ("python-tlsh" ,python-tlsh)
+              ("acl" ,acl)                        ;for getfacl
               ("colordiff" ,colordiff)
-              ("xxd" ,vim)
+              ("xxd" ,xxd)
 
               ;; Below are modules used for tests.
               ("python-pytest" ,python-pytest)
               ("python-chardet" ,python-chardet)))
-    (home-page "http://diffoscope.org/")
+    (home-page "https://diffoscope.org/")
     (synopsis "Compare files, archives, and directories in depth")
     (description
      "Diffoscope tries to get to the bottom of what makes files or directories
 different.  It recursively unpacks archives of many kinds and transforms
 various binary formats into more human readable forms to compare them.  It can
 compare two tarballs, ISO images, or PDFs just as easily.")
-    (license gpl3+)))
+    (license license:gpl3+)))
 
 (define-public python-anaconda-client
   (package
@@ -570,7 +645,7 @@ compare two tarballs, ISO images, or PDFs just as easily.")
      "Anaconda Cloud command line client library provides an interface to
 Anaconda Cloud.  Anaconda Cloud is useful for sharing packages, notebooks and
 environments.")
-    (license bsd-3)))
+    (license license:bsd-3)))
 
 (define-public python2-anaconda-client
   (package-with-python2 python-anaconda-client))
@@ -646,10 +721,15 @@ it easy to create independent environments even for C libraries.  Conda is
 written entirely in Python.
 
 This package provides Conda as a library.")
-    (license bsd-3)))
+    (license license:bsd-3)))
 
 (define-public python2-conda
-  (package-with-python2 python-conda))
+  (let ((base (package-with-python2
+               (strip-python2-variant python-conda))))
+    (package (inherit base)
+             (native-inputs
+              `(("python2-enum34" ,python2-enum34)
+                ,@(package-native-inputs base))))))
 
 (define-public conda
   (package (inherit python-conda)
@@ -692,10 +772,122 @@ This package provides Conda as a library.")
                  ;; And it aborts if the directory doesn't exist.
                  (mkdir-p target)
                  (zero? (system* "python" "utils/setup-testing.py" "install"
-                                 (string-append "--prefix=" out))))))))))
+                                 (string-append "--prefix=" out))))))
+           ;; The "activate" and "deactivate" scripts don't need wrapping.
+           ;; They also break when they are renamed.
+           (add-after 'wrap 'undo-wrap
+             (lambda* (#:key outputs #:allow-other-keys)
+               (with-directory-excursion (string-append (assoc-ref outputs "out") "/bin/")
+                 (delete-file "deactivate")
+                 (rename-file ".deactivate-real" "deactivate")
+                 (delete-file "activate")
+                 (rename-file ".activate-real" "activate")
+                 #t)))))))
     (description
      "Conda is a cross-platform, Python-agnostic binary package manager.  It
 is the package manager used by Anaconda installations, but it may be used for
 other systems as well.  Conda makes environments first-class citizens, making
 it easy to create independent environments even for C libraries.  Conda is
 written entirely in Python.")))
+
+(define-public gwl
+  (package
+    (name "gwl")
+    (version "0.1.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://www.guixwl.org/releases/gwl-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "06pm967mq1wyggx7l0nfapw5s0k5qc5r9lawk2v3db868br779a7"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("guile" ,guile-2.2)))
+    (propagated-inputs
+     `(("guix" ,guix)
+       ("guile-commonmark" ,guile-commonmark)))
+    (home-page "https://www.guixwl.org")
+    (synopsis "Workflow management extension for GNU Guix")
+    (description "This project provides two subcommands to GNU Guix and
+introduces two record types that provide a workflow management extension built
+on top of GNU Guix.")
+    ;; The Scheme modules in guix/ and gnu/ are licensed GPL3+,
+    ;; the web interface modules in gwl/ are licensed AGPL3+,
+    ;; and the fonts included in this package are licensed OFL1.1.
+    (license (list license:gpl3+ license:agpl3+ license:silofl1.1))))
+
+(define-public gcab
+  (package
+    (name "gcab")
+    (version "1.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnome/sources/" name "/"
+                                  version "/" name "-" version ".tar.xz"))
+              (sha256
+               (base32
+                "0l19sr6pg0cfcddmi5n79d08mjjbhn427ip5jlsy9zddq9r24aqr"))
+              ;; gcab 1.1 has a hard dependency on git — even when building
+              ;; from a tarball.  Remove it early so ‘guix environment gcab’
+              ;; can actually build what ‘guix build --source gcab’ returns.
+              (modules '((guix build utils)))
+              (snippet
+               '(begin
+                  (substitute* "meson.build"
+                    (("git_version = .*$") "git_version = []\n"))
+                  #t))))
+    (build-system meson-build-system)
+    (native-inputs
+     `(("glib:bin" ,glib "bin")         ; for glib-mkenums
+       ("intltool" ,intltool)
+       ("pkg-config" ,pkg-config)
+       ("vala" ,vala)))
+    (inputs
+     `(("glib" ,glib)
+       ("zlib" ,zlib)))
+    (arguments
+     `(#:configure-flags
+       ;; XXX This ‘documentation’ is for developers, and fails informatively:
+       ;; Error in gtkdoc helper script: 'gtkdoc-mkhtml' failed with status 5
+       (list "-Ddocs=false"
+             "-Dintrospection=false")))
+    (home-page "https://wiki.gnome.org/msitools") ; no dedicated home page
+    (synopsis "Microsoft Cabinet file manipulation library")
+    (description
+     "The libgcab library provides GObject functions to read, write, and modify
+Microsoft cabinet (.@dfn{CAB}) files.")
+    (license (list license:gpl2+        ; tests/testsuite.at
+                   license:lgpl2.1+)))) ; the rest
+
+(define-public msitools
+  (package
+    (name "msitools")
+    (version "0.97")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnome/sources/" name "/"
+                                  version "/" name "-" version ".tar.xz"))
+              (sha256
+               (base32
+                "0pn6izlgwi4ngpk9jk2n38gcjjpk29nm15aad89bg9z3k9n2hnrs"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("gcab" ,gcab)
+       ("glib" ,glib)
+       ("libgsf" ,libgsf)
+       ("libxml2" ,libxml2)
+       ("uuid" ,util-linux)))
+    (home-page "https://wiki.gnome.org/msitools")
+    (synopsis "Windows Installer file manipulation tool")
+    (description
+     "msitools is a collection of command-line tools to inspect, extract, build,
+and sign Windows@tie{}Installer (.@dfn{MSI}) files.  It aims to be a solution
+for packaging and deployment of cross-compiled Windows applications.")
+    (license license:lgpl2.1+)))

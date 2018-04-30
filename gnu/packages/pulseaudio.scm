@@ -6,6 +6,7 @@
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
 ;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Stefan Reichör <stefan@xsteve.at>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,6 +28,7 @@
   #:use-module (guix download)
   #:use-module ((guix licenses) #:prefix l:)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages autotools)
@@ -45,13 +47,15 @@
 (define-public libsndfile
   (package
     (name "libsndfile")
-    (replacement libsndfile/fixed)
     (version "1.0.28")
     (source (origin
              (method url-fetch)
              (uri (string-append "http://www.mega-nerd.com/libsndfile/files/libsndfile-"
                                  version ".tar.gz"))
-             (patches (search-patches "libsndfile-armhf-type-checks.patch"))
+             (patches (search-patches "libsndfile-armhf-type-checks.patch"
+                                      "libsndfile-CVE-2017-8361-8363-8365.patch"
+                                      "libsndfile-CVE-2017-8362.patch"
+                                      "libsndfile-CVE-2017-12562.patch"))
              (sha256
               (base32
                "1afzm7jx34jhqn32clc5xghyjglccam2728yxlx37yj2y0lkkwqz"))))
@@ -76,18 +80,6 @@ as big-endian processor systems such as Motorola 68k, Power PC, MIPS and
 SPARC.  Hopefully the design of the library will also make it easy to extend
 for reading and writing new sound file formats.")
     (license l:gpl2+)))
-
-(define libsndfile/fixed
-  (package
-    (inherit libsndfile)
-    (source
-      (origin
-        (inherit (package-source libsndfile))
-        (patches
-          (append
-            (origin-patches (package-source libsndfile))
-            (search-patches "libsndfile-CVE-2017-8361-8363-8365.patch"
-                            "libsndfile-CVE-2017-8362.patch")))))))
 
 (define-public libsamplerate
   (package
@@ -130,7 +122,7 @@ rates.")
 (define-public pulseaudio
   (package
     (name "pulseaudio")
-    (version "10.0")
+    (version "11.1")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -138,7 +130,7 @@ rates.")
                    name "-" version ".tar.xz"))
              (sha256
               (base32
-               "0mrg8qvpwm4ifarzphl3749p7p050kdx1l6mvsaj03czvqj6h653"))
+               "17ndr6kc7hpv4ih4gygwlcpviqifbkvnk4fbwf4n25kpb991qlpj"))
              (modules '((guix build utils)))
              (snippet
               ;; Disable console-kit support by default since it's deprecated
@@ -157,16 +149,16 @@ rates.")
                                (string-append "--with-udev-rules-dir="
                                               (assoc-ref %outputs "out")
                                               "/lib/udev/rules.d"))
-       #:phases (alist-cons-before
-                 'check 'pre-check
-                 (lambda _
-                   ;; 'tests/lock-autospawn-test.c' wants to create a file
-                   ;; under ~/.config/pulse.
-                   (setenv "HOME" (getcwd))
-                   ;; 'thread-test' needs more time on hydra and on slower
-                   ;; machines, so we set the default timeout to 120 seconds.
-                   (setenv "CK_DEFAULT_TIMEOUT" "120"))
-                 %standard-phases)))
+       #:phases (modify-phases %standard-phases
+                 (add-before 'check 'pre-check
+                   (lambda _
+                     ;; 'tests/lock-autospawn-test.c' wants to create a file
+                     ;; under ~/.config/pulse.
+                     (setenv "HOME" (getcwd))
+                     ;; 'thread-test' needs more time on hydra and on slower
+                     ;; machines, so we set the default timeout to 120 seconds.
+                     (setenv "CK_DEFAULT_TIMEOUT" "120")
+                     #t)))))
     (inputs
      ;; TODO: Add optional inputs (GTK+?).
      `(("alsa-lib" ,alsa-lib)
@@ -228,7 +220,7 @@ sound server.")
     (native-inputs
      `(("intltool" ,intltool)
        ("pkg-config" ,pkg-config)))
-    (home-page "http://freedesktop.org/software/pulseaudio/pavucontrol/")
+    (home-page "https://www.freedesktop.org/software/pulseaudio/pavucontrol/")
     (synopsis "PulseAudio volume control")
     (description
      "PulseAudio Volume Control (pavucontrol) provides a GTK+
@@ -269,4 +261,35 @@ easily control the volume of all clients, sinks, etc.")
     (description "Ponymix is a PulseAudio mixer and volume controller with a
 command-line interface.  In addition, it is possible to use named sources and
 sinks.")
+    (license l:expat)))
+
+(define-public pulsemixer
+  (package
+    (name "pulsemixer")
+    (version "1.4.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/GeorgeFilipkin/"
+                                  "pulsemixer/archive/" version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1lpad90ifr2xfldyf39sbwx1v85rif2gm9w774gwwpjv53zfgk1g"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-path
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((pulse (assoc-ref inputs "pulseaudio")))
+               (substitute* "pulsemixer"
+                 (("libpulse.so.0")
+                  (string-append pulse "/lib/libpulse.so.0")))
+               #t))))))
+    (inputs
+     `(("pulseaudio" ,pulseaudio)))
+    (home-page "https://github.com/GeorgeFilipkin/pulsemixer/")
+    (synopsis "Command-line and curses mixer for PulseAudio")
+    (description "Pulsemixer is a PulseAudio mixer with command-line and
+curses-style interfaces.")
     (license l:expat)))

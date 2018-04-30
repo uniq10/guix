@@ -100,7 +100,7 @@
              #t)))))
     (native-inputs `(("avr-binutils" ,avr-binutils)
                      ("avr-gcc" ,avr-gcc)))
-    (home-page "http://www.nongnu.org/avr-libc/")
+    (home-page "https://www.nongnu.org/avr-libc/")
     (synopsis "The AVR C Library")
     (description
      "AVR Libc is a project whose goal is to provide a high quality C library
@@ -157,8 +157,8 @@ C++.")
        (list (string-append "PREFIX=" (assoc-ref %outputs "out")))))
     (native-inputs
      `(("unzip" ,unzip)
-       ("vim" ,vim))) ; for xxd
-    (home-page "http://microscheme.org/")
+       ("xxd" ,xxd)))
+    (home-page "https://github.com/ryansuchocki/microscheme/")
     (synopsis "Scheme subset for Atmel microcontrollers")
     (description
      "Microscheme, or @code{(ms)} for short, is a functional programming

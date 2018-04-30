@@ -1,6 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Steve Sprang <scs@stevesprang.com>
-;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2015 Aljosha Papsch <misc@rpapsch.de>
 ;;; Copyright © 2016 Christopher Allan Webber <cwebber@dustycloud.org>
 ;;; Copyright © 2016 Jessica Tallon <tsyesika@tsyesika.se>
@@ -8,9 +8,16 @@
 ;;; Copyright © 2016 Lukas Gradl <lgradl@openmailbox.org>
 ;;; Copyright © 2016 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017, 2018 Clément Lassieur <clement@lassieur.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Jelle Licht <jlicht@fsfe.org>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2017 Nicolas Goaziou <mail@nicolasgoaziou.fr>
+;;; Copyright © 2017 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Konrad Hinsen <konrad.hinsen@fastmail.net>
+;;; Copyright © 2018 Thomas Sigurdsen <tonton@riseup.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -37,35 +44,44 @@
   #:use-module (gnu packages admin)
   #:use-module (gnu packages aidc)
   #:use-module (gnu packages base)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages crypto)
+  #:use-module (gnu packages curl)
   #:use-module (gnu packages freedesktop)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages gnupg)
+  #:use-module (gnu packages gnuzilla)
   #:use-module (gnu packages gtk)
   #:use-module (gnu packages guile)
+  #:use-module (gnu packages kerberos)
+  #:use-module (gnu packages libffi)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages man)
+  #:use-module (gnu packages multiprecision)
   #:use-module (gnu packages ncurses)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages suckless)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages qt)
   #:use-module (gnu packages version-control)
   #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xorg)
+  #:use-module (gnu packages xml)
   #:use-module (guix build-system python))
 
 (define-public pwgen
   (package
     (name "pwgen")
-    (version "2.07")
+    (version "2.08")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "mirror://sourceforge/pwgen/pwgen/" version
                            "/pwgen-" version ".tar.gz"))
        (sha256
-        (base32 "0mhmw700kkh238fzivcwnwi94bj9f3h36yfh3k3j2v19b0zmjx7b"))))
+        (base32 "0yy90pqrr2pszzhb5hxjishq9qc7dqd290amiibqx9fm1b9kvc6s"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f)) ; no test suite
@@ -74,6 +90,46 @@
     (description "Pwgen generates passwords which can be easily memorized by a
 human.")
     (license license:gpl2)))
+
+(define-public keepassxc
+  (package
+    (name "keepassxc")
+    (version "2.3.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/keepassxreboot/" name
+                           "/releases/download/" version "/keepassxc-"
+                           version "-src.tar.xz"))
+       (sha256
+        (base32
+         "1gdrbpzwbs56anc3k5vklvcackcn214pc8gm5xh5zcymsi8q4zff"))))
+    (build-system cmake-build-system)
+    (arguments
+     '(#:configure-flags '("-DWITH_XC_NETWORKING=YES"
+                           "-DWITH_XC_BROWSER=YES"
+                           "-DWITH_XC_SSHAGENT=YES")))
+    (inputs
+     `(("argon2" ,argon2)
+       ("curl" ,curl) ; XC_NETWORKING
+       ("libgcrypt" ,libgcrypt)
+       ("libsodium" ,libsodium) ; XC_BROWSER
+       ("libxi" ,libxi)
+       ("libxtst" ,libxtst)
+       ("qtbase" ,qtbase)
+       ("qtx11extras" ,qtx11extras)
+       ("zlib" ,zlib)))
+    (native-inputs
+     `(("qttools" ,qttools)))
+    (home-page "https://www.keepassxc.org")
+    (synopsis "Password manager")
+    (description "KeePassXC is a password manager or safe which helps you to
+manage your passwords in a secure way.  You can put all your passwords in one
+database, which is locked with one master key or a key-file which can be stored
+on an external storage device.  The databases are encrypted using the
+algorithms AES or Twofish.")
+    ;; Non functional parts use various licences.
+    (license license:gpl3)))
 
 (define-public keepassx
   (package
@@ -103,7 +159,8 @@ database, which is locked with one master key or a key-file which can be stored
 on an external storage device.  The databases are encrypted using the
 algorithms AES or Twofish.")
     ;; Non functional parts use various licences.
-    (license license:gpl3)))
+    (license license:gpl3)
+    (properties `((superseded . ,keepassxc)))))
 
 (define-public shroud
   (package
@@ -145,7 +202,7 @@ applications, there is xclip integration." )
 (define-public yapet
   (package
     (name "yapet")
-    (version "1.0")
+    (version "1.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://www.guengel.ch/myapps/yapet/downloads/yapet-"
@@ -153,7 +210,7 @@ applications, there is xclip integration." )
                                   ".tar.bz2"))
               (sha256
                (base32
-                "0ydbnqw6icdh07pnv2w6dhvq501bdfvrklv4xmyr8znca9d753if"))))
+                "1lq46mpxdsbl6qw4cj58hp9q7jckmyvbsi08p5zr77rjgqadxyyy"))))
     (build-system gnu-build-system)
     (inputs
      `(("ncurses" ,ncurses)
@@ -226,7 +283,7 @@ random passwords that pass the checks.")
 (define-public assword
   (package
     (name "assword")
-    (version "0.10")
+    (version "0.11")
     (source (origin
               (method url-fetch)
               (uri (list
@@ -235,7 +292,7 @@ random passwords that pass the checks.")
                      "assword_" version ".orig.tar.gz")))
               (sha256
                (base32
-                "0l6170y6my1gprqkazvzabgjkrkr9v2q7z48vjflna4r323yqira"))))
+                "03gkb6kvsghznbcw5l7nmrc6mn3ixkjd5jcs96ni4zs9l47jf7yp"))))
     (arguments
      `(;; irritatingly, tests do run but not there are two problems:
        ;;  - "import gtk" fails for unknown reasons here despite it the
@@ -297,13 +354,28 @@ any X11 window.")
                               name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0scqkpll2q8jhzcgcsh9kqz0gwdpvynivqjmmbzax2irjfaiklpn"))))
+                "0scqkpll2q8jhzcgcsh9kqz0gwdpvynivqjmmbzax2irjfaiklpn"))
+              (patches (search-patches "password-store-gnupg-compat.patch"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
        (modify-phases %standard-phases
          (delete 'configure)
          (delete 'build)
+         (add-before 'install 'patch-passmenu-path
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "contrib/dmenu/passmenu"
+               (("dmenu") (string-append (assoc-ref inputs "dmenu")
+                                         "/bin/dmenu"))
+               (("xdotool") (string-append (assoc-ref inputs "xdotool")
+                                           "/bin/xdotool")))
+             #t))
+         (add-after 'install 'install-passmenu
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (copy-file "contrib/dmenu/passmenu"
+                          (string-append out "/bin/passmenu"))
+               #t)))
          (add-after 'install 'wrap-path
            (lambda* (#:key inputs outputs #:allow-other-keys)
              (let ((out (assoc-ref outputs "out"))
@@ -329,14 +401,16 @@ any X11 window.")
        #:parallel-tests? #f
        #:test-target "test"))
     (inputs
-     `(("getopt" ,util-linux)
+     `(("dmenu" ,dmenu)
+       ("getopt" ,util-linux)
        ("git" ,git)
        ("gnupg" ,gnupg)
        ("qrencode" ,qrencode)
        ("sed" ,sed)
        ("tree" ,tree)
        ("which" ,which)
-       ("xclip" ,xclip)))
+       ("xclip" ,xclip)
+       ("xdotool" ,xdotool)))
     (home-page "http://www.passwordstore.org/")
     (synopsis "Encrypted password manager")
     (description "Password-store is a password manager which uses GnuPG to
@@ -350,7 +424,7 @@ through the pass command.")
 (define-public argon2
   (package
     (name "argon2")
-    (version "20161029")
+    (version "20171227")
     (source
      (origin
        (method url-fetch)
@@ -360,58 +434,28 @@ through the pass command.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "1rymikbysasdadm325jx69i0q19d9srqkny69jwmhswlidr4j07y"))))
+         "1n6w5y3va7lrcym7cxr0nikapldqm80wxjdns584bvplq5r03spa"))))
     (build-system gnu-build-system)
     (arguments
      `(#:test-target "test"
-       #:make-flags '("CC=gcc")
+       #:make-flags '("CC=gcc"
+                      "OPTTEST=1")     ;disable CPU optimization
        #:phases
        (modify-phases %standard-phases
-         (delete 'configure)
-         (replace 'install
-           (lambda _
-             (let ((out (assoc-ref %outputs "out")))
-               (install-file "argon2" (string-append out "/bin"))
-               (install-file "libargon2.a" (string-append out "/lib"))
-               (install-file "libargon2.so" (string-append out "/lib"))
-               (copy-recursively "include"
-                                 (string-append out "/include"))))))))
+         (add-after 'unpack 'patch-Makefile
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (substitute* "Makefile"
+                 (("PREFIX = /usr") (string-append "PREFIX = " out)))
+               #t)))
+         (delete 'configure))))
     (home-page "https://www.argon2.com/")
     (synopsis "Password hashing library")
     (description "Argon2 provides a key derivation function that was declared
 winner of the 2015 Password Hashing Competition.")
-    (license license:cc0)))
-
-(define-public python-bcrypt
-  (package
-    (name "python-bcrypt")
-    (version "3.1.0")
-    (source
-      (origin
-        (method url-fetch)
-        (uri (pypi-uri "bcrypt" version))
-        (sha256
-         (base32
-          "1giy0dvd8gvq6flxh44np1v2nqwsji5qsnrz038mgwzgp7c20j75"))))
-        (build-system python-build-system)
-    (native-inputs
-     `(("python-pycparser" ,python-pycparser)
-       ("python-pytest" ,python-pytest)))
-    (propagated-inputs
-     `(("python-cffi" ,python-cffi)
-       ("python-six" ,python-six)))
-    (home-page "https://github.com/pyca/bcrypt/")
-    (synopsis
-     "Modern password hashing library")
-    (description
-     "Bcrypt is a Python module which provides a password hashing method based
-on the Blowfish password hashing algorithm, as described in
-@url{http://static.usenix.org/events/usenix99/provos.html,\"A Future-Adaptable
-Password Scheme\"} by Niels Provos and David Mazieres.")
-    (license license:asl2.0)))
-
-(define-public python2-bcrypt
-  (package-with-python2 python-bcrypt))
+    ;; Argon2 is dual licensed under CC0 and ASL 2.0.  Some of the source
+    ;; files are CC0 only; see README.md and LICENSE for details.
+    (license (list license:cc0 license:asl2.0))))
 
 (define-public pass-git-helper
   (package
@@ -446,3 +490,172 @@ use pass, the standard unix password manager, as the credential backend for
 your git repositories.  This is achieved by explicitly defining mappings
 between hosts and entries in the password store.")
     (license license:lgpl3+)))
+
+(define-public john-the-ripper-jumbo
+  (let ((official-version "1.8.0")
+        (jumbo-version "1"))
+    (package
+      (name "john-the-ripper-jumbo")
+      (version (string-append official-version "-" jumbo-version))
+      (source
+       (origin
+         (method url-fetch)
+         (uri (string-append "http://www.openwall.com/john/j/john-"
+                             official-version "-jumbo-" jumbo-version ".tar.xz"))
+         (sha256
+          (base32
+           "08q92sfdvkz47rx6qjn7qv57cmlpy7i7rgddapq5384mb413vjds"))
+         (patches
+          (list (origin
+                  (method url-fetch)
+                  (uri (string-append "https://github.com/magnumripper/"
+                                      "JohnTheRipper/commit/"
+                                      "e2e868db3e153b3f959e119a51703d4afb99c624.patch"))
+                  (file-name "john-the-ripper-jumbo-gcc5-inline.patch")
+                  (sha256
+                   (base32
+                    "1shvcf1y2097115mxhzdkm64dr106a8zr6pqjqyh171q5ng5vfra")))
+                (origin
+                  (method url-fetch)
+                  (uri (string-append "https://github.com/magnumripper/"
+                                      "JohnTheRipper/commit/"
+                                      "480e95b0e449863be3e1a5b0bc634a67df28b618.patch"))
+                  (file-name "john-the-ripper-jumbo-non-x86.patch")
+                  (sha256
+                   (base32
+                    "1ffd9dvhk0sb6ss8dv5yalh01lz30i7rilqilf2xv68gax2hyjqx")))))))
+      (build-system gnu-build-system)
+      (inputs
+       `(("gmp" ,gmp)
+         ("krb5" ,mit-krb5)
+         ("libpcap" ,libpcap)
+         ("nss" ,nss)
+         ("openssl" ,openssl)
+         ("zlib" ,zlib)))
+      (arguments
+       `(#:configure-flags
+         (list (string-append
+                "CFLAGS=-O2 -g "
+                "-DJOHN_SYSTEMWIDE=1 "
+                "-DJOHN_SYSTEMWIDE_EXEC='\"" %output "/libexec/john\"' "
+                "-DJOHN_SYSTEMWIDE_HOME='\"" %output "/share/john\"'")
+               ;; For now, do not test for instruction set in configure, and
+               ;; do not pass '-march=native' to gcc:
+               "--disable-native-tests"
+               "--disable-native-macro")
+         #:tests? #f ;tests try to create '.john' in the build user's $HOME
+         #:phases
+         (modify-phases %standard-phases
+           (add-before 'configure 'chdir-src
+             (lambda _ (chdir "src")))
+           (replace 'install
+             (lambda _
+               (let ((bindir (string-append %output "/bin"))
+                     (docdir (string-append %output "/share/doc/john"))
+                     (execdir (string-append %output "/libexec/john"))
+                     (homedir (string-append %output "/share/john"))
+                     (install-file-to (lambda (dir)
+                                        (lambda (f) (install-file f dir))))
+                     (symlink? (lambda (_ s) (eq? (stat:type s) 'symlink))))
+                 (with-directory-excursion "../run"
+                   (for-each (install-file-to execdir)
+                             (cons* "mailer" "benchmark-unify"
+                                    (find-files "." ".*\\.(py|rb|pl)")))
+                   (for-each (install-file-to homedir)
+                             (append (find-files "." "(stats|dictionary.*)")
+                                     (find-files "." "(.*\\.chr|.*\\.lst)")
+                                     (find-files "." ".*\\.conf")))
+                   (for-each (install-file-to bindir)
+                             '("tgtsnarf" "genmkvpwd" "mkvcalcproba"
+                               "raw2dyna" "luks2john" "vncpcap2john"
+                               "uaf2john" "calc_stat" "wpapcap2john"
+                               "cprepair" "relbench"  "SIPdump" "john"))
+                   (for-each (lambda (f) ;install symlinked aliases
+                               (symlink "john"
+                                        (string-append bindir "/" (basename f))))
+                             (find-files "." symlink?)))
+                 (copy-recursively "../doc" docdir)
+                 #t))))))
+      (home-page "http://www.openwall.com/john/")
+      (synopsis "Password cracker")
+      (description "John the Ripper is a fast password cracker.  Its primary
+purpose is to detect weak Unix passwords.  Besides several @code{crypt}
+password hash types most commonly found on various Unix systems, supported out
+of the box are Windows LM hashes, plus lots of other hashes and ciphers.  This
+is the community-enhanced, \"jumbo\" version of John the Ripper.")
+      (license license:gpl2+))))
+
+(define-public sala
+  (package
+    (name "sala")
+    (version "1.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "sala" version))
+       (sha256
+        (base32
+         "13qgmc3i2a0cqp8jqrfl93lnphfagb32pgfikc1gza2a14asxzi8"))))
+    (build-system python-build-system)
+    (arguments
+     ;; Sala is supposed to work with Python 3.2 or higher,
+     ;; but it doesn't work with Python 3.6. Better stick
+     ;; to Python 2, which works fine.
+     `(#:python ,python-2))
+    (propagated-inputs
+     `(("gnupg" ,gnupg)
+       ("pwgen" ,pwgen)))
+    (home-page "http://www.digip.org/sala/")
+    (synopsis "Encrypted plaintext password store")
+    (description
+     "Store passwords and other bits of sensitive plain-text information
+to encrypted files on a directory hierarchy.  The information is protected
+by GnuPG's symmetrical encryption.")
+    (license license:expat)))
+
+(define-public fpm2
+  (package
+    (name "fpm2")
+    (version "0.79")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://als.regnet.cz/fpm2/download/fpm2-"
+                                  version ".tar.bz2"))
+              (sha256
+               (base32
+                "19sdy1lygfhkg5nxi2w9a4d9kwvw24nxp0ix0p0lz91qpvk9qpnm"))))
+    (build-system gnu-build-system)
+    (inputs `(("gtk2" ,gtk+-2)
+              ("gnupg" ,gnupg)
+              ("libxml2" ,libxml2)))
+    (native-inputs `(("pkg-config" ,pkg-config)
+                     ("intltool" ,intltool)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           ;; The file po/POTFILES.in ends up missing for some reason in
+           ;; both nix and guix builds. Adding the file with contents
+           ;; found during troubleshooting.
+           (lambda _
+             (call-with-output-file "po/POTFILES.in"
+               (lambda (port)
+                 (format port "data/fpm2.desktop.in
+data/fpm2.desktop.in.in
+fpm2.glade
+src/callbacks.c
+src/fpm.c
+src/fpm_file.c
+src/interface.c
+src/support.c
+fpm2.glade
+")))
+             #t)))))
+    (synopsis "Manage, generate and store passwords encrypted")
+    (description "FPM2 is GTK2 port from Figaro's Password Manager
+originally developed by John Conneely, with some new enhancements.
+
+Upstream development seems to have stopped.  It is therefore recommended
+to use a different password manager.")
+    (home-page "https://als.regnet.cz/fpm2/")
+    (license license:gpl2+)))

@@ -1,7 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013 Nikita Karetnikov <nikita@karetnikov.org>
-;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016, 2017, 2018 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -36,7 +36,7 @@
 (define-public w3m
   (package
     (name "w3m")
-    (version "0.5.3+git20170102")
+    (version "0.5.3+git20180125")
     (source (origin
               (method git-fetch)
               ;; Debian's fork of w3m is the only one that is still
@@ -44,13 +44,15 @@
               (uri (git-reference
                     (url "https://anonscm.debian.org/cgit/collab-maint/w3m.git")
                     (commit (string-append "v" version))))
-              (file-name (string-append "w3m-" version "-checkout"))
+              (file-name (git-file-name name version))
               (sha256
                (base32
-                "0p8csd49b550q69bk45ncs2y2x48xij7jj11xapp0s8dn1j7kcgx"))))
+                "0dafdfx1yhrvhbqzslkcapj09dvf64m2jadz3wl2icni0k4msq90"))))
     (build-system gnu-build-system)
     (arguments
      '(#:tests? #f  ; no check target
+       ;; Use $EDITOR instead of a hard-coded value.
+       #:configure-flags '("--with-editor=")
        #:phases
        (modify-phases %standard-phases
          (add-before 'configure 'fix-perl

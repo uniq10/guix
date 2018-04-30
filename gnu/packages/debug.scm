@@ -1,5 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2014, 2015, 2016 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2014, 2015, 2016, 2017 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -57,23 +60,22 @@
      `(("perl" ,perl)))
     (arguments
      `(#:phases
-       (alist-replace
-        'install
-        (lambda* (#:key outputs #:allow-other-keys)
-          ;; Makefile contains no install target
-          (let* ((out (assoc-ref outputs "out"))
-                 (bin (string-append out "/bin"))
-                 (doc (string-append out "/share/doc/delta-" ,version)))
-            (begin
-              (mkdir-p bin)
-              (mkdir-p doc)
-              (for-each (lambda (h)
-                          (install-file h doc))
-                        `("License.txt" ,@(find-files "www" ".*\\.html")))
-              (for-each (lambda (b)
-                          (install-file b bin))
-                        `("delta" "multidelta" "topformflat")))))
-        (alist-delete 'configure %standard-phases))))
+       (modify-phases %standard-phases
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Makefile contains no install target
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin"))
+                    (doc (string-append out "/share/doc/delta-" ,version)))
+               (begin
+                 (for-each (lambda (h)
+                             (install-file h doc))
+                           `("License.txt" ,@(find-files "www" ".*\\.html")))
+                 (for-each (lambda (b)
+                             (install-file b bin))
+                           `("delta" "multidelta" "topformflat"))))
+             #t))
+         (delete 'configure))))         ; no configure script
     (home-page "http://delta.tigris.org/")
     (synopsis "Heuristical file minimizer")
     (description
@@ -85,10 +87,11 @@ program to exhibit a bug.")
     ;; home-page pointing to a bsd-2 license.
     (license bsd-3)))
 
+;; Newer versions depend on LLVM and Clang >= 4, which have yet to be packaged.
 (define-public c-reduce
   (package
     (name "c-reduce")
-    (version "2.5.0")
+    (version "2.6.0")
     (source
      (origin
       (method url-fetch)
@@ -97,12 +100,12 @@ program to exhibit a bug.")
                            "creduce-" version ".tar.gz")))
       (sha256
        (base32
-        "1r23lhzq3dz8vi2dalxk5las8bf0av2w94hxxbs61pr73m77ik9d"))))
+        "0pf5q0n8vkdcr1wrkxn2jzxv0xkrir13bwmqfw3jpbm3dh2c3b6d"))))
     (build-system gnu-build-system)
     (inputs
      `(("astyle"          ,astyle)
-       ("llvm"            ,llvm)
-       ("clang"           ,clang)
+       ("llvm"            ,llvm-3.9.1)
+       ("clang"           ,clang-3.9.1)
        ("flex"            ,flex)
        ("indent"          ,indent)
        ("perl"            ,perl)
@@ -113,24 +116,25 @@ program to exhibit a bug.")
        ("sys-cpu"         ,perl-sys-cpu)
        ("term-readkey"    ,perl-term-readkey)))
     (arguments
-     `(#:phases (alist-cons-after
-                 'install 'set-load-paths
-                 (lambda* (#:key inputs outputs #:allow-other-keys)
-                   ;; Tell creduce where to find the perl modules it needs.
-                   (let* ((out (assoc-ref outputs "out"))
-                          (prog (string-append out "/bin/creduce")))
-                     (wrap-program
-                      prog
-                      `("PERL5LIB" ":" prefix
-                        ,(map (lambda (p)
-                                (string-append (assoc-ref inputs p)
-                                               "/lib/perl5/site_perl/"
-                                               ,(package-version perl)))
-                              '("term-readkey"    "exporter-lite"
-                                "file-which"      "getopt-tabular"
-                                "regex-common"    "sys-cpu"))))))
-                 %standard-phases)))
-    (home-page "http://embed.cs.utah.edu/creduce")
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'set-load-paths
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             ;; Tell creduce where to find the perl modules it needs.
+             (let* ((out (assoc-ref outputs "out"))
+                    (prog (string-append out "/bin/creduce")))
+               (wrap-program
+                   prog
+                 `("PERL5LIB" ":" prefix
+                   ,(map (lambda (p)
+                           (string-append (assoc-ref inputs p)
+                                          "/lib/perl5/site_perl/"
+                                          ,(package-version perl)))
+                         '("term-readkey"    "exporter-lite"
+                           "file-which"      "getopt-tabular"
+                           "regex-common"    "sys-cpu")))))
+             #t)))))
+    (home-page "https://embed.cs.utah.edu/creduce")
     (synopsis "Reducer for interesting code")
     (description
      "C-Reduce is a tool that takes a large C or C++ program that has a
@@ -140,38 +144,20 @@ intended for use by people who discover and report bugs in compilers and other
 tools that process C/C++ code.")
     (license ncsa)))
 
-(define qemu-2.3.0
-  (package
-    (inherit qemu-minimal)
-    (version "2.3.0")
-    (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "http://wiki.qemu-project.org/download/qemu-"
-                    version ".tar.bz2"))
-              (sha256
-               (base32
-                "120m53c3p28qxmfzllicjzr8syjv6v4d9rsyrgkp7gnmcgvvgfmn"))))
-    (arguments
-     ;; XXX: Disable tests because of GTester's rejection of duplicate test
-     ;; names, which wasn't addressed in this version of QEMU.
-     `(#:tests? #f
-       ,@(substitute-keyword-arguments (package-arguments qemu-minimal)
-           ((#:phases phases)
-            ;; We disable the tests so we skip the phase disabling the qga test.
-            `(modify-phases ,phases (delete 'disable-test-qga))))))))
-
 (define-public american-fuzzy-lop
   (let ((machine (match (or (%current-target-system)
                             (%current-system))
                    ("x86_64-linux"   "x86_64")
                    ("i686-linux"     "i386")
+                   ("aarch64-linux"  "aarch64")
+                   ("armhf-linux"    "arm")
+                   ("mips64el-linux" "mips64el")
                    ;; Prevent errors when querying this package on unsupported
                    ;; platforms, e.g. when running "guix package --search="
                    (_                "UNSUPPORTED"))))
     (package
       (name "american-fuzzy-lop")
-      (version "2.15b")             ;It seems all releases have the 'b' suffix
+      (version "2.52b")             ;It seems all releases have the 'b' suffix
       (source
        (origin
          (method url-fetch)
@@ -179,22 +165,22 @@ tools that process C/C++ code.")
                              "afl-" version ".tgz"))
          (sha256
           (base32
-           "04n2jfkchpz6a07w694b0im1vcmc3220ryqcaasa7vix7784wzs2"))))
+           "0ig0ij4n1pwry5dw1hk4q88801jzzy2cric6y2gd6560j55lnqa3"))))
       (build-system gnu-build-system)
       (inputs
        `(("custom-qemu"
-          ;; The afl-qemu tool builds qemu 2.3.0 with a few patches applied.
-          ,(package (inherit qemu-2.3.0)
+          ;; The afl-qemu tool builds qemu 2.10.0 with a few patches applied.
+          ,(package (inherit qemu-minimal-2.10)
              (name "afl-qemu")
              (inputs
               `(("afl-src" ,source)
-                ,@(package-inputs qemu-2.3.0)))
+                ,@(package-inputs qemu-minimal)))
              ;; afl only supports using a single afl-qemu-trace executable, so
              ;; we only build qemu for the native target.
              (arguments
               `(#:modules ((srfi srfi-1)
                            ,@%gnu-build-system-modules)
-                ,@(substitute-keyword-arguments (package-arguments qemu-2.3.0)
+                ,@(substitute-keyword-arguments (package-arguments qemu-minimal)
                     ((#:configure-flags config-flags)
                      ``(,(string-append "--target-list=" ,machine "-linux-user")
                         ,@(remove (λ (f) (string-prefix? "--target-list=" f))
@@ -234,6 +220,20 @@ tools that process C/C++ code.")
                             "CC=gcc")
          #:phases (modify-phases %standard-phases
                     (delete 'configure)
+                    ,@(if (string=? (%current-system) (or "x86_64-linux"
+                                                          "i686-linux"))
+                        '()
+                        '((add-before 'build 'set-afl-flag
+                            (lambda _ (setenv "AFL_NO_X86" "1") #t))
+                          (add-after 'install 'remove-x86-programs
+                            (lambda* (#:key outputs #:allow-other-keys)
+                              (let* ((out (assoc-ref outputs "out"))
+                                     (bin (string-append out "/bin/")))
+                                (delete-file (string-append bin "afl-gcc"))
+                                (delete-file (string-append bin "afl-g++"))
+                                (delete-file (string-append bin "afl-clang"))
+                                (delete-file (string-append bin "afl-clang++")))
+                              #t))))
                     (add-after
                      ;; TODO: Build and install the afl-llvm tool.
                      'install 'install-qemu
@@ -243,10 +243,7 @@ tools that process C/C++ code.")
                          (symlink (string-append qemu "/bin/qemu-" ,machine)
                                   (string-append out "/bin/afl-qemu-trace"))
                          #t)))
-                    (delete 'check))))
-      (supported-systems (fold delete
-                               %supported-systems
-                               '("armhf-linux" "mips64el-linux")))
+                    (delete 'check)))) ; Tests are run during 'install phase.
       (home-page "http://lcamtuf.coredump.cx/afl")
       (synopsis "Security-oriented fuzzer")
       (description
@@ -287,20 +284,26 @@ down the road.")
        ;; not accept a directory name instead.  To let the gnu-build-system's
        ;; patch-* phases work properly, we unpack the source first, then
        ;; repack before the configure phase.
-       `(#:configure-flags '("--with-make-tar=./make.tar.xz")
-         #:phases
-         (modify-phases %standard-phases
-           (add-after 'unpack 'unpack-make
-             (lambda* (#:key inputs #:allow-other-keys)
-               (zero? (system* "tar" "xf" (assoc-ref inputs "make-source")))))
-           (add-before 'configure 'repack-make
-             (lambda _
-               (zero? (system* "tar" "cJf" "./make.tar.xz"
-                               (string-append "make-"
-                                              ,(package-version gnu-make))))))
-           (add-before 'configure 'bootstrap
-             (lambda _
-               (zero? (system* "autoreconf" "-vfi")))))))
+       (let ((make-dir (string-append "make-" (package-version gnu-make))))
+         `(#:configure-flags '("--with-make-tar=./make.tar.xz")
+           #:phases
+           (modify-phases %standard-phases
+             (add-after 'unpack 'unpack-make
+               (lambda* (#:key inputs #:allow-other-keys)
+                 (zero? (system* "tar" "xf" (assoc-ref inputs "make-source")))))
+             (add-after 'unpack-make 'set-default-shell
+               (lambda _
+                 ;; Taken mostly directly from (@ (gnu packages base) gnu-make)
+                 (substitute* (string-append ,make-dir "/job.c")
+                   (("default_shell = .*$")
+                    (format #f "default_shell = \"~a\";\n"
+                            (which "sh"))))))
+             (add-before 'configure 'repack-make
+               (lambda _
+                 (zero? (system* "tar" "cJf" "./make.tar.xz" ,make-dir))))
+             (add-after 'unpack 'bootstrap
+               (lambda _
+                 (zero? (system* "autoreconf" "-vfi"))))))))
       (home-page "https://github.com/losalamos/stress-make")
       (synopsis "Expose race conditions in Makefiles")
       (description

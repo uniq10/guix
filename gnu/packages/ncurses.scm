@@ -1,10 +1,12 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014, 2016 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015, 2017 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -38,12 +40,12 @@
 (define-public ncurses
   (package
     (name "ncurses")
-    (replacement ncurses/fixed)
-    (version "6.0")
+    (version "6.0-20170930")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://gnu/ncurses/ncurses-"
-                                  version ".tar.gz"))
+                                  (car (string-split version #\-))
+                                  ".tar.gz"))
               (sha256
                (base32
                 "0q3jck7lna77z5r42f13c4xglc7azd19pxfrjrpgp2yf615w4lgm"))))
@@ -71,6 +73,12 @@
                                    (cons (string-append "--host=" target)
                                          configure-flags)
                                    configure-flags))))))
+           (apply-rollup-patch-phase
+            '(lambda* (#:key inputs native-inputs #:allow-other-keys)
+               (copy-file (assoc-ref (or native-inputs inputs) "rollup-patch")
+                          (string-append (getcwd) "/rollup-patch.sh.bz2"))
+               (and (zero? (system* "bzip2" "-d" "rollup-patch.sh.bz2"))
+                    (zero? (system* "sh" "rollup-patch.sh")))))
            (remove-shebang-phase
             '(lambda _
                ;; To avoid retaining a reference to the bootstrap Bash via the
@@ -166,6 +174,8 @@
               ,@(if (target-mingw?) '("--enable-term-driver") '()))))
          #:tests? #f                  ; no "check" target
          #:phases (modify-phases %standard-phases
+                    (add-after 'unpack 'apply-rollup-patch
+                      ,apply-rollup-patch-phase)
                     (replace 'configure ,configure-phase)
                     (add-after 'install 'post-install
                       ,post-install-phase)
@@ -174,8 +184,23 @@
                     (add-after 'unpack 'remove-unneeded-shebang
                       ,remove-shebang-phase)))))
     (self-native-input? #t)           ; for `tic'
-     (native-inputs
-      `(("pkg-config" ,pkg-config)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+
+       ;; Ncurses distributes "stable" patchsets to be applied on top
+       ;; of the release tarball.  These are only available as shell
+       ;; scripts(!) so we decompress and apply them in a phase.
+       ;; See <https://invisible-mirror.net/archives/ncurses/6.0/README>.
+       ("rollup-patch"
+        ,(origin
+           (method url-fetch)
+           (uri (string-append
+                 "https://invisible-mirror.net/archives/ncurses/"
+                 (car (string-split version #\-))
+                 "/ncurses-" version "-patch.sh.bz2"))
+           (sha256
+            (base32
+             "08a1pp8wnj1fwpa1pz3fgrmd6xwp21idniswqz8lx3w3z2nb4ydi"))))))
     (native-search-paths
      (list (search-path-specification
             (variable "TERMINFO_DIRS")
@@ -189,17 +214,6 @@ implement user interfaces for command-line applications.  The accompanying
 ncursesw library provides wide character support.")
     (license x11)
     (home-page "https://www.gnu.org/software/ncurses/")))
-
-(define ncurses/fixed
-  (package
-    (inherit ncurses)
-    (source
-      (origin
-        (inherit (package-source ncurses))
-        (patches
-          (append
-            (origin-patches (package-source ncurses))
-            (search-patches "ncurses-CVE-2017-10684-10685.patch")))))))
 
 (define-public ncurses/gpm
   (package/inherit ncurses
@@ -217,7 +231,7 @@ ncursesw library provides wide character support.")
 (define-public dialog
   (package
     (name "dialog")
-    (version "1.2-20150920")
+    (version "1.3-20171209")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -225,7 +239,7 @@ ncursesw library provides wide character support.")
                     version ".tgz"))
               (sha256
                (base32
-                "01ccd585c241nkj02n0zdbx8jqhylgcfpcmmshynh0c7fv2ixrn4"))))
+                "1rk72as52f5br3wcr74d00wib41w65g8wvi36mfgybly251984r0"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f)) ; no test suite
@@ -234,7 +248,7 @@ ncursesw library provides wide character support.")
     (synopsis "Curses widgets")
     (description "Dialog is a script-interpreter which provides a set of
 curses widgets, such as dialog boxes.")
-    (home-page "http://invisible-island.net/dialog/dialog.html")
+    (home-page "https://invisible-island.net/dialog/dialog.html")
     ;; Includes the gpl3 file "config.sub" from Automake.
     (license (list lgpl2.1 gpl3))))
 

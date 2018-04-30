@@ -82,9 +82,9 @@
 
 (define* (emacs-build store name inputs
                       #:key source
-                      (tests? #t)
-                      (test-target "test")
-                      (configure-flags ''())
+                      (tests? #f)
+                      (parallel-tests? #t)
+                      (test-command ''("make" "check"))
                       (phases '(@ (guix build emacs-build-system)
                                   %standard-phases))
                       (outputs '("out"))
@@ -109,9 +109,8 @@
                                  source)
                                 (source
                                  source))
-                    #:configure-flags ,configure-flags
                     #:system ,system
-                    #:test-target ,test-target
+                    #:test-command ,test-command
                     #:tests? ,tests?
                     #:phases ,phases
                     #:outputs %outputs

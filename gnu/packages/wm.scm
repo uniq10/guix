@@ -8,13 +8,14 @@
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Al McElrath <hello@yrns.org>
 ;;; Copyright © 2016 Carlo Zancanaro <carlo@zancanaro.id.au>
-;;; Copyright © 2016 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016, 2017 ng0 <ng0@infotropique.org>
+;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 doncatnip <gnopap@gmail.com>
 ;;; Copyright © 2016 Ivan Vilata i Balaguer <ivan@selidor.net>
 ;;; Copyright © 2017 Mekeor Melire <mekeor.melire@gmail.com>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Oleg Pykhalov <go.wigust@gmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,6 +43,11 @@
   #:use-module (guix build-system perl)
   #:use-module (guix build-system python)
   #:use-module (gnu packages haskell)
+  #:use-module (gnu packages haskell-check)
+  #:use-module (gnu packages haskell-web)
+  #:use-module (gnu packages autotools)
+  #:use-module (gnu packages bison)
+  #:use-module (gnu packages gawk)
   #:use-module (gnu packages base)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages perl)
@@ -66,6 +72,7 @@
   #:use-module (gnu packages gperf)
   #:use-module (gnu packages imagemagick)
   #:use-module (gnu packages lua)
+  #:use-module (gnu packages linux)
   #:use-module (gnu packages suckless)
   #:use-module (guix download)
   #:use-module (guix git-download))
@@ -73,7 +80,7 @@
 (define-public libconfuse
   (package
     (name "libconfuse")
-    (version "3.2")
+    (version "3.2.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/martinh/libconfuse/"
@@ -81,7 +88,7 @@
                                   "/confuse-" version ".tar.xz"))
               (sha256
                (base32
-                "0j2fg93w22apjfqnkak8k8m395n2l7hhm9xnjx0k2v82js3bnsm4"))))
+                "0pnjmlj9i0alp407qd7c0vq83sz7gpsjrbdgpcn4xvzjp9r35ii3"))))
     (build-system gnu-build-system)
     (home-page "https://github.com/martinh/libconfuse")
     (synopsis "Configuration file parser library")
@@ -95,7 +102,7 @@ nested include statements).")
 (define-public bspwm
   (package
     (name "bspwm")
-    (version "0.9.3")
+    (version "0.9.4")
     (source
      (origin
        (file-name (string-append name "-" version ".tar.gz"))
@@ -105,7 +112,7 @@ nested include statements).")
              version ".tar.gz"))
        (sha256
         (base32
-         "17dwj7w16cdj7g4s2y2f96lgj5msq1s4543dnfa3rijlazzy6mmk"))))
+         "0yjr0vzbj3ar8qfr6gvpvjd82ay8iy1sg2fkw2swghlqiy6ix4kw"))))
     (build-system gnu-build-system)
     (inputs
      `(("libxcb" ,libxcb)
@@ -115,7 +122,7 @@ nested include statements).")
        ("xcb-util-keysyms" ,xcb-util-keysyms)
        ("xcb-util-wm" ,xcb-util-wm)))
     (arguments
-     '(#:phases (alist-delete 'configure %standard-phases)
+     '(#:phases (modify-phases %standard-phases (delete 'configure))
        #:tests? #f  ; no check target
        #:make-flags (list "CC=gcc"
                           (string-append "PREFIX=" %output))))
@@ -168,14 +175,14 @@ commands would.")
 (define-public i3-wm
   (package
     (name "i3-wm")
-    (version "4.13")
+    (version "4.15")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://i3wm.org/downloads/i3-"
                                   version ".tar.bz2"))
               (sha256
                (base32
-                "12ngz32swh9n85xy0cz1lq16aqi9ys5hq19v589q9a97wn1k3hcl"))))
+                "09jk70hsdxab24lqvj2f30ijrkbv3f6q9xi5dcsax1dw3x6m4z91"))))
     (build-system gnu-build-system)
     (arguments
      `(#:make-flags
@@ -225,14 +232,14 @@ developers.")
 (define-public perl-anyevent-i3
   (package
     (name "perl-anyevent-i3")
-    (version "0.16")
+    (version "0.17")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/MS/MSTPLBG/"
                                   "AnyEvent-I3-" version ".tar.gz"))
               (sha256
                (base32
-                "1qwva5vmmn929l6k9wzhp4h80ad4qm4m1g2dyv4nlas624003hig"))))
+                "0qvd9bq16jyy7v3ma82qcnvz9j503bw0mh7h55gkjf7ir62ck0jk"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-anyevent" ,perl-anyevent)
@@ -333,6 +340,120 @@ and locate windows on all your workspaces, using an interactive dmenu
 prompt.")
       (license (license:non-copyleft "http://www.wtfpl.net/txt/copying/")))))
 
+(define-public i3lock-color
+  (package
+    (name "i3lock-color")
+    (version "2.11-c")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/PandorasFox/i3lock-color/"
+                           "archive/" version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0zh7il2y6dmzym3w6r9xii5dma8pjjjlq4dm5iby7m3gvplj4q9p"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f                      ; no tests included
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (invoke "autoreconf" "-vfi")
+             #t)))))
+    (inputs
+     `(("cairo" ,cairo)
+       ("libev" ,libev)
+       ("libjpeg" ,libjpeg-turbo)
+       ("libxcb" ,libxcb)
+       ("libxkbcommon" ,libxkbcommon)
+       ("linux-pam" ,linux-pam)
+       ("xcb-util" ,xcb-util)
+       ("xcb-util-image" ,xcb-util-image)))
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("pkg-config" ,pkg-config)))
+    (home-page "https://github.com/PandorasFox/i3lock-color")
+    (synopsis "Screen locker with color configuration support")
+    (description
+     "i3lock-color is a simpler X11 screen locker derived from i3lock.
+Features include:
+
+@enumerate
+@item forking process, the locked screen is preserved when you suspend to RAM;
+@item specify background color or image to be displayed in the lock screen;
+@item many additional color options.
+@end enumerate")
+    (license license:bsd-3)))
+
+(define-public i3lock-fancy
+  (package
+    (name "i3lock-fancy")
+    (version "0.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/meskarune/i3lock-fancy/archive/"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "020m7mnfq5cvir7p9v3hkb7cvb4cai33wppxl2zdwscwwjnchc5y"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f ;No tests included
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (icons (string-append out "/share/i3lock-fancy/icons/"))
+                    (wmctrl (string-append (assoc-ref inputs "wmctrl")
+                                           "/bin/wmctrl"))
+                    (mconvert (string-append (assoc-ref inputs "imagemagick")
+                                             "/bin/convert"))
+                    (mimport (string-append (assoc-ref inputs "imagemagick")
+                                            "/bin/import"))
+                    (awk (string-append (assoc-ref inputs "gawk")
+                                        "/bin/gawk")))
+
+               (substitute* "lock"
+                 (("$(which wmctrl)") wmctrl)
+                 (("convert") mconvert)
+                 (("shot=\\(import") (string-append "shot=\(" mimport))
+                 (("awk -F") (string-append awk " -F"))
+                 ((" awk") awk)
+                 (("\\$scriptpath/icons/") icons))
+               #t)))
+         (delete 'build)
+         (replace 'install
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin"))
+                    (icons (string-append out "/share/i3lock-fancy/icons/")))
+
+               (install-file "lock" bin)
+               (rename-file (string-append bin "/lock")
+                            (string-append bin "/i3lock-fancy"))
+               (copy-recursively "icons" icons)
+               #t))))))
+    (native-inputs
+     `(("imagemagick" ,imagemagick)
+       ("wmctrl" ,wmctrl)
+       ("gawk" ,gawk)))
+    (home-page "https://github.com/meskarune/i3lock-fancy")
+    (synopsis "Screen locker with screenshot function")
+    (description
+     "@code{i3lock-fancy} is a Bash script that takes a screenshot of
+the desktop, blurs the background and adds a lock icon and text.
+It requires @code{i3lock-color} or @code{i3lock} and can optionally
+be passed any screenshot util like @code{scrot}.
+This screen locker can be used with any window manager or
+desktop environment.")
+    (license license:expat)))
+
 (define-public xmonad
   (package
     (name "xmonad")
@@ -352,7 +473,6 @@ prompt.")
        ("ghc-quickcheck"            ,ghc-quickcheck)
        ("ghc-setlocale"             ,ghc-setlocale)
        ("ghc-utf8-string"           ,ghc-utf8-string)
-       ("ghc-directory"             ,ghc-directory)
        ("ghc-x11"                   ,ghc-x11)))
     (arguments
      `(#:phases
@@ -386,27 +506,37 @@ tiled on several screens.")
 (define-public xmobar
   (package
     (name "xmobar")
-    (version "0.24.5")
+    (version "0.26")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://hackage/package/xmobar/"
                                   name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0sdzfj2wa4wpig1i2i5n9qpwm90jp88qifsmaa7j37yhhs6snfir"))))
+                "19g40vqj3cs94i27f66194k7d5cazrv1lx54bz9kc0qy2npxjzgz"))))
     (build-system haskell-build-system)
+    (native-inputs
+     `(("ghc-hspec" ,ghc-hspec)
+       ("hspec-discover" ,hspec-discover)))
     (inputs
-     `(("ghc-http" ,ghc-http)
+     `(("ghc-hinotify" ,ghc-hinotify)
+       ("ghc-http" ,ghc-http)
+       ("ghc-iwlib" ,ghc-iwlib)
        ("ghc-parsec" ,ghc-parsec)
        ("ghc-regex-compat" ,ghc-regex-compat)
        ("ghc-stm" ,ghc-stm)
        ("ghc-x11-xft" ,ghc-x11-xft)
-       ("ghc-hinotify" ,ghc-hinotify)
-       ("libxpm" ,libxpm)
-       ("wireless-tools" ,wireless-tools)))
+       ("libxpm" ,libxpm)))
     (arguments
      `(#:configure-flags
-       '("--flags=with_utf8 with_xft with_xpm with_inotify with_iwlib")))
+       (list (string-append "--flags="
+                            (string-join (list "with_inotify"
+                                               "with_iwlib"
+                                               "with_utf8"
+                                               "with_weather"
+                                               "with_xft"
+                                               "with_xpm")
+                                         " ")))))
     (home-page "http://xmobar.org")
     (synopsis "Minimalistic text based status bar")
     (description
@@ -541,7 +671,7 @@ experience.")
 (define-public awesome
   (package
     (name "awesome")
-    (version "4.0")
+    (version "4.2")
     (source
      (origin (method url-fetch)
              (uri (string-append
@@ -549,19 +679,7 @@ experience.")
                    "master/awesome-" version ".tar.xz"))
              (sha256
               (base32
-               "0czkcz67sab63gf5m2p2pgg05yinjx60hfb9rfyzdkkg28q9f02w"))
-             (modules '((guix build utils)
-                        (srfi srfi-19)))
-             (snippet
-              ;; Remove non-reproducible timestamp and use the date of the
-              ;; source file instead.
-              '(substitute* "common/version.c"
-                 (("__DATE__ \" \" __TIME__")
-                  (date->string
-                   (time-utc->date
-                    (make-time time-utc 0
-                               (stat:mtime (stat "awesome.c"))))
-                   "\"~c\""))))
+               "0kwpbls9h1alxcmvxh5g9qb995fds5b2ngcr44w0ibazkyls2pdc"))
              (patches (search-patches "awesome-reproducible-png.patch"))))
     (build-system cmake-build-system)
     (native-inputs `(("asciidoc" ,asciidoc)
@@ -584,7 +702,7 @@ experience.")
               ("libxdg-basedir" ,libxdg-basedir)
               ("libxkbcommon" ,libxkbcommon)
               ("lua" ,lua)
-              ("lua-lgi",lua-lgi)
+              ("lua-lgi" ,lua-lgi)
               ("pango" ,pango)
               ("startup-notification" ,startup-notification)
               ("xcb-util" ,xcb-util)
@@ -598,6 +716,9 @@ experience.")
      `(;; Let compression happen in our 'compress-documentation' phase so that
        ;; '--no-name' is used, which removes timestamps from gzip output.
        #:configure-flags '("-DCOMPRESS_MANPAGES=off")
+
+       ;; Building awesome in its source dir is no longer supported.
+       #:out-of-source? #t
 
        #:phases
        (modify-phases %standard-phases
@@ -689,8 +810,8 @@ all of them.  Currently supported window managers include:
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "https://github.com/engla/keybinder/releases/"
-                           "download/v" version "/keybinder-"
+       (uri (string-append "https://github.com/kupferlauncher/keybinder"
+                           "/releases/download/v" version "/keybinder-"
                            version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
@@ -708,13 +829,13 @@ all of them.  Currently supported window managers include:
     (description
      "Keybinder is a library for registering global keyboard shortcuts.
 Keybinder works with GTK-based applications using the X Window System.")
-    (home-page "https://github.com/engla/keybinder")
+    (home-page "https://github.com/kupferlauncher/keybinder")
     (license license:gpl2+)))
 
 (define-public spectrwm
   (package
     (name "spectrwm")
-    (version "3.0.2")
+    (version "3.1.0")
     (source
      (origin
        (method url-fetch)
@@ -725,7 +846,7 @@ Keybinder works with GTK-based applications using the X Window System.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "065b7j8s0lxw3p58fyf3c1mr5203pdm0kww42v245rlx0f005kl2"))))
+         "16lxcharxslf9rc39wxa3mr2nx5d8kzm9ls7p7dal8yrwr7y59dp"))))
     (build-system gnu-build-system)
     (arguments
      `(#:make-flags (let ((pkg-config (lambda (flag)
@@ -780,10 +901,62 @@ It is inspired by Xmonad and dwm.  Its major features include:
 @item Quick launch menu
 @item Many screen layouts possible with a few simple key strokes
 @item Move/resize floating windows
-@item Extended Window Manager Hints (EWMH) support
-@item Configureable tiling
+@item Extended Window Manager Hints (@dfn{EWMH}) support
+@item Configurable tiling
 @item Adjustable tile gap allows for a true one pixel border
 @item Customizable colors and border width
 @end itemize\n")
     (home-page "https://github.com/conformal/spectrwm")
+    (license license:isc)))
+
+(define-public cwm
+  (package
+    (name "cwm")
+    (version "6.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://chneukirchen.org/releases/cwm-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1b8k2hjxpb0bzqjh2wj6mn2nf2360zacf8z19sw2rw5lxvmfy89x"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags (list "CC=gcc"
+                          (string-append "PREFIX=" %output))
+       #:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (add-after 'build 'install-xsession
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Add a .desktop file to xsessions.
+             (let* ((output (assoc-ref outputs "out"))
+                    (xsessions (string-append output "/share/xsessions")))
+               (mkdir-p xsessions)
+               (with-output-to-file
+                   (string-append xsessions "/cwm.desktop")
+                 (lambda _
+                   (format #t
+                           "[Desktop Entry]~@
+                     Name=cwm~@
+                     Comment=OpenBSD Calm Window Manager fork~@
+                     Exec=~a/bin/cwm~@
+                     TryExec=~@*~a/bin/cwm~@
+                     Icon=~@
+                     Type=Application~%"
+                           output)))
+               #t))))))
+    (inputs
+     `(("libxft" ,libxft)
+       ("libxrandr" ,libxrandr)
+       ("libxinerama" ,libxinerama)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("bison" ,bison)))
+    (home-page "https://github.com/chneukirchen/cwm")
+    (synopsis "OpenBSD fork of the calmwm window manager")
+    (description "Cwm is a stacking window manager for X11.  It is an OpenBSD
+project derived from the original Calm Window Manager.")
     (license license:isc)))

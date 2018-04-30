@@ -1,7 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2017 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2017, 2018 Mark H Weaver <mhw@netris.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,25 +22,41 @@
   #:use-module (guix gexp)
   #:use-module (guix records)
   #:use-module (guix modules)
+  #:use-module (guix i18n)
+  #:use-module ((guix utils)
+                #:select (source-properties->location
+                          &fix-hint
+                          &error-location))
   #:use-module (gnu services)
   #:use-module (gnu services shepherd)
+  #:use-module (gnu system uuid)
+  #:autoload   (gnu build file-systems) (find-partition-by-luks-uuid)
+  #:autoload   (gnu build linux-modules)
+                 (device-module-aliases matching-modules known-module-aliases)
   #:autoload   (gnu packages cryptsetup) (cryptsetup-static)
   #:autoload   (gnu packages linux) (mdadm-static)
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-26)
+  #:use-module (srfi srfi-34)
+  #:use-module (srfi srfi-35)
   #:use-module (ice-9 match)
   #:export (mapped-device
             mapped-device?
             mapped-device-source
             mapped-device-target
             mapped-device-type
+            mapped-device-location
 
             mapped-device-kind
             mapped-device-kind?
             mapped-device-kind-open
             mapped-device-kind-close
+            mapped-device-kind-check
 
             device-mapping-service-type
             device-mapping-service
+
+            check-device-initrd-modules           ;XXX: needs a better place
 
             luks-device-mapping
             raid-device-mapping))
@@ -57,14 +73,18 @@
   mapped-device?
   (source    mapped-device-source)                ;string | list of strings
   (target    mapped-device-target)                ;string
-  (type      mapped-device-type))                 ;<mapped-device-kind>
+  (type      mapped-device-type)                  ;<mapped-device-kind>
+  (location  mapped-device-location
+             (default (current-source-location)) (innate)))
 
 (define-record-type* <mapped-device-type> mapped-device-kind
   make-mapped-device-kind
   mapped-device-kind?
   (open      mapped-device-kind-open)             ;source target -> gexp
   (close     mapped-device-kind-close             ;source target -> gexp
-             (default (const #~(const #f)))))
+             (default (const #~(const #f))))
+  (check     mapped-device-kind-check             ;source -> Boolean
+             (default (const #t))))
 
 
 ;;;
@@ -91,6 +111,48 @@
 
 
 ;;;
+;;; Static checks.
+;;;
+
+(define (check-device-initrd-modules device linux-modules location)
+  "Raise an error if DEVICE needs modules beyond LINUX-MODULES to operate.
+DEVICE must be a \"/dev\" file name."
+  (define aliases
+    ;; Attempt to load 'modules.alias' from the current kernel, assuming we're
+    ;; on GuixSD, and assuming that corresponds to the kernel we'll be
+    ;; installing.  Skip the whole thing if that file cannot be read.
+    (catch 'system-error
+      (lambda ()
+        (known-module-aliases))
+      (const #f)))
+
+  (when aliases
+    (let ((modules (delete-duplicates
+                    (append-map (cut matching-modules <> aliases)
+                                (device-module-aliases device)))))
+      (unless (every (cute member <> linux-modules) modules)
+        (raise (condition
+                (&message
+                 (message (format #f (G_ "you may need these modules \
+in the initrd for ~a:~{ ~a~}")
+                                  device modules)))
+                (&fix-hint
+                 (hint (format #f (G_ "Try adding them to the
+@code{initrd-modules} field of your @code{operating-system} declaration, along
+these lines:
+
+@example
+ (operating-system
+   ;; @dots{}
+   (initrd-modules (append (list~{ ~s~})
+                           %base-initrd-modules)))
+@end example\n")
+                               modules)))
+                (&error-location
+                 (location (source-properties->location location)))))))))
+
+
+;;;
 ;;; Common device mappings.
 ;;;
 
@@ -99,7 +161,9 @@
 'cryptsetup'."
   (with-imported-modules (source-module-closure
                           '((gnu build file-systems)))
-    #~(let ((source #$source))
+    #~(let ((source #$(if (uuid? source)
+                          (uuid-bytevector source)
+                          source)))
         ;; XXX: 'use-modules' should be at the top level.
         (use-modules (rnrs bytevectors)           ;bytevector?
                      ((gnu build file-systems)
@@ -135,11 +199,35 @@
   #~(zero? (system* #$(file-append cryptsetup-static "/sbin/cryptsetup")
                     "close" #$target)))
 
+(define* (check-luks-device md #:key
+                            needed-for-boot?
+                            (initrd-modules '())
+                            #:allow-other-keys
+                            #:rest rest)
+  "Ensure the source of MD is valid."
+  (let ((source   (mapped-device-source md))
+        (location (mapped-device-location md)))
+    (or (not (zero? (getuid)))
+        (if (uuid? source)
+            (match (find-partition-by-luks-uuid (uuid-bytevector source))
+              (#f
+               (raise (condition
+                       (&message
+                        (message (format #f (G_ "no LUKS partition with UUID '~a'")
+                                         (uuid->string source))))
+                       (&error-location
+                        (location (source-properties->location
+                                   (mapped-device-location md)))))))
+              ((? string? device)
+               (check-device-initrd-modules device initrd-modules location)))
+            (check-device-initrd-modules source initrd-modules location)))))
+
 (define luks-device-mapping
   ;; The type of LUKS mapped devices.
   (mapped-device-kind
    (open open-luks-device)
-   (close close-luks-device)))
+   (close close-luks-device)
+   (check check-luks-device)))
 
 (define (open-raid-device sources target)
   "Return a gexp that assembles SOURCES (a list of devices) to the RAID device

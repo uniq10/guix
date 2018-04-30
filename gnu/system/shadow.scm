@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Alex Griffin <a@ajgrf.com>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -157,13 +157,15 @@ if [ -f ~/.bashrc ]; then . ~/.bashrc; fi\n"))
 # honor it and otherwise use /bin/sh.
 export SHELL
 
-if [ -n \"$SSH_CLIENT\" -a -z \"`type -P cat`\" ]
+if [[ $- != *i* ]]
 then
-    # We are being invoked from a non-interactive SSH session
-    # (as in \"ssh host command\") but 'cat' cannot be found
-    # in $PATH.  Source /etc/profile so we get $PATH and other
-    # essential variables.
-    source /etc/profile
+    # We are being invoked from a non-interactive shell.  If this
+    # is an SSH session (as in \"ssh host command\"), source
+    # /etc/profile so we get PATH and other essential variables.
+    [[ -n \"$SSH_CLIENT\" ]] && source /etc/profile
+
+    # Don't do anything else.
+    return
 fi
 
 # Adjust the prompt depending on whether we're in 'guix environment'.
@@ -174,7 +176,8 @@ else
     PS1='\\u@\\h \\w\\$ '
 fi
 alias ls='ls -p --color'
-alias ll='ls -l'\n"))
+alias ll='ls -l'
+alias grep='grep --color'\n"))
         (zlogin    (plain-file "zlogin" "\
 # Honor system-wide environment variables
 source /etc/profile\n"))
@@ -184,11 +187,27 @@ XTerm*utf8: always
 XTerm*metaSendsEscape: true\n"))
         (gdbinit   (plain-file "gdbinit" "\
 # Tell GDB where to look for separate debugging files.
-set debug-file-directory ~/.guix-profile/lib/debug\n")))
+set debug-file-directory ~/.guix-profile/lib/debug
+
+# Authorize extensions found in the store, such as the
+# pretty-printers of libstdc++.
+set auto-load safe-path /gnu/store/*/lib\n")))
     `((".bash_profile" ,profile)
       (".bashrc" ,bashrc)
       (".zlogin" ,zlogin)
+      (".nanorc" ,(plain-file "nanorc" "\
+# Include all the syntax highlighting modules.
+include /run/current-system/profile/share/nano/*.nanorc\n"))
       (".Xdefaults" ,xdefaults)
+      (".guile" ,(plain-file "dot-guile"
+                             "(cond ((false-if-exception (resolve-interface '(ice-9 readline)))
+       =>
+       (lambda (module)
+         ;; Enable completion and input history at the REPL.
+         ((module-ref module 'activate-readline))))
+      (else
+       (display \"Consider installing the 'guile-readline' package for
+convenient interactive line editing and input history.\\n\\n\")))\n"))
       (".guile-wm" ,guile-wm)
       (".gdbinit" ,gdbinit))))
 

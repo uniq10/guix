@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013 Cyril Roelandt <tipecaml@gmail.com>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -18,10 +19,11 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu packages iso-codes)
-  #:use-module ((guix licenses) #:select (gpl2+))
+  #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages python))
@@ -29,7 +31,7 @@
 (define-public iso-codes
   (package
     (name "iso-codes")
-    (version "3.67")
+    (version "3.77")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -37,7 +39,7 @@
                    version ".tar.xz"))
              (sha256
               (base32
-               "037hmfs5pk3g36psm378vap1mbrkk86vv8wsdnv65mzbnph52gv0"))))
+               "140dgygv22a49xb8x1941xr5ff12cphd9zzwxds98pgrqsj77k91"))))
     (build-system gnu-build-system)
     (inputs
      `(("gettext" ,gettext-minimal)
@@ -62,5 +64,46 @@ translations instead of maintaining their own translation
 infrastructure.  Moreover, the programmer does not need to follow
 changes in the ISO standard and will not work with outdated
 information.")
-    ; Some bits use the lgpl2
-    (license gpl2+)))
+    (license license:gpl2+)))           ; some bits use the lgpl2
+
+(define-public python-iso639
+  (package
+    (name "python-iso639")
+    (version "0.4.5")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "iso-639" version))
+       (sha256
+        (base32
+         "0jffmh4m20q8j27xb2fqbnlghjj0cx8pgsbzqisdg65qh2wd976w"))))
+    (build-system python-build-system)
+    (home-page "https://github.com/noumar/iso639")
+    (synopsis "Python library for ISO 639 standard")
+    (description "This package provides a Python library for ISO 639 standard
+that is concerned with representation of names for languages and language
+groups.")
+    (license license:agpl3+)))
+
+(define-public python2-iso639
+  (package-with-python2 python-iso639))
+
+(define-public python-iso3166
+  (package
+    (name "python-iso3166")
+    (version "0.8")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "iso3166" version))
+       (sha256
+        (base32
+         "0cs9w507dj93jj9z9di93lx2fplf8pma4jkrsvvb258dv6z1gszv"))))
+    (build-system python-build-system)
+    (home-page "https://github.com/deactivated/python-iso3166")
+    (synopsis "Self-contained ISO 3166-1 country definitions")
+    (description "This package provides the ISO 3166-1 country definitions.")
+    (license license:expat)))
+
+(define-public python2-iso3166
+  (package-with-python2 python-iso3166))

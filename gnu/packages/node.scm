@@ -3,6 +3,7 @@
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015, 2016 David Thompson <davet@gnu.org>
 ;;; Copyright © 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017 Mike Gerwitz <mtg@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,9 +31,11 @@
   #:use-module (gnu packages base)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages gcc)
+  #:use-module (gnu packages icu4c)
   #:use-module (gnu packages libevent)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages web))
@@ -40,25 +43,43 @@
 (define-public node
   (package
     (name "node")
-    (version "8.1.2")
+    (version "9.11.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://nodejs.org/dist/v" version
                                   "/node-v" version ".tar.gz"))
               (sha256
                (base32
-                "0l92gar1pivzaiwffiiiz2f2m5k39sl5fphlfnvy0ml9hrjb65yp"))
-              ;; https://github.com/nodejs/node/pull/9077
-              (patches (search-patches "node-9077.patch"))))
+                "1vjh9zvw7wkdz6b0l99ya7mqjk0l8lbg9isr1q8rxwp400dhkk32"))
+              (modules '((guix build utils)))
+              (snippet
+               `(begin
+                  ;; Remove bundled software.
+                  (for-each delete-file-recursively
+                            '("deps/cares"
+                              "deps/http_parser"
+                              "deps/icu-small"
+                              "deps/nghttp2"
+                              "deps/openssl"
+                              "deps/uv"
+                              "deps/zlib"))
+                  (substitute* "Makefile"
+                    ;; Remove references to bundled software
+                    (("deps/http_parser/http_parser.gyp") "")
+                    (("deps/uv/include/\\*.h") "")
+                    (("deps/uv/uv.gyp") "")
+                    (("deps/zlib/zlib.gyp") ""))))))
     (build-system gnu-build-system)
     (arguments
      ;; TODO: Purge the bundled copies from the source.
-     '(#:configure-flags '("--shared-openssl"
-                           "--shared-zlib"
-                           "--shared-libuv"
-                           "--shared-cares"
+     '(#:configure-flags '("--shared-cares"
                            "--shared-http-parser"
-                           "--without-snapshot")
+                           "--shared-libuv"
+                           "--shared-nghttp2"
+                           "--shared-openssl"
+                           "--shared-zlib"
+                           "--without-snapshot"
+                           "--with-intl=system-icu")
        #:phases
        (modify-phases %standard-phases
          (add-before 'configure 'patch-files
@@ -78,16 +99,14 @@
                (("'/usr/bin/env'")
                 (string-append "'" (which "env") "'")))
 
-             ;; Having the build fail because of linter errors is insane!
-             (substitute* '("Makefile")
-               (("	\\$\\(MAKE\\) jslint") "")
-               (("	\\$\\(MAKE\\) cpplint\n") ""))
-
-             ;; FIXME: This test seems to depends on files that are not
-             ;; available in the bundled v8. See
-             ;; https://github.com/nodejs/node/issues/13344
+             ;; FIXME: These tests depend on being able to install eslint.
+             ;; See https://github.com/nodejs/node/issues/17098.
              (for-each delete-file
-                       '("test/addons-napi/test_general/testInstanceOf.js"))
+                       '("test/parallel/test-eslint-alphabetize-errors.js"
+                         "test/parallel/test-eslint-buffer-constructor.js"
+                         "test/parallel/test-eslint-documented-errors.js"
+                         "test/parallel/test-eslint-inspector-check.js"))
+
              ;; FIXME: These tests fail in the build container, but they don't
              ;; seem to be indicative of real problems in practice.
              (for-each delete-file
@@ -95,8 +114,11 @@
                          "test/parallel/test-util-inspect.js"
                          "test/parallel/test-v8-serdes.js"
                          "test/parallel/test-dgram-membership.js"
+                         "test/parallel/test-dns-cancel-reverse-lookup.js"
+                         "test/parallel/test-dns-resolveany.js"
                          "test/parallel/test-cluster-master-error.js"
                          "test/parallel/test-cluster-master-kill.js"
+                         "test/parallel/test-net-listen-after-destroying-stdin.js"
                          "test/parallel/test-npm-install.js"
                          "test/sequential/test-child-process-emfile.js"
                          "test/sequential/test-benchmark-child-process.js"
@@ -131,6 +153,7 @@
     (native-inputs
      `(("python" ,python-2)
        ("perl" ,perl)
+       ("pkg-config" ,pkg-config)
        ("procps" ,procps)
        ("util-linux" ,util-linux)
        ("which" ,which)))
@@ -141,7 +164,9 @@
     (inputs
      `(("c-ares" ,c-ares)
        ("http-parser" ,http-parser)
+       ("icu4c" ,icu4c)
        ("libuv" ,libuv)
+       ("nghttp2" ,nghttp2 "lib")
        ("openssl" ,openssl)
        ("zlib" ,zlib)))
     (synopsis "Evented I/O for V8 JavaScript")

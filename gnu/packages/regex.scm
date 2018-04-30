@@ -2,6 +2,7 @@
 ;;; Copyright © 2014 John Darrington
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,17 +29,15 @@
 (define-public re2
    (package
      (name "re2")
-     (version "2017-07-01")
+     (version "2018-04-01")
+     (home-page "https://github.com/google/re2")
      (source (origin
                (method url-fetch)
-               (uri
-                (string-append
-                 "https://github.com/google/re2/archive/"
-                 version ".tar.gz"))
+               (uri (string-append home-page "/archive/" version ".tar.gz"))
                (file-name (string-append name "-" version ".tar.gz"))
                (sha256
                 (base32
-                 "07jbhcfpa4z8ra08q0i7j9p9sq6yy1wdx09laysz9jysgkc6mw76"))))
+                 "04n9ngikvpikpshwcrl26sxgn8qbrymy3b5wlbsyfdhknx35951g"))))
      (build-system gnu-build-system)
      (arguments
       `(#:modules ((guix build gnu-build-system)
@@ -65,7 +64,6 @@
               (delete-file (string-append (assoc-ref outputs "out")
                                           "/lib/libre2.a"))
               #t)))))
-     (home-page "https://github.com/google/re2")
      (synopsis "Fast, safe, thread-friendly regular expression engine")
      (description "RE2 is a fast, safe, thread-friendly alternative to
 backtracking regular expression engines like those used in PCRE, Perl and
@@ -85,16 +83,16 @@ Python.  It is a C++ library.")
                 "0n36cgqys59r2gmb7jzbqiwsy790v8nbxk82d2n2saz0rp145ild"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:phases (alist-cons-before
-                 'check 'install-locales
-                 (lambda _
-                   ;; The tests require the availability of the
-                   ;; 'en_US.ISO-8859-1' locale.
-                   (setenv "LOCPATH" (getcwd))
-                   (zero? (system* "localedef" "--no-archive"
-                                   "--prefix" (getcwd) "-i" "en_US"
-                                   "-f" "ISO-8859-1" "./en_US.ISO-8859-1")))
-                 %standard-phases)))
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'install-locales
+           (lambda _
+             ;; The tests require the availability of the
+             ;; 'en_US.ISO-8859-1' locale.
+             (setenv "LOCPATH" (getcwd))
+             (zero? (system* "localedef" "--no-archive"
+                             "--prefix" (getcwd) "-i" "en_US"
+                             "-f" "ISO-8859-1" "./en_US.ISO-8859-1")))))))
     (synopsis "Approximate regex matching library and agrep utility")
     (description "Superset of the POSIX regex API, enabling approximate
 matching.  Also ships a version of the agrep utility which behaves similar to

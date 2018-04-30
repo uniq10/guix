@@ -1,14 +1,17 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2014, 2015, 2016 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2014, 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2014 Ian Denhardt <ian@zenhack.net>
 ;;; Copyright © 2013, 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2015, 2016, 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017, 2018 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Hartmut Goebel <h.goebel@crazy-compilers.com>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,9 +37,15 @@
   #:use-module (guix build-system perl)
   #:use-module (guix build-system python)
   #:use-module (guix build-system cmake)
+  #:use-module (guix build-system haskell)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages)
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages dns)
   #:use-module (gnu packages guile)
+  #:use-module (gnu packages haskell)
+  #:use-module (gnu packages haskell-check)
+  #:use-module (gnu packages haskell-crypto)
   #:use-module (gnu packages libbsd)
   #:use-module (gnu packages libffi)
   #:use-module (gnu packages libidn)
@@ -46,15 +55,18 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-crypto)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages texinfo)
+  #:use-module (gnu packages time)
   #:use-module (gnu packages base)
   #:use-module (srfi srfi-1))
 
 (define-public libtasn1
   (package
     (name "libtasn1")
+    (version "4.12")
     (replacement libtasn1/fixed)
-    (version "4.10")
     (source
      (origin
       (method url-fetch)
@@ -62,7 +74,8 @@
                           version ".tar.gz"))
       (sha256
        (base32
-        "00jsix5hny0g768zv4hk78dib7w0qmk5fbizf4jj37r51nd4s6k8"))))
+        "0ls7jdq3y5fnrwg0pzhq11m21r8pshac2705bczz6mqjc8pdllv7"))
+      (patches (search-patches "libtasn1-CVE-2017-10790.patch"))))
     (build-system gnu-build-system)
     (native-inputs `(("perl" ,perl)))
     (home-page "https://www.gnu.org/software/libtasn1/")
@@ -77,11 +90,10 @@ specifications.")
 (define libtasn1/fixed
   (package
     (inherit libtasn1)
-    (source
-      (origin
-        (inherit (package-source libtasn1))
-        (patches
-          (search-patches "libtasn1-CVE-2017-6891.patch"))))))
+    (source (origin
+              (inherit (package-source libtasn1))
+              (patches (search-patches "libtasn1-CVE-2017-10790.patch"
+                                       "libtasn1-CVE-2018-6003.patch"))))))
 
 (define-public asn1c
   (package
@@ -113,7 +125,7 @@ in intelligent transportation networks.")
 (define-public p11-kit
   (package
     (name "p11-kit")
-    (version "0.23.7")
+    (version "0.23.10")
     (source
      (origin
       (method url-fetch)
@@ -121,7 +133,7 @@ in intelligent transportation networks.")
                           "download/" version "/p11-kit-" version ".tar.gz"))
       (sha256
        (base32
-        "0hdy4h8byvcvd4av504xqfqyd1h6xy914j034mq3c6v4ya37r3lq"))))
+        "0hxfwnyb5yllvlsh0cj6favcph36gm94b6df7zhl7xay48zjl8gr"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -130,7 +142,7 @@ in intelligent transportation networks.")
        ("libtasn1" ,libtasn1)))
     (arguments
      `(#:configure-flags '("--without-trust-paths")))
-    (home-page "http://p11-glue.freedesktop.org/p11-kit.html")
+    (home-page "https://p11-glue.freedesktop.org/p11-kit.html")
     (synopsis "PKCS#11 library")
     (description
      "p11-kit provides a way to load and enumerate PKCS#11 modules.  It
@@ -143,8 +155,7 @@ living in the same process.")
 (define-public gnutls
   (package
     (name "gnutls")
-    (replacement gnutls-3.5.13)
-    (version "3.5.9")
+    (version "3.5.13")
     (source (origin
              (method url-fetch)
              (uri
@@ -153,15 +164,18 @@ living in the same process.")
               (string-append "mirror://gnupg/gnutls/v"
                              (version-major+minor version)
                              "/gnutls-" version ".tar.xz"))
+             (patches
+              (search-patches "gnutls-skip-trust-store-test.patch"
+                              "gnutls-skip-pkgconfig-test.patch"))
              (sha256
               (base32
-               "0l9971841jsfdcvcyhas17sk5rsby6x5vvwcmmj4x3zi9q60zcc2"))))
+               "15ihq6p0hnnhs8cnjrkj40dmlcaa1jjg8xg0g2ydbnlqs454ixbr"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:configure-flags
-       (list (string-append "--with-guile-site-dir="
-                            (assoc-ref %outputs "out")
-                            "/share/guile/site/2.0")
+     `(; Ensure we don't keep a reference to this buggy software.
+       #:disallowed-references (,net-tools)
+       #:configure-flags
+       (list
              ;; GnuTLS doesn't consult any environment variables to specify
              ;; the location of the system-wide trust store.  Instead it has a
              ;; configure-time option.  Unless specified, its configure script
@@ -198,7 +212,7 @@ living in the same process.")
        ("pkg-config" ,pkg-config)
        ("which" ,which)))
     (inputs
-     `(("guile" ,guile-2.0)))
+     `(("guile" ,guile-2.2)))
     (propagated-inputs
      ;; These are all in the 'Requires.private' field of gnutls.pc.
      `(("libtasn1" ,libtasn1)
@@ -216,53 +230,52 @@ required structures.")
     (properties '((ftp-server . "ftp.gnutls.org")
                   (ftp-directory . "/gcrypt/gnutls")))))
 
-(define gnutls-3.5.13               ;GNUTLS-SA-2017-{3,4}
-  (package
-    (inherit gnutls)
-    ;; We use 'D' instead of '13' here to keep the store file name at
-    ;; the same length. See <https://bugs.gnu.org/27308>.
-    (version "3.5.D")
-    (source (origin
-              (method url-fetch)
-              (uri
-               (string-append "mirror://gnupg/gnutls/v"
-                              (version-major+minor version)
-                              "/gnutls-3.5.13.tar.xz"))
-              (patches
-               (search-patches "gnutls-skip-trust-store-test.patch"
-                               "gnutls-skip-pkgconfig-test.patch"))
-              (sha256
-               (base32
-                "15ihq6p0hnnhs8cnjrkj40dmlcaa1jjg8xg0g2ydbnlqs454ixbr"))))))
-
 (define-public gnutls/guile-2.2
-  ;; GnuTLS for Guile 2.2.  This is supported by GnuTLS >= 3.5.5.
+  (deprecated-package "guile2.2-gnutls" gnutls))
+
+(define-public gnutls/guile-2.0
+  ;; GnuTLS for Guile 2.0.
   (package
     (inherit gnutls)
-    (source (package-source gnutls-3.5.13))
-    (name "guile2.2-gnutls")
-    (arguments
-     ;; Remove '--with-guile-site-dir=…/2.0'.
-     (substitute-keyword-arguments (package-arguments gnutls)
-       ((#:configure-flags flags)
-        `(cdr ,flags))))
-    (inputs `(("guile" ,guile-2.2)
+    (name "guile2.0-gnutls")
+    (inputs `(("guile" ,guile-2.0)
               ,@(alist-delete "guile" (package-inputs gnutls))))))
+
+(define-public gnutls/dane
+  ;; GnuTLS with build libgnutls-dane, implementing DNS-based
+  ;; Authentication of Named Entities.  This is required for GNS functionality
+  ;; by GNUnet and gnURL.  This is done in an extra package definition
+  ;; to have the choice between GnuTLS with Dane and without Dane.
+  (package
+    (inherit gnutls)
+    (name "gnutls-dane")
+    (inputs `(("unbound" ,unbound)
+              ,@(package-inputs gnutls)))))
 
 (define-public openssl
   (package
    (name "openssl")
-   (version "1.0.2k")
+   (replacement openssl-1.0.2o)
+   (version "1.0.2n")
    (source (origin
              (method url-fetch)
-             (uri (list (string-append "ftp://ftp.openssl.org/source/"
+             (uri (list (string-append "https://www.openssl.org/source/openssl-"
+                                       version ".tar.gz")
+                        (string-append "ftp://ftp.openssl.org/source/"
                                        name "-" version ".tar.gz")
                         (string-append "ftp://ftp.openssl.org/source/old/"
                                        (string-trim-right version char-set:letter)
                                        "/" name "-" version ".tar.gz")))
              (sha256
               (base32
-               "1h6qi35w6hv6rd73p4cdgdzg732pdrfgpp37cgwz1v9a3z37ffbb"))
+               "1zm82pyq5a9jm10q6iv7d3dih3xwjds4x30fqph3k317byvsn2rp"))
+             (snippet
+              '(begin
+                 ;; Remove ELF files.  'substitute*' can't read them.
+                 (delete-file "test/ssltest_old")
+                 (delete-file "test/v3ext")
+                 (delete-file "test/x509aux")
+                 #t))
              (patches (search-patches "openssl-runpath.patch"
                                       "openssl-c-rehash-in.patch"))))
    (build-system gnu-build-system)
@@ -372,30 +385,52 @@ required structures.")
                                                      ,version "/misc"))
              #t))))))
    (native-search-paths
-    ;; FIXME: These two variables must designate a single file or directory
-    ;; and are not actually "search paths."  In practice it works OK in user
-    ;; profiles because there's always just one item that matches the
-    ;; specification.
     (list (search-path-specification
            (variable "SSL_CERT_DIR")
+           (separator #f)                        ;single entry
            (files '("etc/ssl/certs")))
           (search-path-specification
            (variable "SSL_CERT_FILE")
+           (file-type 'regular)
+           (separator #f)                        ;single entry
            (files '("etc/ssl/certs/ca-certificates.crt")))))
    (synopsis "SSL/TLS implementation")
    (description
     "OpenSSL is an implementation of SSL/TLS.")
    (license license:openssl)
-   (home-page "http://www.openssl.org/")))
+   (home-page "https://www.openssl.org/")))
+
+(define openssl-1.0.2o
+  (package
+    (inherit openssl)
+    (name "openssl")
+    (version "1.0.2o")
+    (source (origin
+              (inherit (package-source openssl))
+              (uri (list (string-append "https://www.openssl.org/source/openssl-"
+                                        version ".tar.gz")
+                         (string-append "ftp://ftp.openssl.org/source/"
+                                        name "-" version ".tar.gz")
+                         (string-append "ftp://ftp.openssl.org/source/old/"
+                                        (string-trim-right version char-set:letter)
+                                        "/" name "-" version ".tar.gz")))
+              (sha256
+               (base32
+                "0kcy13l701054nhpbd901mz32v1kn4g311z0nifd83xs2jbmqgzc"))
+              ;; Erase the inherited snippet, which isn't applicable to
+              ;; OpenSSL 1.0.2o.
+              (snippet #f)))))
 
 (define-public openssl-next
   (package
     (inherit openssl)
     (name "openssl")
-    (version "1.1.0f")
+    (version "1.1.0h")
     (source (origin
              (method url-fetch)
-             (uri (list (string-append "ftp://ftp.openssl.org/source/"
+             (uri (list (string-append "https://www.openssl.org/source/openssl-"
+                                       version ".tar.gz")
+                        (string-append "ftp://ftp.openssl.org/source/"
                                        name "-" version ".tar.gz")
                         (string-append "ftp://ftp.openssl.org/source/old/"
                                        (string-trim-right version char-set:letter)
@@ -403,7 +438,7 @@ required structures.")
               (patches (search-patches "openssl-1.1.0-c-rehash-in.patch"))
               (sha256
                (base32
-                "0r97n4n552ns571diz54qsgarihrxvbn7kvyv8wjyfs9ybrldxqj"))))
+                "05x509lccqjscgyi935z809pwfm708islypwhmjnb6cyvrn64daq"))))
     (outputs '("out"
                "doc"        ;1.3MiB of man3 pages
                "static"))   ; 5.5MiB of .a files
@@ -455,14 +490,14 @@ required structures.")
 (define-public libressl
   (package
     (name "libressl")
-    (version "2.5.5")
+    (version "2.7.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://openbsd/LibreSSL/"
                                   name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1i77viqy1afvbr392npk9v54k9zhr9zq2vhv6pliza22b0ymwzz5"))))
+                "1589f0kg7kj51j9hid542s4isb96s1azjaqsfprpy5s2qdwqfyli"))))
     (build-system gnu-build-system)
     (arguments
      ;; Do as if 'getentropy' was missing since older Linux kernels lack it
@@ -499,13 +534,13 @@ netcat implementation that supports TLS.")
   (package
     (name "python-acme")
     ;; Remember to update the hash of certbot when updating python-acme.
-    (version "0.16.0")
+    (version "0.23.0")
     (source (origin
               (method url-fetch)
               (uri (pypi-uri "acme" version))
-      (sha256
-       (base32
-        "1kg9bnwywsr18hgvqyhxqqi90l2qa7449f41q3fdq2y59h9nk2sk"))))
+              (sha256
+               (base32
+                "0l257dq1i2gka6ynldidpwaz1aa726643crqqckga1w5awsndh88"))))
     (build-system python-build-system)
     (arguments
      `(#:phases
@@ -523,27 +558,25 @@ netcat implementation that supports TLS.")
                #t))))))
     ;; TODO: Add optional inputs for testing.
     (native-inputs
-     `(("python-mock" ,python-mock-2)
+     `(("python-mock" ,python-mock)
        ;; For documentation
        ("python-sphinx" ,python-sphinx)
        ("python-sphinxcontrib-programoutput" ,python-sphinxcontrib-programoutput)
        ("python-sphinx-rtd-theme" ,python-sphinx-rtd-theme)
        ("texinfo" ,texinfo)))
     (propagated-inputs
-     `(("python-six" ,python-six)
+     `(("python-josepy" ,python-josepy)
+       ("python-six" ,python-six)
        ("python-requests" ,python-requests)
        ("python-pytz" ,python-pytz)
        ("python-pyrfc3339" ,python-pyrfc3339)
        ("python-pyasn1" ,python-pyasn1)
        ("python-cryptography" ,python-cryptography)
        ("python-pyopenssl" ,python-pyopenssl)))
-    (home-page "https://github.com/letsencrypt/letsencrypt")
+    (home-page "https://github.com/certbot/certbot")
     (synopsis "ACME protocol implementation in Python")
     (description "ACME protocol implementation in Python")
     (license license:asl2.0)))
-
-(define-public python2-acme
-  (package-with-python2 python-acme))
 
 (define-public certbot
   (package
@@ -556,7 +589,7 @@ netcat implementation that supports TLS.")
               (uri (pypi-uri name version))
               (sha256
                (base32
-                "11p1vsps5rbpha3k5jnmf9i6rcp6299h9b34wdh21cq6dgyh2n3r"))))
+                "0gh5fr61c3mj5vdkn68k17wcvri9rdj506cmmz6631i2l5flrzvc"))))
     (build-system python-build-system)
     (arguments
      `(,@(substitute-keyword-arguments (package-arguments python-acme)
@@ -575,7 +608,7 @@ netcat implementation that supports TLS.")
     ;; TODO: Add optional inputs for testing.
     (native-inputs
      `(("python-nose" ,python-nose)
-       ("python-mock" ,python-mock-2)
+       ("python-mock" ,python-mock)
        ;; For documentation
        ("python-sphinx" ,python-sphinx)
        ("python-sphinx-rtd-theme" ,python-sphinx-rtd-theme)
@@ -611,32 +644,19 @@ certificates for free.")
 (define-public perl-net-ssleay
   (package
     (name "perl-net-ssleay")
-    (version "1.68")
+    (version "1.82")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/MI/MIKEM/"
                                   "Net-SSLeay-" version ".tar.gz"))
               (sha256
                (base32
-                "1m2wwzhjwsg0drlhp9w12fl6bsgj69v8gdz72jqrqll3qr7f408p"))))
+                "1rf78z1macgmp6mwd7c2xq4yfw6wpf28hfwfz1d5wslqr4cwb5aq"))))
     (build-system perl-build-system)
-    (native-inputs
-     `(("patch" ,patch)
-       ("patch/disable-ede-test"
-        ,(search-patch "perl-net-ssleay-disable-ede-test.patch"))))
     (inputs `(("openssl" ,openssl)))
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         (add-after
-          'unpack 'apply-patch
-          (lambda* (#:key inputs #:allow-other-keys)
-            ;; XXX We apply this patch here instead of in the 'origin' because
-            ;; this package's build system fails badly when the source file
-            ;; times are zeroed.
-            ;; XXX Try removing this patch for perl-net-ssleay > 1.68
-            (zero? (system* "patch" "--force" "-p1" "-i"
-                            (assoc-ref inputs "patch/disable-ede-test")))))
          (add-before
           'configure 'set-ssl-prefix
           (lambda* (#:key inputs #:allow-other-keys)
@@ -693,7 +713,7 @@ OpenSSL libraries).")
 (define-public perl-crypt-openssl-bignum
  (package
   (name "perl-crypt-openssl-bignum")
-  (version "0.06")
+  (version "0.09")
   (source
     (origin
       (method url-fetch)
@@ -703,7 +723,7 @@ OpenSSL libraries).")
              ".tar.gz"))
       (sha256
         (base32
-          "05yzrdglrrzp191krf77zrwfkmzrfwrsrx1vyskbj94522lszk67"))))
+          "1p22znbajq91lbk2k3yg12ig7hy5b4vy8igxwqkmbm4nhgxp4ki3"))))
   (build-system perl-build-system)
   (inputs `(("openssl" ,openssl)))
   (arguments perl-crypt-arguments)
@@ -716,10 +736,32 @@ arithmetic in Perl.")
   ;; At your option either gpl1+ or the Artistic License
   (license license:perl-license)))
 
+(define-public perl-crypt-openssl-guess
+  (package
+    (name "perl-crypt-openssl-guess")
+    (version "0.11")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://cpan/authors/id/A/AK/AKIYM/Crypt-OpenSSL-Guess-"
+             version ".tar.gz"))
+       (sha256
+        (base32
+         "0rvi9l4ljcbhwwvspq019nfq2h2v746dk355h2nwnlmqikiihsxa"))))
+    (build-system perl-build-system)
+    (home-page "http://search.cpan.org/dist/Crypt-OpenSSL-Guess/")
+    (synopsis "Guess the OpenSSL include path")
+    (description
+     "The Crypt::OpenSSL::Guess Perl module provides helpers to guess the
+correct OpenSSL include path.  It is intended for use in your
+@file{Makefile.PL}.")
+    (license license:perl-license)))
+
 (define-public perl-crypt-openssl-random
  (package
   (name "perl-crypt-openssl-random")
-  (version "0.11")
+  (version "0.13")
   (source
     (origin
       (method url-fetch)
@@ -729,9 +771,12 @@ arithmetic in Perl.")
              ".tar.gz"))
       (sha256
         (base32
-          "0yjcabkibrkafywvdkmd1xpi6br48skyk3l15ni176wvlg38335v"))))
+          "0vmvrb3shrzjzri3qn524dzdasbq8zhhbpc1vmq8sx68n4jhizb0"))))
   (build-system perl-build-system)
-  (inputs `(("openssl" ,openssl)))
+  (native-inputs
+   `(("perl-crypt-openssl-guess" ,perl-crypt-openssl-guess)))
+  (inputs
+   `(("openssl" ,openssl)))
   (arguments perl-crypt-arguments)
   (home-page
     "http://search.cpan.org/dist/Crypt-OpenSSL-Random")
@@ -789,7 +834,7 @@ then ported to the GNU / Linux environment.")
 (define-public mbedtls-apache
   (package
     (name "mbedtls-apache")
-    (version "2.5.1")
+    (version "2.7.2")
     (source
      (origin
        (method url-fetch)
@@ -799,8 +844,11 @@ then ported to the GNU / Linux environment.")
                            version "-apache.tgz"))
        (sha256
         (base32
-         "1yc1rj0izjihj9hbzvskpa4gjzqf4dm2i84nmmm2s9j1i66fp6jm"))))
+         "1mvkqlxxvl6yp1g5g9dk4l7h3wl6149p3pfwgwzgs7xybyxw4f7x"))))
     (build-system cmake-build-system)
+    (arguments
+     `(#:configure-flags
+       (list "-DUSE_SHARED_MBEDTLS_LIBRARY=ON")))
     (native-inputs
      `(("perl" ,perl)))
     (synopsis "Small TLS library")
@@ -811,3 +859,46 @@ for developers to include cryptographic and SSL/TLS capabilities in their
 coding footprint.")
     (home-page "https://tls.mbed.org")
     (license license:asl2.0)))
+
+(define-public ghc-tls
+  (package
+    (name "ghc-tls")
+    (version "1.3.8")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://hackage.haskell.org/package/"
+                                  "tls/tls-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1rdidf18i781c0vdvy9yn79yh08hmcacf6fp3sgghyiy3h0wyh5l"))))
+    (build-system haskell-build-system)
+    (inputs
+     `(("ghc-mtl" ,ghc-mtl)
+       ("ghc-cereal" ,ghc-cereal)
+       ("ghc-data-default-class" ,ghc-data-default-class)
+       ("ghc-memory" ,ghc-memory)
+       ("ghc-cryptonite" ,ghc-cryptonite)
+       ("ghc-asn1-types" ,ghc-asn1-types)
+       ("ghc-asn1-encoding" ,ghc-asn1-encoding)
+       ("ghc-x509" ,ghc-x509)
+       ("ghc-x509-store" ,ghc-x509-store)
+       ("ghc-x509-validation" ,ghc-x509-validation)
+       ("ghc-async" ,ghc-async)
+       ("ghc-network" ,ghc-network)
+       ("ghc-hourglass" ,ghc-hourglass)))
+    (native-inputs
+     `(("ghc-tasty" ,ghc-tasty)
+       ("ghc-tasty-quickcheck" ,ghc-tasty-quickcheck)
+       ("ghc-quickcheck" ,ghc-quickcheck)))
+    (home-page "https://github.com/vincenthz/hs-tls")
+    (synopsis
+     "TLS/SSL protocol native implementation (Server and Client)")
+    (description
+     "Native Haskell TLS and SSL protocol implementation for server and client.
+This provides a high-level implementation of a sensitive security protocol,
+eliminating a common set of security issues through the use of the advanced
+type system, high level constructions and common Haskell features.  Currently
+implement the SSL3.0, TLS1.0, TLS1.1 and TLS1.2 protocol, and support RSA and
+Ephemeral (Elliptic curve and regular) Diffie Hellman key exchanges, and many
+extensions.")
+    (license license:bsd-3)))

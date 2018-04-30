@@ -1,9 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
-;;; Copyright © 2016, 2017 Julien Lepiller <julien@lepiller.eu>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2016, 2017, 2018 Julien Lepiller <julien@lepiller.eu>
 ;;; Copyright © 2017 Christopher Baines <mail@cbaines.net>
+;;; Copyright © 2017 nee <nee-git@hidamari.blue>
+;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -26,22 +28,134 @@
   #:use-module (gnu system shadow)
   #:use-module (gnu packages admin)
   #:use-module (gnu packages web)
+  #:use-module (gnu packages php)
   #:use-module (guix records)
   #:use-module (guix gexp)
+  #:use-module ((guix utils) #:select (version-major))
+  #:use-module ((guix packages) #:select (package-version))
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-9)
   #:use-module (ice-9 match)
-  #:export (nginx-configuration
+  #:export (<httpd-configuration>
+            httpd-configuration
+            httpd-configuration?
+            httpd-configuration-package
+            httpd-configuration-pid-file
+            httpd-configuration-config
+
+            <httpd-virtualhost>
+            httpd-virtualhost
+            httpd-virtualhost?
+            httpd-virtualhost-addresses-and-ports
+            httpd-virtualhost-contents
+
+            <httpd-config-file>
+            httpd-config-file
+            httpd-config-file?
+            httpd-config-file-modules
+            httpd-config-file-server-root
+            httpd-config-file-server-name
+            httpd-config-file-listen
+            httpd-config-file-pid-file
+            httpd-config-file-error-log
+            httpd-config-file-user
+            httpd-config-file-group
+
+            httpd-service-type
+
+            <nginx-configuration>
+            nginx-configuration
             nginx-configuration?
+            nginx-configuartion-nginx
+            nginx-configuration-log-directory
+            nginx-configuration-run-directory
+            nginx-configuration-server-blocks
+            nginx-configuration-upstream-blocks
+            nginx-configuration-server-names-hash-bucket-size
+            nginx-configuration-server-names-hash-bucket-max-size
+            nginx-configuration-file
+
+            <nginx-server-configuration>
             nginx-server-configuration
             nginx-server-configuration?
+            nginx-server-configuration-listen
+            nginx-server-configuration-server-name
+            nginx-server-configuration-root
+            nginx-server-configuration-locations
+            nginx-server-configuration-index
+            nginx-server-configuration-ssl-certificate
+            nginx-server-configuration-ssl-certificate-key
+            nginx-server-configuration-server-tokens?
+            nginx-server-configuration-raw-content
+
+            <nginx-upstream-configuration>
             nginx-upstream-configuration
             nginx-upstream-configuration?
+            nginx-upstream-configuration-name
+            nginx-upstream-configuration-servers
+
+            <nginx-location-configuration>
             nginx-location-configuration
             nginx-location-configuration?
+            nginx-location-configuration-uri
+            nginx-location-configuration-body
+
+            <nginx-named-location-configuration>
             nginx-named-location-configuration
             nginx-named-location-configuration?
+            nginx-named-location-configuration-name
+            nginx-named-location-configuration-body
+
             nginx-service
-            nginx-service-type))
+            nginx-service-type
+
+            fcgiwrap-configuration
+            fcgiwrap-configuration?
+            fcgiwrap-service-type
+
+            <php-fpm-configuration>
+            php-fpm-configuration
+            make-php-fpm-configuration
+            php-fpm-configuration?
+            php-fpm-configuration-php
+            php-fpm-configuration-socket
+            php-fpm-configuration-user
+            php-fpm-configuration-group
+            php-fpm-configuration-socket-user
+            php-fpm-configuration-socket-group
+            php-fpm-configuration-pid-file
+            php-fpm-configuration-log-file
+            php-fpm-configuration-process-manager
+            php-fpm-configuration-display-errors
+            php-fpm-configuration-workers-log-file
+            php-fpm-configuration-file
+
+            <php-fpm-dynamic-process-manager-configuration>
+            php-fpm-dynamic-process-manager-configuration
+            make-php-fpm-dynamic-process-manager-configuration
+            php-fpm-dynamic-process-manager-configuration?
+            php-fpm-dynamic-process-manager-configuration-max-children
+            php-fpm-dynamic-process-manager-configuration-start-servers
+            php-fpm-dynamic-process-manager-configuration-min-spare-servers
+            php-fpm-dynamic-process-manager-configuration-max-spare-servers
+
+            <php-fpm-static-process-manager-configuration>
+            php-fpm-static-process-manager-configuration
+            make-php-fpm-static-process-manager-configuration
+            php-fpm-static-process-manager-configuration?
+            php-fpm-static-process-manager-configuration-max-children
+
+            <php-fpm-on-demand-process-manager-configuration>
+            php-fpm-on-demand-process-manager-configuration
+            make-php-fpm-on-demand-process-manager-configuration
+            php-fpm-on-demand-process-manager-configuration?
+            php-fpm-on-demand-process-manager-configuration-max-children
+            php-fpm-on-demand-process-manager-configuration-process-idle-timeout
+
+            php-fpm-service-type
+            nginx-php-location
+
+            cat-avatar-generator-service))
 
 ;;; Commentary:
 ;;;
@@ -49,13 +163,210 @@
 ;;;
 ;;; Code:
 
+(define-record-type* <httpd-module>
+  httpd-module make-httpd-module
+  httpd-module?
+  (name httpd-load-module-name)
+  (file httpd-load-module-file))
+
+;; Default modules for the httpd-service-type, taken from etc/httpd/httpd.conf
+;; file in the httpd package.
+(define %default-httpd-modules
+  (map (match-lambda
+         ((name file)
+          (httpd-module
+           (name name)
+           (file file))))
+       '(("authn_file_module" "modules/mod_authn_file.so")
+         ("authn_core_module" "modules/mod_authn_core.so")
+         ("authz_host_module" "modules/mod_authz_host.so")
+         ("authz_groupfile_module" "modules/mod_authz_groupfile.so")
+         ("authz_user_module" "modules/mod_authz_user.so")
+         ("authz_core_module" "modules/mod_authz_core.so")
+         ("access_compat_module" "modules/mod_access_compat.so")
+         ("auth_basic_module" "modules/mod_auth_basic.so")
+         ("reqtimeout_module" "modules/mod_reqtimeout.so")
+         ("filter_module" "modules/mod_filter.so")
+         ("mime_module" "modules/mod_mime.so")
+         ("log_config_module" "modules/mod_log_config.so")
+         ("env_module" "modules/mod_env.so")
+         ("headers_module" "modules/mod_headers.so")
+         ("setenvif_module" "modules/mod_setenvif.so")
+         ("version_module" "modules/mod_version.so")
+         ("unixd_module" "modules/mod_unixd.so")
+         ("status_module" "modules/mod_status.so")
+         ("autoindex_module" "modules/mod_autoindex.so")
+         ("dir_module" "modules/mod_dir.so")
+         ("alias_module" "modules/mod_alias.so"))))
+
+(define-record-type* <httpd-config-file>
+  httpd-config-file make-httpd-config-file
+  httpd-config-file?
+  (modules        httpd-config-file-modules
+                  (default %default-httpd-modules))
+  (server-root    httpd-config-file-server-root
+                  (default httpd))
+  (server-name    httpd-config-file-server-name
+                  (default #f))
+  (document-root  httpd-config-file-document-root
+                  (default "/srv/http"))
+  (listen         httpd-config-file-listen
+                  (default '("80")))
+  (pid-file       httpd-config-file-pid-file
+                  (default "/var/run/httpd"))
+  (error-log      httpd-config-file-error-log
+                  (default "/var/log/httpd/error_log"))
+  (user           httpd-config-file-user
+                  (default "httpd"))
+  (group          httpd-config-file-group
+                  (default "httpd"))
+  (extra-config   httpd-config-file-extra-config
+                  (default
+                    (list "TypesConfig etc/httpd/mime.types"))))
+
+(define-gexp-compiler (httpd-config-file-compiler
+                       (file <httpd-config-file>) system target)
+  (match file
+    (($ <httpd-config-file> load-modules server-root server-name
+                                   document-root listen pid-file error-log
+                                   user group extra-config)
+     (gexp->derivation
+      "httpd.conf"
+      #~(call-with-output-file (ungexp output "out")
+          (lambda (port)
+            (display
+             (string-append
+              (ungexp-splicing
+               `(,@(append-map
+                    (match-lambda
+                      (($ <httpd-module> name module)
+                       `("LoadModule " ,name " " ,module "\n")))
+                    load-modules)
+                 ,@`("ServerRoot " ,server-root "\n")
+                 ,@(if server-name
+                       `("ServerName " ,server-name "\n")
+                       '())
+                 ,@`("DocumentRoot " ,document-root "\n")
+                 ,@(append-map
+                    (lambda (listen-value)
+                      `("Listen " ,listen-value "\n"))
+                    listen)
+                 ,@(if pid-file
+                       `("Pidfile " ,pid-file "\n")
+                       '())
+                 ,@(if error-log
+                       `("ErrorLog " ,error-log "\n")
+                       '())
+                 ,@(if user
+                       `("User " ,user "\n")
+                       '())
+                 ,@(if group
+                       `("Group " ,group "\n")
+                       '())
+                 "\n\n"
+                 ,@extra-config)))
+             port)))
+      #:local-build? #t))))
+
+(define-record-type <httpd-virtualhost>
+  (httpd-virtualhost addresses-and-ports contents)
+  httpd-virtualhost?
+  (addresses-and-ports httpd-virtualhost-addresses-and-ports)
+  (contents            httpd-virtualhost-contents))
+
+(define-record-type* <httpd-configuration>
+  httpd-configuration make-httpd-configuration
+  httpd-configuration?
+  (package  httpd-configuration-package
+            (default httpd))
+  (pid-file httpd-configuration-pid-file
+            (default "/var/run/httpd"))
+  (config   httpd-configuration-config
+            (default (httpd-config-file))))
+
+(define %httpd-accounts
+  (list (user-group (name "httpd") (system? #t))
+        (user-account
+         (name "httpd")
+         (group "httpd")
+         (system? #t)
+         (comment "Apache HTTPD server user")
+         (home-directory "/var/empty")
+         (shell (file-append shadow "/sbin/nologin")))))
+
+(define httpd-shepherd-services
+  (match-lambda
+    (($ <httpd-configuration> package pid-file config)
+     (list (shepherd-service
+            (provision '(httpd))
+            (documentation "The Apache HTTP Server")
+            (requirement '(networking))
+            (start #~(make-forkexec-constructor
+                      `(#$(file-append package "/bin/httpd")
+                        #$@(if config
+                               (list "-f" config)
+                               '()))
+                      #:pid-file #$pid-file))
+            (stop #~(make-kill-destructor)))))))
+
+(define httpd-activation
+  (match-lambda
+    (($ <httpd-configuration> package pid-file config)
+     (match-record
+      config
+      <httpd-config-file>
+      (error-log document-root)
+      #~(begin
+          (use-modules (guix build utils))
+
+          (mkdir-p #$(dirname error-log))
+          (mkdir-p #$document-root))))))
+
+(define (httpd-process-extensions original-config extension-configs)
+  (let ((config (httpd-configuration-config
+                 original-config)))
+    (if (httpd-config-file? config)
+        (httpd-configuration
+         (inherit original-config)
+         (config
+          (httpd-config-file
+           (inherit config)
+           (extra-config
+            (append (httpd-config-file-extra-config config)
+                    (append-map
+                     (match-lambda
+                       (($ <httpd-virtualhost>
+                           addresses-and-ports
+                           contents)
+                        `(,(string-append
+                            "<VirtualHost " addresses-and-ports ">\n")
+                          ,@contents
+                          "\n</VirtualHost>\n"))
+                       ((? string? x)
+                        `("\n" ,x "\n"))
+                       ((? list? x)
+                        `("\n" ,@x "\n")))
+                     extension-configs)))))))))
+
+(define httpd-service-type
+  (service-type (name 'httpd)
+                (extensions
+                 (list (service-extension shepherd-root-service-type
+                                          httpd-shepherd-services)
+                       (service-extension activation-service-type
+                                          httpd-activation)
+                       (service-extension account-service-type
+                                          (const %httpd-accounts))))
+                (compose concatenate)
+                (extend httpd-process-extensions)
+                (default-value
+                  (httpd-configuration))))
+
 (define-record-type* <nginx-server-configuration>
   nginx-server-configuration make-nginx-server-configuration
   nginx-server-configuration?
-  (http-port           nginx-server-configuration-http-port
-                       (default 80))
-  (https-port          nginx-server-configuration-https-port
-                       (default 443))
+  (listen              nginx-server-configuration-listen
+                       (default '("80" "443 ssl")))
   (server-name         nginx-server-configuration-server-name
                        (default (list 'default)))
   (root                nginx-server-configuration-root
@@ -64,12 +375,16 @@
                        (default '()))
   (index               nginx-server-configuration-index
                        (default (list "index.html")))
+  (try-files           nginx-server-configuration-try-files
+                       (default '()))
   (ssl-certificate     nginx-server-configuration-ssl-certificate
-                       (default "/etc/nginx/cert.pem"))
+                       (default #f))
   (ssl-certificate-key nginx-server-configuration-ssl-certificate-key
-                       (default "/etc/nginx/key.pem"))
+                       (default #f))
   (server-tokens?      nginx-server-configuration-server-tokens?
-                       (default #f)))
+                       (default #f))
+  (raw-content         nginx-server-configuration-raw-content
+                       (default '())))
 
 (define-record-type* <nginx-upstream-configuration>
   nginx-upstream-configuration make-nginx-upstream-configuration
@@ -104,111 +419,131 @@
                  (default '()))          ;list of <nginx-server-configuration>
   (upstream-blocks nginx-configuration-upstream-blocks
                    (default '()))      ;list of <nginx-upstream-configuration>
+  (server-names-hash-bucket-size nginx-configuration-server-names-hash-bucket-size
+                                 (default #f))
+  (server-names-hash-bucket-max-size nginx-configuration-server-names-hash-bucket-max-size
+                                     (default #f))
   (file          nginx-configuration-file         ;#f | string | file-like
                  (default #f)))
 
 (define (config-domain-strings names)
  "Return a string denoting the nginx config representation of NAMES, a list
 of domain names."
- (string-join
-  (map (match-lambda
+ (map (match-lambda
         ('default "_ ")
-        ((? string? str) (string-append str " ")))
-       names)))
+        ((? string? str) (list str " ")))
+      names))
 
 (define (config-index-strings names)
  "Return a string denoting the nginx config representation of NAMES, a list
 of index files."
- (string-join
-  (map (match-lambda
-        ((? string? str) (string-append str " ")))
-       names)))
+ (map (match-lambda
+        ((? string? str) (list str " ")))
+      names))
 
-(define nginx-location-config
+(define emit-nginx-location-config
   (match-lambda
     (($ <nginx-location-configuration> uri body)
-     (string-append
+     (list
       "      location " uri " {\n"
-      "        " (string-join body "\n    ") "\n"
+      (map (lambda (x) (list "        " x "\n")) body)
       "      }\n"))
     (($ <nginx-named-location-configuration> name body)
-     (string-append
+     (list
       "      location @" name " {\n"
-      "        " (string-join body "\n    ") "\n"
+      (map (lambda (x) (list "        " x "\n")) body)
       "      }\n"))))
 
-(define (default-nginx-server-config server)
-  (string-append
-   "    server {\n"
-   (if (nginx-server-configuration-http-port server)
-       (string-append "      listen "
-                      (number->string (nginx-server-configuration-http-port server))
-                      ";\n")
-       "")
-   (if (nginx-server-configuration-https-port server)
-       (string-append "      listen "
-                      (number->string (nginx-server-configuration-https-port server))
-                      " ssl;\n")
-       "")
-   "      server_name " (config-domain-strings
-                         (nginx-server-configuration-server-name server))
-                        ";\n"
-   (if (nginx-server-configuration-ssl-certificate server)
-       (let ((certificate (nginx-server-configuration-ssl-certificate server)))
-         ;; lstat fails when the certificate file does not exist: it aborts
-         ;; and lets the user fix their configuration.
-         (lstat certificate)
-         (string-append "      ssl_certificate " certificate ";\n"))
-       "")
-   (if (nginx-server-configuration-ssl-certificate-key server)
-       (let ((key (nginx-server-configuration-ssl-certificate-key server)))
-         (lstat key)
-         (string-append "      ssl_certificate_key " key ";\n"))
-       "")
-   "      root " (nginx-server-configuration-root server) ";\n"
-   "      index " (config-index-strings (nginx-server-configuration-index server)) ";\n"
-   "      server_tokens " (if (nginx-server-configuration-server-tokens? server)
-                              "on" "off") ";\n"
-   "\n"
-   (string-join
-    (map nginx-location-config (nginx-server-configuration-locations server))
-    "\n")
-   "    }\n"))
+(define (emit-nginx-server-config server)
+  (let ((listen (nginx-server-configuration-listen server))
+        (server-name (nginx-server-configuration-server-name server))
+        (ssl-certificate (nginx-server-configuration-ssl-certificate server))
+        (ssl-certificate-key
+         (nginx-server-configuration-ssl-certificate-key server))
+        (root (nginx-server-configuration-root server))
+        (index (nginx-server-configuration-index server))
+        (try-files (nginx-server-configuration-try-files server))
+        (server-tokens? (nginx-server-configuration-server-tokens? server))
+        (locations (nginx-server-configuration-locations server))
+        (raw-content (nginx-server-configuration-raw-content server)))
+    (define-syntax-parameter <> (syntax-rules ()))
+    (define-syntax-rule (and/l x tail ...)
+      (let ((x* x))
+        (if x*
+            (syntax-parameterize ((<> (identifier-syntax x*)))
+              (list tail ...))
+            '())))
+    (list
+     "    server {\n"
+     (map (lambda (directive) (list "      listen " directive ";\n")) listen)
+     "      server_name " (config-domain-strings server-name) ";\n"
+     (and/l ssl-certificate     "      ssl_certificate " <> ";\n")
+     (and/l ssl-certificate-key "      ssl_certificate_key " <> ";\n")
+     "      root " root ";\n"
+     "      index " (config-index-strings index) ";\n"
+     (if (not (nil? try-files))
+         (and/l (config-index-strings try-files) "      try_files " <> ";\n")
+         "")
+     "      server_tokens " (if server-tokens? "on" "off") ";\n"
+     "\n"
+     (map emit-nginx-location-config locations)
+     "\n"
+     (map (lambda (x) (list "      " x "\n")) raw-content)
+     "    }\n")))
 
-(define (nginx-upstream-config upstream)
-  (string-append
+(define (emit-nginx-upstream-config upstream)
+  (list
    "    upstream " (nginx-upstream-configuration-name upstream) " {\n"
-   (string-concatenate
-    (map (lambda (server)
-           (simple-format #f "      server ~A;\n" server))
-         (nginx-upstream-configuration-servers upstream)))
+   (map (lambda (server)
+          (simple-format #f "      server ~A;\n" server))
+        (nginx-upstream-configuration-servers upstream))
    "    }\n"))
 
-(define (default-nginx-config nginx log-directory run-directory server-list upstream-list)
-  (mixed-text-file "nginx.conf"
-               "user nginx nginx;\n"
-               "pid " run-directory "/pid;\n"
-               "error_log " log-directory "/error.log info;\n"
-               "http {\n"
-               "    client_body_temp_path " run-directory "/client_body_temp;\n"
-               "    proxy_temp_path " run-directory "/proxy_temp;\n"
-               "    fastcgi_temp_path " run-directory "/fastcgi_temp;\n"
-               "    uwsgi_temp_path " run-directory "/uwsgi_temp;\n"
-               "    scgi_temp_path " run-directory "/scgi_temp;\n"
-               "    access_log " log-directory "/access.log;\n"
-               "    include " nginx "/share/nginx/conf/mime.types;\n"
-               "\n"
-               (string-join
-                (filter (lambda (section) (not (null? section)))
-                        (map nginx-upstream-config upstream-list))
-                "\n")
-               "\n"
-               (let ((http (map default-nginx-server-config server-list)))
-                 (do ((http http (cdr http))
-                      (block "" (string-append (car http) "\n" block )))
-                     ((null? http) block)))
-               "}\n"
-               "events {}\n"))
+(define (flatten . lst)
+  "Return a list that recursively concatenates all sub-lists of LST."
+  (define (flatten1 head out)
+    (if (list? head)
+        (fold-right flatten1 out head)
+        (cons head out)))
+  (fold-right flatten1 '() lst))
+
+(define (default-nginx-config config)
+  (match-record config
+                <nginx-configuration>
+                (nginx log-directory run-directory
+                 server-blocks upstream-blocks
+                 server-names-hash-bucket-size
+                 server-names-hash-bucket-max-size)
+   (apply mixed-text-file "nginx.conf"
+          (flatten
+           "user nginx nginx;\n"
+           "pid " run-directory "/pid;\n"
+           "error_log " log-directory "/error.log info;\n"
+           "http {\n"
+           "    client_body_temp_path " run-directory "/client_body_temp;\n"
+           "    proxy_temp_path " run-directory "/proxy_temp;\n"
+           "    fastcgi_temp_path " run-directory "/fastcgi_temp;\n"
+           "    uwsgi_temp_path " run-directory "/uwsgi_temp;\n"
+           "    scgi_temp_path " run-directory "/scgi_temp;\n"
+           "    access_log " log-directory "/access.log;\n"
+           "    include " nginx "/share/nginx/conf/mime.types;\n"
+           (if server-names-hash-bucket-size
+               (string-append
+                "    server_names_hash_bucket_size "
+                (number->string server-names-hash-bucket-size)
+                ";\n")
+               "")
+           (if server-names-hash-bucket-max-size
+               (string-append
+                "    server_names_hash_bucket_max_size "
+                (number->string server-names-hash-bucket-max-size)
+                ";\n")
+               "")
+           "\n"
+           (map emit-nginx-upstream-config upstream-blocks)
+           (map emit-nginx-server-config server-blocks)
+           "}\n"
+           "events {}\n"))))
 
 (define %nginx-accounts
   (list (user-group (name "nginx") (system? #t))
@@ -220,55 +555,53 @@ of index files."
          (home-directory "/var/empty")
          (shell (file-append shadow "/sbin/nologin")))))
 
-(define nginx-activation
-  (match-lambda
-    (($ <nginx-configuration> nginx log-directory run-directory server-blocks
-                              upstream-blocks config-file)
-     #~(begin
-         (use-modules (guix build utils))
+(define (nginx-activation config)
+  (match-record config
+                <nginx-configuration>
+                (nginx log-directory run-directory file)
+   #~(begin
+       (use-modules (guix build utils))
 
-         (format #t "creating nginx log directory '~a'~%" #$log-directory)
-         (mkdir-p #$log-directory)
-         (format #t "creating nginx run directory '~a'~%" #$run-directory)
-         (mkdir-p #$run-directory)
-         (format #t "creating nginx temp directories '~a/{client_body,proxy,fastcgi,uwsgi,scgi}_temp'~%" #$run-directory)
-         (mkdir-p (string-append #$run-directory "/client_body_temp"))
-         (mkdir-p (string-append #$run-directory "/proxy_temp"))
-         (mkdir-p (string-append #$run-directory "/fastcgi_temp"))
-         (mkdir-p (string-append #$run-directory "/uwsgi_temp"))
-         (mkdir-p (string-append #$run-directory "/scgi_temp"))
-         ;; Start-up logs. Once configuration is loaded, nginx switches to
-         ;; log-directory.
-         (mkdir-p (string-append #$run-directory "/logs"))
-         ;; Check configuration file syntax.
-         (system* (string-append #$nginx "/sbin/nginx")
-                  "-c" #$(or config-file
-                             (default-nginx-config nginx log-directory
-                               run-directory server-blocks upstream-blocks))
-                  "-t")))))
+       (format #t "creating nginx log directory '~a'~%" #$log-directory)
+       (mkdir-p #$log-directory)
+       (format #t "creating nginx run directory '~a'~%" #$run-directory)
+       (mkdir-p #$run-directory)
+       (format #t "creating nginx temp directories '~a/{client_body,proxy,fastcgi,uwsgi,scgi}_temp'~%" #$run-directory)
+       (mkdir-p (string-append #$run-directory "/client_body_temp"))
+       (mkdir-p (string-append #$run-directory "/proxy_temp"))
+       (mkdir-p (string-append #$run-directory "/fastcgi_temp"))
+       (mkdir-p (string-append #$run-directory "/uwsgi_temp"))
+       (mkdir-p (string-append #$run-directory "/scgi_temp"))
+       ;; Start-up logs. Once configuration is loaded, nginx switches to
+       ;; log-directory.
+       (mkdir-p (string-append #$run-directory "/logs"))
+       ;; Check configuration file syntax.
+       (system* (string-append #$nginx "/sbin/nginx")
+                "-c" #$(or file
+                           (default-nginx-config config))
+                  "-t"))))
 
-(define nginx-shepherd-service
-  (match-lambda
-    (($ <nginx-configuration> nginx log-directory run-directory server-blocks
-                              upstream-blocks config-file)
-     (let* ((nginx-binary (file-append nginx "/sbin/nginx"))
-            (nginx-action
-             (lambda args
-               #~(lambda _
-                   (zero?
-                    (system* #$nginx-binary "-c"
-                             #$(or config-file
-                                   (default-nginx-config nginx log-directory
-                                     run-directory server-blocks upstream-blocks))
-                             #$@args))))))
+(define (nginx-shepherd-service config)
+  (match-record config
+                <nginx-configuration>
+                (nginx file run-directory)
+   (let* ((nginx-binary (file-append nginx "/sbin/nginx"))
+          (nginx-action
+           (lambda args
+             #~(lambda _
+                 (zero?
+                  (system* #$nginx-binary "-c"
+                           #$(or file
+                                 (default-nginx-config config))
+                           #$@args))))))
 
-       ;; TODO: Add 'reload' action.
-       (list (shepherd-service
-              (provision '(nginx))
-              (documentation "Run the nginx daemon.")
-              (requirement '(user-processes loopback))
-              (start (nginx-action "-p" run-directory))
-              (stop (nginx-action "-s" "stop"))))))))
+     ;; TODO: Add 'reload' action.
+     (list (shepherd-service
+            (provision '(nginx))
+            (documentation "Run the nginx daemon.")
+            (requirement '(user-processes loopback))
+            (start (nginx-action "-p" run-directory))
+            (stop (nginx-action "-s" "stop")))))))
 
 (define nginx-service-type
   (service-type (name 'nginx)
@@ -285,23 +618,278 @@ of index files."
                             (inherit config)
                             (server-blocks
                               (append (nginx-configuration-server-blocks config)
-                              servers)))))))
+                              servers)))))
+                (default-value
+                  (nginx-configuration))))
 
-(define* (nginx-service #:key (nginx nginx)
-                        (log-directory "/var/log/nginx")
-                        (run-directory "/var/run/nginx")
-                        (server-list '())
-                        (upstream-list '())
-                        (config-file #f))
-  "Return a service that runs NGINX, the nginx web server.
+(define-record-type* <fcgiwrap-configuration> fcgiwrap-configuration
+  make-fcgiwrap-configuration
+  fcgiwrap-configuration?
+  (package       fcgiwrap-configuration-package ;<package>
+                 (default fcgiwrap))
+  (socket        fcgiwrap-configuration-socket
+                 (default "tcp:127.0.0.1:9000"))
+  (user          fcgiwrap-configuration-user
+                 (default "fcgiwrap"))
+  (group         fcgiwrap-configuration-group
+                 (default "fcgiwrap")))
 
-The nginx daemon loads its runtime configuration from CONFIG-FILE, stores log
-files in LOG-DIRECTORY, and stores temporary runtime files in RUN-DIRECTORY."
-  (service nginx-service-type
-           (nginx-configuration
-            (nginx nginx)
-            (log-directory log-directory)
-            (run-directory run-directory)
-            (server-blocks server-list)
-            (upstream-blocks upstream-list)
-            (file config-file))))
+(define fcgiwrap-accounts
+  (match-lambda
+    (($ <fcgiwrap-configuration> package socket user group)
+     (filter identity
+             (list
+              (and (equal? group "fcgiwrap")
+                   (user-group
+                    (name "fcgiwrap")
+                    (system? #t)))
+              (and (equal? user "fcgiwrap")
+                   (user-account
+                    (name "fcgiwrap")
+                    (group group)
+                    (system? #t)
+                    (comment "Fcgiwrap Daemon")
+                    (home-directory "/var/empty")
+                    (shell (file-append shadow "/sbin/nologin")))))))))
+
+(define fcgiwrap-shepherd-service
+  (match-lambda
+    (($ <fcgiwrap-configuration> package socket user group)
+     (list (shepherd-service
+            (provision '(fcgiwrap))
+            (documentation "Run the fcgiwrap daemon.")
+            (requirement '(networking))
+            (start #~(make-forkexec-constructor
+                      '(#$(file-append package "/sbin/fcgiwrap")
+			  "-s" #$socket)
+		      #:user #$user #:group #$group))
+            (stop #~(make-kill-destructor)))))))
+
+(define fcgiwrap-service-type
+  (service-type (name 'fcgiwrap)
+                (extensions
+                 (list (service-extension shepherd-root-service-type
+                                          fcgiwrap-shepherd-service)
+		       (service-extension account-service-type
+                                          fcgiwrap-accounts)))
+                (default-value (fcgiwrap-configuration))))
+
+(define-record-type* <php-fpm-configuration> php-fpm-configuration
+  make-php-fpm-configuration
+  php-fpm-configuration?
+  (php              php-fpm-configuration-php ;<package>
+                    (default php))
+  (socket           php-fpm-configuration-socket
+                    (default (string-append "/var/run/php"
+                                            (version-major (package-version php))
+                                            "-fpm.sock")))
+  (user             php-fpm-configuration-user
+                    (default "php-fpm"))
+  (group            php-fpm-configuration-group
+                    (default "php-fpm"))
+  (socket-user      php-fpm-configuration-socket-user
+                    (default "php-fpm"))
+  (socket-group     php-fpm-configuration-socket-group
+                    (default "nginx"))
+  (pid-file         php-fpm-configuration-pid-file
+                    (default (string-append "/var/run/php"
+                                            (version-major (package-version php))
+                                            "-fpm.pid")))
+  (log-file         php-fpm-configuration-log-file
+                    (default (string-append "/var/log/php"
+                                            (version-major (package-version php))
+                                            "-fpm.log")))
+  (process-manager  php-fpm-configuration-process-manager
+                    (default (php-fpm-dynamic-process-manager-configuration)))
+  (display-errors   php-fpm-configuration-display-errors
+                    (default #f))
+  (workers-log-file php-fpm-configuration-workers-log-file
+                    (default (string-append "/var/log/php"
+                                            (version-major (package-version php))
+                                            "-fpm.www.log")))
+  (file             php-fpm-configuration-file ;#f | file-like
+                    (default #f)))
+
+(define-record-type* <php-fpm-dynamic-process-manager-configuration>
+  php-fpm-dynamic-process-manager-configuration
+  make-php-fpm-dynamic-process-manager-configuration
+  php-fpm-dynamic-process-manager-configuration?
+  (max-children         php-fpm-dynamic-process-manager-configuration-max-children
+                        (default 5))
+  (start-servers        php-fpm-dynamic-process-manager-configuration-start-servers
+                        (default 2))
+  (min-spare-servers    php-fpm-dynamic-process-manager-configuration-min-spare-servers
+                        (default 1))
+  (max-spare-servers    php-fpm-dynamic-process-manager-configuration-max-spare-servers
+                        (default 3)))
+
+(define-record-type* <php-fpm-static-process-manager-configuration>
+  php-fpm-static-process-manager-configuration
+  make-php-fpm-static-process-manager-configuration
+  php-fpm-static-process-manager-configuration?
+  (max-children         php-fpm-static-process-manager-configuration-max-children
+                        (default 5)))
+
+(define-record-type* <php-fpm-on-demand-process-manager-configuration>
+  php-fpm-on-demand-process-manager-configuration
+  make-php-fpm-on-demand-process-manager-configuration
+  php-fpm-on-demand-process-manager-configuration?
+  (max-children         php-fpm-on-demand-process-manager-configuration-max-children
+                        (default 5))
+  (process-idle-timeout php-fpm-on-demand-process-manager-configuration-process-idle-timeout
+                        (default 10)))
+
+(define php-fpm-accounts
+  (match-lambda
+    (($ <php-fpm-configuration> php socket user group socket-user socket-group _ _ _ _ _ _)
+     (list
+      (user-group (name "php-fpm") (system? #t))
+      (user-group
+       (name group)
+       (system? #t))
+      (user-account
+       (name user)
+       (group group)
+       (supplementary-groups '("php-fpm"))
+       (system? #t)
+       (comment "php-fpm daemon user")
+       (home-directory "/var/empty")
+       (shell (file-append shadow "/sbin/nologin")))))))
+
+(define (default-php-fpm-config socket user group socket-user socket-group
+          pid-file log-file pm display-errors workers-log-file)
+  (apply mixed-text-file "php-fpm.conf"
+         (flatten
+          "[global]\n"
+          "pid =" pid-file "\n"
+          "error_log =" log-file "\n"
+          "[www]\n"
+          "user =" user "\n"
+          "group =" group "\n"
+          "listen =" socket "\n"
+          "listen.owner =" socket-user "\n"
+          "listen.group =" socket-group "\n"
+
+          (match pm
+            (($ <php-fpm-dynamic-process-manager-configuration>
+                pm.max-children
+                pm.start-servers
+                pm.min-spare-servers
+                pm.max-spare-servers)
+             (list
+              "pm = dynamic\n"
+              "pm.max_children =" (number->string pm.max-children) "\n"
+              "pm.start_servers =" (number->string pm.start-servers) "\n"
+              "pm.min_spare_servers =" (number->string pm.min-spare-servers) "\n"
+              "pm.max_spare_servers =" (number->string pm.max-spare-servers) "\n"))
+
+            (($ <php-fpm-static-process-manager-configuration>
+                pm.max-children)
+             (list
+              "pm = static\n"
+              "pm.max_children =" (number->string pm.max-children) "\n"))
+
+            (($ <php-fpm-on-demand-process-manager-configuration>
+                pm.max-children
+                pm.process-idle-timeout)
+             (list
+              "pm = ondemand\n"
+              "pm.max_children =" (number->string pm.max-children) "\n"
+              "pm.process_idle_timeout =" (number->string pm.process-idle-timeout) "s\n")))
+
+
+          "php_flag[display_errors] = " (if display-errors "on" "off") "\n"
+
+          (if workers-log-file
+              (list "catch_workers_output = yes\n"
+                    "php_admin_value[error_log] =" workers-log-file "\n"
+                    "php_admin_flag[log_errors] = on\n")
+              (list "catch_workers_output = no\n")))))
+
+(define php-fpm-shepherd-service
+  (match-lambda
+    (($ <php-fpm-configuration> php socket user group socket-user socket-group
+                                pid-file log-file pm display-errors workers-log-file file)
+     (list (shepherd-service
+            (provision '(php-fpm))
+            (documentation "Run the php-fpm daemon.")
+            (requirement '(networking))
+            (start #~(make-forkexec-constructor
+                      '(#$(file-append php "/sbin/php-fpm")
+                        "--fpm-config"
+                        #$(or file
+                              (default-php-fpm-config socket user group
+                                socket-user socket-group pid-file log-file
+                                pm display-errors workers-log-file)))
+                      #:pid-file #$pid-file))
+            (stop #~(make-kill-destructor)))))))
+
+(define php-fpm-activation
+  (match-lambda
+    (($ <php-fpm-configuration> _ _ user _ _ _ _ log-file _ _ workers-log-file _)
+     #~(begin
+         (use-modules (guix build utils))
+         (let* ((user (getpwnam #$user))
+                (touch (lambda (file-name)
+                         (call-with-output-file file-name (const #t))))
+                (init-log-file
+                 (lambda (file-name)
+                   (when #$workers-log-file
+                     (when (not (file-exists? file-name))
+                       (touch file-name))
+                     (chown file-name (passwd:uid user) (passwd:gid user))
+                     (chmod file-name #o660)))))
+           (init-log-file #$log-file)
+           (init-log-file #$workers-log-file))))))
+
+
+(define php-fpm-service-type
+  (service-type
+   (name 'php-fpm)
+   (description
+    "Run @command{php-fpm} to provide a fastcgi socket for calling php through
+a webserver.")
+   (extensions
+    (list (service-extension shepherd-root-service-type
+                             php-fpm-shepherd-service)
+          (service-extension activation-service-type
+                             php-fpm-activation)
+          (service-extension account-service-type
+                             php-fpm-accounts)))
+   (default-value (php-fpm-configuration))))
+
+(define* (nginx-php-location
+          #:key
+          (nginx-package nginx)
+          (socket (string-append "/var/run/php"
+                                 (version-major (package-version php))
+                                 "-fpm.sock")))
+  "Return a nginx-location-configuration that makes nginx run .php files."
+  (nginx-location-configuration
+   (uri "~ \\.php$")
+   (body (list
+          "fastcgi_split_path_info ^(.+\\.php)(/.+)$;"
+          (string-append "fastcgi_pass unix:" socket ";")
+          "fastcgi_index index.php;"
+          (list "include " nginx-package "/share/nginx/conf/fastcgi.conf;")))))
+
+(define* (cat-avatar-generator-service
+          #:key
+          (cache-dir "/var/cache/cat-avatar-generator")
+          (package cat-avatar-generator)
+          (configuration (nginx-server-configuration)))
+  (simple-service
+    'cat-http-server nginx-service-type
+    (list (nginx-server-configuration
+            (inherit configuration)
+            (locations
+              (cons
+                (let ((base (nginx-php-location)))
+                  (nginx-location-configuration
+                    (inherit base)
+                    (body (list (string-append "fastcgi_param CACHE_DIR \""
+                                               cache-dir "\";")
+                                (nginx-location-configuration-body base)))))
+                (nginx-server-configuration-locations configuration)))
+            (root #~(string-append #$package
+                                   "/share/web/cat-avatar-generator"))))))

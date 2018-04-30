@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -32,12 +32,15 @@
   #:use-module (gnu packages imagemagick)
   #:use-module (gnu packages ocr)
   #:use-module (gnu packages package-management)
+  #:use-module (gnu packages linux)
+  #:use-module (gnu packages tmux)
   #:use-module (guix gexp)
   #:use-module (guix store)
   #:use-module (guix packages)
   #:use-module (srfi srfi-1)
   #:export (run-basic-test
             %test-basic-os
+            %test-halt
             %test-mcron
             %test-nss-mdns))
 
@@ -247,19 +250,8 @@ info --version")
 
               ;; It can take a while before the shell commands are executed.
               (marionette-eval '(use-modules (rnrs io ports)) marionette)
-              (marionette-eval
-               '(let loop ((i 0))
-                  (catch 'system-error
-                    (lambda ()
-                      (call-with-input-file "/root/logged-in"
-                        get-string-all))
-                    (lambda args
-                      (if (and (< i 15) (= ENOENT (system-error-errno args)))
-                          (begin
-                            (sleep 1)
-                            (loop (+ i 1)))
-                          (apply throw args)))))
-               marionette)))
+              (wait-for-file "/root/logged-in" marionette
+                             #:read 'get-string-all)))
 
           ;; There should be one utmpx entry for the user logged in on tty1.
           (test-equal "utmpx entry"
@@ -331,11 +323,6 @@ info --version")
             'success!
             (marionette-eval '(begin
                                 ;; Make sure the (guix …) modules are found.
-                                ;;
-                                ;; XXX: Currently shepherd and marionette run
-                                ;; on Guile 2.0 whereas Guix is on 2.2.  Yet
-                                ;; we should be able to load the 2.0 Scheme
-                                ;; files since it's pure Scheme.
                                 (add-to-load-path
                                  #+(file-append guix "/share/guile/site/2.2"))
 
@@ -405,17 +392,98 @@ functionality tests.")
 
 
 ;;;
+;;; Halt.
+;;;
+
+(define (run-halt-test vm)
+  ;; As reported in <http://bugs.gnu.org/26931>, running tmux would previously
+  ;; lead the 'stop' method of 'user-processes' to an infinite loop, with the
+  ;; tmux server process as a zombie that remains in the list of processes.
+  ;; This test reproduces this scenario.
+  (define test
+    (with-imported-modules '((gnu build marionette))
+      #~(begin
+          (use-modules (gnu build marionette))
+
+          (define marionette
+            (make-marionette '(#$vm)))
+
+          (define ocrad
+            #$(file-append ocrad "/bin/ocrad"))
+
+          ;; Wait for tty1 and log in.
+          (marionette-eval '(begin
+                              (use-modules (gnu services herd))
+                              (start-service 'term-tty1))
+                           marionette)
+          (marionette-type "root\n" marionette)
+          (wait-for-screen-text marionette
+                                (lambda (text)
+                                  (string-contains text "root@komputilo"))
+                                #:ocrad ocrad)
+
+          ;; Start tmux and wait for it to be ready.
+          (marionette-type "tmux new-session 'echo 1 > /ready; bash'\n"
+                           marionette)
+          (wait-for-file "/ready" marionette)
+
+          ;; Make sure to stop the test after a while.
+          (sigaction SIGALRM (lambda _
+                               (format (current-error-port)
+                                       "FAIL: Time is up, but VM still running.\n")
+                               (primitive-exit 1)))
+          (alarm 10)
+
+          ;; Get debugging info.
+          (marionette-eval '(current-output-port
+                             (open-file "/dev/console" "w0"))
+                           marionette)
+          (marionette-eval '(system* #$(file-append procps "/bin/ps")
+                                     "-eo" "pid,ppid,stat,comm")
+                           marionette)
+
+          ;; See if 'halt' actually works.
+          (marionette-eval '(system* "/run/current-system/profile/sbin/halt")
+                           marionette)
+
+          ;; If we reach this line, that means the VM was properly stopped in
+          ;; a timely fashion.
+          (alarm 0)
+          (call-with-output-file #$output
+            (lambda (port)
+              (display "success!" port))))))
+
+  (gexp->derivation "halt" test))
+
+(define %test-halt
+  (system-test
+   (name "halt")
+   (description
+    "Use the 'halt' command and make sure it succeeds and does not get stuck
+in a loop.  See <http://bugs.gnu.org/26931>.")
+   (value
+    (let ((os (marionette-operating-system
+               (operating-system
+                 (inherit %simple-os)
+                 (packages (cons tmux %base-packages)))
+               #:imported-modules '((gnu services herd)
+                                    (guix combinators)))))
+      (run-halt-test (virtual-machine os))))))
+
+
+;;;
 ;;; Mcron.
 ;;;
 
 (define %mcron-os
   ;; System with an mcron service, with one mcron job for "root" and one mcron
-  ;; job for an unprivileged user (note: #:user is an 'mcron2' thing.)
-  (let ((job1 #~(job next-second-from
+  ;; job for an unprivileged user.
+  (let ((job1 #~(job '(next-second '(0 5 10 15 20 25 30 35 40 45 50 55))
                      (lambda ()
-                       (call-with-output-file "witness"
-                         (lambda (port)
-                           (display (list (getuid) (getgid)) port))))))
+                       (unless (file-exists? "witness")
+                        (call-with-output-file "witness"
+                          (lambda (port)
+                            (display (list (getuid) (getgid)) port)))))))
         (job2 #~(job next-second-from
                      (lambda ()
                        (call-with-output-file "witness"
@@ -472,11 +540,11 @@ functionality tests.")
                (>= gid 100))))
 
           ;; Last, the job that uses a command; allows us to test whether
-          ;; $PATH is sane.  (Note that 'marionette-eval' stringifies objects
-          ;; that don't have a read syntax, hence the string.)
+          ;; $PATH is sane.
           (test-equal "root's job with command"
-            "#<eof>"
-            (wait-for-file "/root/witness-touch" marionette))
+            ""
+            (wait-for-file "/root/witness-touch" marionette
+                           #:read '(@ (ice-9 rdelim) read-string)))
 
           (test-end)
           (exit (= (test-runner-fail-count (test-runner-current)) 0)))))

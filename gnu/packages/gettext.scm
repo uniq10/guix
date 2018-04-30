@@ -5,6 +5,8 @@
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -45,7 +47,19 @@
                                  version ".tar.gz"))
              (sha256
               (base32
-               "0hsw28f9q9xaggjlsdp2qmbp2rbd1mp0njzan2ld9kiqwkq2m57z"))))
+               "0hsw28f9q9xaggjlsdp2qmbp2rbd1mp0njzan2ld9kiqwkq2m57z"))
+             (modules '((guix build utils)))
+             (snippet
+              '(begin
+                ;; The gnulib test-lock test is prone to writer starvation
+                ;; with our glibc@2.25, which prefers readers, so disable it.
+                ;; The gnulib commit b20e8afb0b2 should fix this once
+                ;; incorporated here.
+                 (substitute* "gettext-runtime/tests/Makefile.in"
+                   (("TESTS = test-lock\\$\\(EXEEXT\\)") "TESTS ="))
+                 (substitute* "gettext-tools/gnulib-tests/Makefile.in"
+                  (("test-lock\\$\\(EXEEXT\\) ") ""))
+                 #t))))
     (build-system gnu-build-system)
     (outputs '("out"
                "doc"))                            ;8 MiB of HTML
@@ -137,6 +151,13 @@ translated messages from the catalogs.  Nearly all GNU packages use Gettext.")
     (arguments
      `(#:phases
        (modify-phases %standard-phases
+         (add-before 'configure 'set-search-path
+           (lambda _
+             ;; Work around "dotless @INC" build failure.
+             (setenv "PERL5LIB"
+                     (string-append (getcwd) ":"
+                                    (getenv "PERL5LIB")))
+             #t))
          ;; FIXME: One test fails as we don't have SGMLS.pm
          (add-before 'check 'disable-sgml-test
           (lambda _
@@ -177,7 +198,7 @@ translated messages from the catalogs.  Nearly all GNU packages use Gettext.")
        ("texlive" ,texlive-tiny) ;for tests
        ("libxml2" ,libxml2)
        ("xsltproc" ,libxslt)))
-    (home-page "http://po4a.alioth.debian.org/")
+    (home-page "https://po4a.org/")
     (synopsis "Scripts to ease maintenance of translations")
     (description
      "The po4a (PO for anything) project goal is to ease translations (and

@@ -1,9 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Christopher Allan Webber <cwebber@dustycloud.org>
-;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Chris Marusich <cmmarusich@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -26,7 +27,7 @@
   #:use-module (guix build syscalls)
   #:use-module (gnu build linux-boot)
   #:use-module (gnu build install)
-  #:use-module (gnu build file-systems)
+  #:use-module (gnu system uuid)
   #:use-module (guix records)
   #:use-module ((guix combinators) #:select (fold2))
   #:use-module (ice-9 format)
@@ -78,6 +79,7 @@
                            linux initrd
                            make-disk-image?
                            single-file-output?
+                           target-arm32?
                            (disk-image-size (* 100 (expt 2 20)))
                            (disk-image-format "qcow2")
                            (references-graphs '()))
@@ -92,16 +94,40 @@ access it via /dev/hda.
 
 REFERENCES-GRAPHS can specify a list of reference-graph files as produced by
 the #:references-graphs parameter of 'derivation'."
+
+  (define arch-specific-flags
+    `(;; On ARM, a machine has to be specified. Use "virt" machine to avoid
+      ;; hardware limits imposed by other machines.
+      ,@(if target-arm32? '("-M" "virt") '())
+
+      ;; Only enable kvm if we see /dev/kvm exists.  This allows users without
+      ;; hardware virtualization to still use these commands.  KVM support is
+      ;; still buggy on some ARM32 boards. Do not use it even if available.
+      ,@(if (and (file-exists? "/dev/kvm")
+                 (not target-arm32?))
+            '("-enable-kvm")
+            '())
+      "-append"
+      ;; The serial port name differs between emulated architectures/machines.
+      ,@(if target-arm32?
+            `(,(string-append "console=ttyAMA0 --load=" builder))
+            `(,(string-append "console=ttyS0 --load=" builder)))
+      ;; NIC is not supported on ARM "virt" machine, so use a user mode
+      ;; network stack instead.
+      ,@(if target-arm32?
+            '("-device" "virtio-net-pci,netdev=mynet"
+              "-netdev" "user,id=mynet")
+            '("-net" "nic,model=virtio"))))
+
   (when make-disk-image?
     (format #t "creating ~a image of ~,2f MiB...~%"
             disk-image-format (/ disk-image-size (expt 2 20)))
     (force-output)
-    (unless (zero? (system* "qemu-img" "create" "-f" disk-image-format
-                            output
-                            (number->string disk-image-size)))
-      (error "qemu-img failed")))
+    (invoke "qemu-img" "create" "-f" disk-image-format output
+             (number->string disk-image-size)))
 
   (mkdir "xchg")
+  (mkdir "tmp")
 
   (match references-graphs
     ((graph-files ...)
@@ -111,33 +137,33 @@ the #:references-graphs parameter of 'derivation'."
           graph-files))
     (_ #f))
 
-  (unless (zero?
-           (apply system* qemu "-nographic" "-no-reboot"
-                  "-m" (number->string memory-size)
-                  "-net" "nic,model=virtio"
-                  "-virtfs"
-                  (string-append "local,id=store_dev,path="
-                                 (%store-directory)
-                                 ",security_model=none,mount_tag=store")
-                  "-virtfs"
-                  (string-append "local,id=xchg_dev,path=xchg"
-                                 ",security_model=none,mount_tag=xchg")
-                  "-kernel" linux
-                  "-initrd" initrd
-                  "-append" (string-append "console=ttyS0 --load="
-                                           builder)
-                  (append
-                   (if make-disk-image?
-                       `("-drive" ,(string-append "file=" output
-                                                  ",if=virtio"))
-                       '())
-                   ;; Only enable kvm if we see /dev/kvm exists.
-                   ;; This allows users without hardware virtualization to still
-                   ;; use these commands.
-                   (if (file-exists? "/dev/kvm")
-                       '("-enable-kvm")
-                       '()))))
-    (error "qemu failed" qemu))
+  (apply invoke qemu "-nographic" "-no-reboot"
+         "-m" (number->string memory-size)
+         "-object" "rng-random,filename=/dev/urandom,id=guixsd-vm-rng"
+         "-device" "virtio-rng-pci,rng=guixsd-vm-rng"
+         "-virtfs"
+         (string-append "local,id=store_dev,path="
+                        (%store-directory)
+                        ",security_model=none,mount_tag=store")
+         "-virtfs"
+         (string-append "local,id=xchg_dev,path=xchg"
+                        ",security_model=none,mount_tag=xchg")
+         "-virtfs"
+         ;; Some programs require more space in /tmp than is normally
+         ;; available in the guest.  Accommodate such programs by sharing a
+         ;; temporary directory.
+         (string-append "local,id=tmp_dev,path=tmp"
+                        ",security_model=none,mount_tag=tmp")
+         "-kernel" linux
+         "-initrd" initrd
+         (append
+          (if make-disk-image?
+              `("-device" "virtio-blk,drive=myhd"
+                "-drive" ,(string-append "if=none,file=" output
+                                         ",format=" disk-image-format
+                                         ",id=myhd"))
+              '())
+          arch-specific-flags))
 
   ;; When MAKE-DISK-IMAGE? is true, the image is in OUTPUT already.
   (unless make-disk-image?
@@ -164,6 +190,7 @@ the #:references-graphs parameter of 'derivation'."
   (size        partition-size)
   (file-system partition-file-system (default "ext4"))
   (label       partition-label (default #f))
+  (uuid        partition-uuid (default #f))
   (flags       partition-flags (default '()))
   (initializer partition-initializer (default (const #t))))
 
@@ -216,10 +243,9 @@ actual /dev name based on DEVICE."
                                      partition-size)
                             partitions)
                        ", "))
-  (unless (zero? (apply system* "parted" "--script"
-                        device "mklabel" label-type
-                        (options partitions offset)))
-    (error "failed to create partition table"))
+  (apply invoke "parted" "--script"
+         device "mklabel" label-type
+         (options partitions offset))
 
   ;; Set the 'device' field of each partition.
   (reverse
@@ -237,37 +263,37 @@ actual /dev name based on DEVICE."
 (define MS_BIND 4096)                             ; <sys/mounts.h> again!
 
 (define* (create-ext-file-system partition type
-                                 #:key label)
-  "Create an ext-family filesystem of TYPE on PARTITION.  If LABEL is true,
-use that as the volume name."
+                                 #:key label uuid)
+  "Create an ext-family file system of TYPE on PARTITION.  If LABEL is true,
+use that as the volume name.  If UUID is true, use it as the partition UUID."
   (format #t "creating ~a partition...\n" type)
-  (unless (zero? (apply system* (string-append "mkfs." type)
-                        "-F" partition
-                        (if label
-                            `("-L" ,label)
-                            '())))
-    (error "failed to create partition")))
+  (apply invoke (string-append "mkfs." type)
+         "-F" partition
+         `(,@(if label
+                 `("-L" ,label)
+                 '())
+           ,@(if uuid
+                 `("-U" ,(uuid->string uuid))
+                 '()))))
 
 (define* (create-fat-file-system partition
-                                 #:key label)
-  "Create a FAT filesystem on PARTITION.  The number of File Allocation Tables
-will be determined based on filesystem size.  If LABEL is true, use that as the
+                                 #:key label uuid)
+  "Create a FAT file system on PARTITION.  The number of File Allocation Tables
+will be determined based on file system size.  If LABEL is true, use that as the
 volume name."
+  ;; FIXME: UUID is ignored!
   (format #t "creating FAT partition...\n")
-  (unless (zero? (apply system* "mkfs.fat" partition
-                        (if label
-                            `("-n" ,label)
-                            '())))
-    (error "failed to create FAT partition")))
+  (apply invoke "mkfs.fat" partition
+         (if label `("-n" ,label) '())))
 
 (define* (format-partition partition type
-                           #:key label)
+                           #:key label uuid)
   "Create a file system TYPE on PARTITION.  If LABEL is true, use that as the
 volume name."
   (cond ((string-prefix? "ext" type)
-         (create-ext-file-system partition type #:label label))
+         (create-ext-file-system partition type #:label label #:uuid uuid))
         ((or (string-prefix? "fat" type) (string= "vfat" type))
-         (create-fat-file-system partition #:label label))
+         (create-fat-file-system partition #:label label #:uuid uuid))
         (else (error "Unsupported file system."))))
 
 (define (initialize-partition partition)
@@ -276,7 +302,8 @@ it, run its initializer, and unmount it."
   (let ((target "/fs"))
    (format-partition (partition-device partition)
                      (partition-file-system partition)
-                     #:label (partition-label partition))
+                     #:label (partition-label partition)
+                     #:uuid (partition-uuid partition))
    (mkdir-p target)
    (mount (partition-device partition) target
           (partition-file-system partition))
@@ -289,11 +316,14 @@ it, run its initializer, and unmount it."
 (define* (root-partition-initializer #:key (closures '())
                                      copy-closures?
                                      (register-closures? #t)
-                                     system-directory)
+                                     system-directory
+                                     (deduplicate? #t))
   "Return a procedure to initialize a root partition.
 
-If REGISTER-CLOSURES? is true, register all of CLOSURES is the partition's
-store.  If COPY-CLOSURES? is true, copy all of CLOSURES to the partition.
+If REGISTER-CLOSURES? is true, register all of CLOSURES in the partition's
+store.  If DEDUPLICATE? is true, then also deduplicate files common to
+CLOSURES and the rest of the store when registering the closures.  If
+COPY-CLOSURES? is true, copy all of CLOSURES to the partition.
 SYSTEM-DIRECTORY is the name of the directory of the 'system' derivation."
   (lambda (target)
     (define target-store
@@ -318,7 +348,8 @@ SYSTEM-DIRECTORY is the name of the directory of the 'system' derivation."
       (display "registering closures...\n")
       (for-each (lambda (closure)
                   (register-closure target
-                                    (string-append "/xchg/" closure)))
+                                    (string-append "/xchg/" closure)
+                                    #:deduplicate? deduplicate?))
                 closures)
       (unless copy-closures?
         (umount target-store)))
@@ -359,40 +390,45 @@ SYSTEM-DIRECTORY is the name of the directory of the 'system' derivation."
     (setenv "TMPDIR" esp)
 
     (mkdir-p efi-directory)
-    (unless (zero? (system* grub-mkstandalone "-O" (car efi-targets)
-                            "-o" (string-append efi-directory "/"
-                                                (cdr efi-targets))
-                            ;; Graft the configuration file onto the image.
-                            (string-append "boot/grub/grub.cfg=" config-file)))
-      (error "failed to create GRUB EFI image"))))
+    (invoke grub-mkstandalone "-O" (car efi-targets)
+            "-o" (string-append efi-directory "/"
+                                (cdr efi-targets))
+            ;; Graft the configuration file onto the image.
+            (string-append "boot/grub/grub.cfg=" config-file))))
 
 (define* (make-iso9660-image grub config-file os-drv target
-                             #:key (volume-id "GuixSD_image") (volume-uuid #f))
+                             #:key (volume-id "GuixSD_image") (volume-uuid #f)
+                             register-closures? (closures '()))
   "Given a GRUB package, creates an iso image as TARGET, using CONFIG-FILE as
 GRUB configuration and OS-DRV as the stuff in it."
-  (let ((grub-mkrescue (string-append grub "/bin/grub-mkrescue")))
-    (mkdir-p "/tmp/root/var/run")
-    (mkdir-p "/tmp/root/run")
-    (unless (zero? (apply system*
-                          `(,grub-mkrescue "-o" ,target
+  (let ((grub-mkrescue (string-append grub "/bin/grub-mkrescue"))
+        (target-store  (string-append "/tmp/root" (%store-directory))))
+    (populate-root-file-system os-drv "/tmp/root")
+
+    (mount (%store-directory) target-store "" MS_BIND)
+
+    (when register-closures?
+      (display "registering closures...\n")
+      (for-each (lambda (closure)
+                  (register-closure
+                   "/tmp/root"
+                   (string-append "/xchg/" closure)
+                   ;; XXX: Using deduplication causes cross device link errors.
+                   #:deduplicate? #f))
+                closures))
+
+    (apply invoke
+           `(,grub-mkrescue "-o" ,target
                             ,(string-append "boot/grub/grub.cfg=" config-file)
                             ,(string-append "gnu/store=" os-drv "/..")
+                            "etc=/tmp/root/etc"
                             "var=/tmp/root/var"
                             "run=/tmp/root/run"
+                            ;; /mnt is used as part of the installation
+                            ;; process, as the mount point for the target
+                            ;; file system, so create it.
+                            "mnt=/tmp/root/mnt"
                             "--"
-                            ;; Store two copies of the headers.
-                            ;; The resulting ISO-9660 image has a DOS MBR and
-                            ;; one protective partition (with type 0xCD).
-                            ;; Because GuixSD only uses actual partitions
-                            ;; rather than what /proc/partitions returns, work
-                            ;; around it by storing the primary volume
-                            ;; descriptor twice, once where it should be and
-                            ;; once in the partition.
-                            ;; Allegedly, otherwise, many other GNU tools
-                            ;; (automounters etc) would also be confused by
-                            ;; the extra partition so it makes sense to
-                            ;; store two copies in any case.
-                            "-boot_image" "any" "partition_offset=16"
                             "-volid" ,(string-upcase volume-id)
                             ,@(if volume-uuid
                                   `("-volume_date" "uuid"
@@ -400,8 +436,7 @@ GRUB configuration and OS-DRV as the stuff in it."
                                                       (not (char=? #\- value)))
                                                     (iso9660-uuid->string
                                                      volume-uuid)))
-                                  `()))))
-      (error "failed to create ISO9660 image"))))
+                                  `())))))
 
 (define* (initialize-hard-disk device
                                #:key

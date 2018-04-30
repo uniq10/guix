@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017, 2018 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,6 +28,8 @@
   #:use-module (gnu packages assembly)
   #:use-module (gnu packages bdw-gc)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages cmake)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages crypto)
   #:use-module (gnu packages cryptsetup)
@@ -34,6 +37,7 @@
   #:use-module (gnu packages databases)
   #:use-module (gnu packages disk)
   #:use-module (gnu packages gnuzilla)
+  #:use-module (gnu packages gperf)
   #:use-module (gnu packages jemalloc)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages lua)
@@ -48,18 +52,18 @@
 (define-public ceph
   (package
     (name "ceph")
-    (version "12.0.2")
+    (version "12.2.5")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://download.ceph.com/tarballs/ceph-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0l9v072ba28i984y5rwny9i11nmpyx5bl7awxg48plyadm2l3g14"))
+                "1ydc3mfvc0vpnpfnfmissvsrsj4jyxgzc2pcl1a4vdr3bwkcglp3"))
               (patches
                (search-patches "ceph-skip-unittest_blockdev.patch"
                                "ceph-skip-collect-sys-info-test.patch"
-                               "ceph-disable-unittest-throttle.patch"
+                               "ceph-rocksdb-compat.patch"
                                "ceph-disable-cpu-optimizations.patch"))
               (modules '((guix build utils)))
               (snippet
@@ -72,7 +76,6 @@
                               ;"src/xxHash"
                               ;"src/zstd"
                               ;"src/civetweb"
-                              ;"src/Beast"
                               "src/test/downloads"
                               "src/dpdk"
                               "src/spdk"
@@ -103,11 +106,17 @@
                "-DWITH_SYSTEM_BOOST=ON"
                "-DWITH_PYTHON3=ON"
                ;; TODO: Enable these when available in Guix.
+               "-DWITH_BABELTRACE=OFF"
                "-DWITH_LTTNG=OFF"
                "-DWITH_XFS=OFF"
                "-DWITH_XIO=OFF"
                ;; Use jemalloc instead of tcmalloc.
                "-DALLOCATOR=jemalloc"))
+       ;; FIXME: Some of the tests leak Btrfs subvolumes on Btrfs. See
+       ;; <https://bugs.gnu.org/29674> for details. Disable tests until
+       ;; resolved.
+       #:tests? #f
+       #:cmake ,cmake-3.11
        #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'patch-source
@@ -146,21 +155,17 @@
 
                (substitute* "src/test/test_subprocess.cc"
                  (("/bin/sh") (which "sh")))
-               (substitute* "src/test/ceph_objectstore_tool.py"
+               (substitute* "qa/standalone/special/ceph_objectstore_tool.py"
                  (("/bin/rm") (which "rm")))
                (substitute* "src/ceph-disk/ceph_disk/main.py"
                  (("/bin/mount") "mount")
                  (("/bin/umount") "umount")
                  (("/sbin/blkid") (which "blkid"))
+                 (("'cryptsetup'") (string-append "'" (which "cryptsetup") "'"))
                  (("'sgdisk'") (string-append "'" (which "sgdisk") "'"))
                  (("'parted'") (string-append "'" (which "parted") "'"))
                  (("'udevadm'") (string-append "'" (which "udevadm") "'")))
 
-               (substitute* "src/ceph-disk-udev"
-                 (("/sbin/cryptsetup") (which "cryptsetup"))
-                 (("/usr/sbin/sgdisk") (which "sgdisk"))
-                 (("/usr/sbin/ceph-disk")
-                  (string-append out "/bin/ceph-disk")))
                (substitute* "udev/50-rbd.rules"
                  (("/usr/bin/ceph-rbdnamer")
                   (string-append out "/bin/ceph-rbdnamer")))
@@ -257,23 +262,31 @@
                                       (getenv "PYTHONPATH")))
                #t)))
          (add-after 'install 'wrap-python-scripts
-           (lambda* (#:key outputs #:allow-other-keys)
+           (lambda* (#:key inputs outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
+                    (ceph (string-append out "/bin/ceph"))
                     (ceph-disk (string-append out "/bin/ceph-disk"))
                     (ceph-detect-init (string-append
                                        out "/bin/ceph-detect-init"))
-                    (PYTHONPATH (string-append
-                                 out "/lib/python2.7/site-packages")))
 
+                    (prettytable (assoc-ref inputs "python2-prettytable"))
+
+                    (sitedir (lambda (package)
+                               (string-append package
+                                              "/lib/python2.7/site-packages")))
+                    (PYTHONPATH (string-append
+                                 (sitedir out) ":"
+                                 (sitedir prettytable))))
                (for-each (lambda (executable)
                            (wrap-program executable
                              `("PYTHONPATH" ":" prefix (,PYTHONPATH))))
-                         (list ceph-disk ceph-detect-init))
+                         (list ceph ceph-disk ceph-detect-init))
                #t))))))
     (outputs
      '("out" "lib"))
     (native-inputs
-     `(("pkg-config" ,pkg-config)
+     `(("gperf" ,gperf)
+       ("pkg-config" ,pkg-config)
        ("python-cython" ,python-cython)
        ("python-sphinx" ,python-sphinx)
        ("yasm" ,yasm)
@@ -304,7 +317,7 @@
        ("python2-testtools" ,python2-testtools)
        ("python2-tox" ,python2-tox)))
     (inputs
-     `(("boost" ,boost)
+     `(("boost" ,boost-1.66)
        ("curl" ,curl)
        ("cryptsetup" ,cryptsetup)
        ("expat" ,expat)
@@ -323,6 +336,7 @@
        ("nss" ,nss)
        ("parted" ,parted)
        ("python@2" ,python-2)
+       ("python2-prettytable" ,python2-prettytable)      ;used by ceph_daemon.py
        ("python@3" ,python-3)
        ("rocksdb" ,rocksdb)
        ("snappy" ,snappy)
@@ -334,7 +348,7 @@
     (description
      "Ceph is a distributed storage system designed for reliability and
 performance.  It provides network-based block devices (RBD), a POSIX
-compliant filesystem (CephFS), and offers compatibility with various
+compliant file system (CephFS), and offers compatibility with various
 storage protocols (S3, NFS, and others) through the RADOS gateway.")
     ;; The Ceph libraries are LGPL2.1 and most of the utilities fall under
     ;; GPL2. The installed erasure code plugins are BSD-3 licensed and do

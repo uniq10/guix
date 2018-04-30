@@ -1,11 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013 Cyril Roelandt <tipecaml@gmail.com>
 ;;; Copyright © 2014 Kevin Lemonnier <lemonnierk@ulrar.net>
-;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 ng0 <ng0@libertad.pw>
+;;; Copyright © 2015, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -35,6 +35,7 @@
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages base)
   #:use-module (gnu packages backup)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages curl)
   #:use-module (gnu packages cyrus-sasl)
@@ -51,48 +52,58 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-crypto)
   #:use-module (gnu packages ruby)
   #:use-module (gnu packages qt)
   #:use-module (gnu packages tcl)
+  #:use-module (gnu packages time)
   #:use-module (gnu packages tls)
-  #:use-module (gnu packages web))
+  #:use-module (gnu packages web)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-26))
 
 (define-public quassel
   (package
     (name "quassel")
-    (version "0.12.4")
+    (version "0.12.5")
     (source
       (origin
         (method url-fetch)
         (uri (string-append "http://quassel-irc.org/pub/quassel-"
                             version ".tar.bz2"))
-        (patches (search-patches "quassel-fix-tls-check.patch"))
         (sha256
          (base32
-          "0ka456fb8ha3w7g74xlzfg6w4azxjjxgrhl4aqpbwg3lnd6fbr4k"))))
+          "1qkl3sb4ijx4k17m0c42j2p5bc4jymypwhmplm942rbrzm6mg50q"))
+        (modules '((guix build utils)))
+        ;; We don't want to install the bundled scripts.
+        (snippet
+         '(begin
+            (delete-file-recursively "data/scripts")
+            (substitute* "data/CMakeLists.txt"
+              (("NOT WIN32") "WIN32"))))))
     (build-system cmake-build-system)
     (arguments
       ;; The three binaries are not mutually exlusive, and are all built
       ;; by default.
-     `(#:configure-flags '(;;"-DWANT_QTCLIENT=OFF" ; 5.0 MiB
-                           ;;"-DWANT_CORE=OFF" ; 2.3 MiB
-                           ;;"-DWANT_MONO=OFF" ; 6.3 MiB
+     '(#:configure-flags '(;;"-DWANT_QTCLIENT=OFF" ; 5.2 MiB
+                           ;;"-DWANT_CORE=OFF" ; 2.4 MiB
+                           ;;"-DWANT_MONO=OFF" ; 6.4 MiB
                            "-DUSE_QT5=ON" ; default is qt4
-                           "-DWITH_KDE=OFF" ; no to integration
-                           "-DWITH_OXYGEN=ON" ; on=embed icons
+                           "-DWITH_KDE=OFF" ; no to kde integration ...
+                           "-DWITH_OXYGEN=ON" ; therefore we install bundled icons
                            "-DWITH_WEBKIT=OFF") ; qtwebkit isn't packaged
        #:tests? #f)) ; no test target
-    (native-inputs `(("pkg-config" ,pkg-config)))
-    (inputs
+    (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
-       ("oxygen-icons" ,oxygen-icons)
-       ("qca" ,qca)
-       ("qtbase", qtbase)
-       ("qttools" ,qttools)
+       ("pkg-config" ,pkg-config)
+       ("qttools" ,qttools)))
+    (inputs
+     `(("qca" ,qca)
+       ("qtbase" ,qtbase)
        ("qtscript" ,qtscript)
        ("snorenotify" ,snorenotify)
        ("zlib" ,zlib)))
-    (home-page "http://quassel-irc.org/")
+    (home-page "https://quassel-irc.org/")
     (synopsis "Distributed IRC client")
     (description "Quassel is a distributed IRC client, meaning that one or more
 clients can attach to and detach from the central core.  It resembles the
@@ -103,7 +114,7 @@ irssi, but graphical.")
 (define-public irssi
   (package
     (name "irssi")
-    (version "1.0.4")
+    (version "1.1.1")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/irssi/irssi/"
@@ -111,7 +122,7 @@ irssi, but graphical.")
                                  version ".tar.xz"))
              (sha256
               (base32
-               "1jl6p431rv4iixk48wn607m4s0mcy3wgasfwrhz22y71mzdhfp5q"))))
+               "1gx1flfh4a09nb3b5pvf0ygnbl7rry3l4gph8wij29dsl7khfj3q"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -143,53 +154,62 @@ SILC and ICB protocols via plugins.")
 (define-public weechat
   (package
     (name "weechat")
-    (version "1.9")
+    (version "2.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://weechat.org/files/src/weechat-"
                                   version ".tar.xz"))
               (sha256
                (base32
-                "1zvxz98krq98y7jh3yrjbardg3yxp6y2031rvb7rp5ssk8lyp1fc"))
+                "0f7d2vdbxc5kgjl7lkamnbxvidgxwa8f9j3nr9fd4gr4z0gzi86d"))
               (patches (search-patches "weechat-python.patch"))))
-    (build-system gnu-build-system)
-    (native-inputs `(("autoconf" ,autoconf)
-                     ("pkg-config" ,pkg-config)
-                     ("file" ,file)
-                     ("autogen" ,autogen)
-                     ("automake" ,automake)
-                     ("libtool" ,libtool)))
+    (build-system cmake-build-system)
+    (native-inputs
+     `(("gettext" ,gettext-minimal)
+       ("pkg-config" ,pkg-config)
+       ;; For tests.
+       ("cpputest" ,cpputest)))
     (inputs `(("ncurses" ,ncurses)
-              ("diffutils" ,diffutils)
-              ("gettext" ,gettext-minimal)
-              ("libltdl" ,libltdl)
               ("libgcrypt" ,libgcrypt "out")
               ("zlib" ,zlib)
               ("aspell" ,aspell)
               ("curl" ,curl)
               ("gnutls" ,gnutls)
               ("guile" ,guile-2.0)
-              ("openssl" ,openssl)
-              ("cyrus-sasl" ,cyrus-sasl)
               ("lua" ,lua-5.1)
               ("python" ,python-2)
               ("perl" ,perl)
               ("tcl" ,tcl)))
     (arguments
-     `(#:configure-flags (list (string-append
-                                "--with-tclconfig="
-                                (assoc-ref %build-inputs "tcl") "/lib"))
-       #:phases (modify-phases %standard-phases
-                  (add-before 'configure 'autogen
-                    (lambda _
-                      (zero? (system* "./autogen.sh"))))
-                  (add-after 'install 'wrap
-                    (lambda* (#:key inputs outputs #:allow-other-keys)
-                      (let ((out (assoc-ref outputs "out"))
-                            (py2 (assoc-ref inputs "python")))
-                        (wrap-program (string-append out "/bin/weechat")
-                          `("PATH" ":" prefix (,(string-append py2 "/bin"))))
-                        #t))))))
+     `(#:configure-flags
+       (list "-DENABLE_TESTS=ON")       ; ‘make test’ fails otherwise
+       ;; Tests hang indefinately on non-Intel platforms.
+       #:tests? ,(if (any (cute string-prefix? <> (or (%current-target-system)
+                                                      (%current-system)))
+                          '("i686" "x86_64"))
+                   '#t '#f)
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'disable-failing-tests
+           ;; For reasons best left to the imagination, CppUTest cannot skip
+           ;; more than one single test...  Resort to manual patching instead.
+           ;; See <https://cpputest.github.io/manual.html#command_line>.
+           (λ _
+             ;; Don't test plugin support for languages we don't enable.
+             (substitute* "tests/unit/test-plugins.cpp"
+               ((".*\\$\\{plugin.name\\} == (javascript|php|ruby)" all)
+                (string-append "// SKIP" all)))
+             (substitute* "tests/scripts/test-scripts.cpp"
+               ((".*\\{ \"(jvascript|php|ruby)\", " all) ; sic
+                (string-append "// SKIP" all)))
+             #t))
+         (add-after 'install 'wrap
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out"))
+                   (py2 (assoc-ref inputs "python")))
+               (wrap-program (string-append out "/bin/weechat")
+                 `("PATH" ":" prefix (,(string-append py2 "/bin"))))
+               #t))))))
     (synopsis "Extensible chat client")
     (description "WeeChat (Wee Enhanced Environment for Chat) is an
 @dfn{Internet Relay Chat} (IRC) client, which is designed to be light and fast.
@@ -251,23 +271,23 @@ using a mouse.  It is customizable and extensible with plugins and scripts.")
 (define-public ii
   (package
     (name "ii")
-    (version "1.7")
+    (version "1.8")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://dl.suckless.org/tools/"
                                   name "-" version ".tar.gz"))
               (sha256
                (base32
-                "176cqwnn6h7w4kbfd66hzqa243l26pqp2b06bii0nmnm0rkaqwis"))))
+                "1lk8vjl7i8dcjh4jkg8h8bkapcbs465sy8g9c0chfqsywbmf3ndr"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:tests? #f ; no tests
+     `(#:tests? #f                      ; no tests
        #:make-flags (list (string-append "PREFIX=" %output)
                           "CC=gcc")
        #:phases
        (modify-phases %standard-phases
-         (delete 'configure)))) ; no configure
-    (home-page "http://tools.suckless.org/ii/")
+         (delete 'configure))))         ; no configure
+    (home-page "https://tools.suckless.org/ii/")
     (synopsis "FIFO and file system based IRC client")
     (description
      "ii (Irc it) is a minimalist FIFO and file system based IRC client.")
@@ -292,7 +312,7 @@ using a mouse.  It is customizable and extensible with plugins and scripts.")
        #:phases
        (modify-phases %standard-phases
          (delete 'configure)))) ; no configure
-    (home-page "http://tools.suckless.org/sic/")
+    (home-page "https://tools.suckless.org/sic/")
     (synopsis "Simple IRC client")
     (description
      "sic is a simple IRC client, even more minimalistic than ii.")
@@ -301,14 +321,14 @@ using a mouse.  It is customizable and extensible with plugins and scripts.")
 (define-public limnoria
   (package
     (name "limnoria")
-    (version "2017.03.30")
+    (version "2017.10.01")
     (source
      (origin
        (method url-fetch)
        (uri (pypi-uri "limnoria" version))
        (sha256
         (base32
-         "1q0y6iglg1cbhimgjz3afws51as3shy6rd61dck7jfm25y8pi6g8"))))
+         "1hd8h257x7a0s4rvb4aqvfi77qfcyv6jaz70nndg7y6p4yhvjmy6"))))
     (build-system python-build-system)
     (inputs
      `(("python-pytz" ,python-pytz)

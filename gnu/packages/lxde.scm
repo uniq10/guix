@@ -1,8 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Mathieu Lirzin <mthl@openmailbox.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
+;;; Copyright © 2017 Brendan Tildesley <brendan.tildesley@openmailbox.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -46,7 +48,7 @@
 (define-public libfm
   (package
     (name "libfm")
-    (version "1.2.5")
+    (version "1.3.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/pcmanfm/"
@@ -54,7 +56,7 @@
                                   "%29/LibFM/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0nlvfwh09gbq8bkbvwnw6iqr918rrs9gc9ljb9pjspyg408bn1n7"))))
+                "151jyy8ipmp2h829gd9s4s429qafv1zxl7j6zaj1k1gzm9s5rmnb"))))
     (build-system gnu-build-system)
     (inputs `(("glib" ,glib)
               ("gtk+" ,gtk+-2)))
@@ -67,7 +69,7 @@
     (synopsis "File management support (core library)")
     (description "LibFM provides file management functions built on top of
 Glib/GIO giving a higher-level API.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public libfm-extra
@@ -100,7 +102,7 @@ libFM file management library.")))
     (synopsis "LXDE GTK+ theme switcher")
     (description "LXAppearance is a desktop-independent GTK+ theme switcher
 able to change themes, icons, and fonts used by GTK+ applications.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxrandr
@@ -126,7 +128,7 @@ relies on the X11 resize-and-rotate (RandR) extension but doesn't aim to be a
 full frontend of it.  LXRandR only gives you some easy and quick options which
 are intuitive.  It's suitable for laptop users who frequently uses projectors
 or external monitor.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxtask
@@ -150,27 +152,22 @@ or external monitor.")
     (description "LXTask is a lightweight task manager derived from Xfce task
 manager with all dependencies on Xfce removed.  LXTask is based on the GTK+
 toolkit.  It allows users to monitor and control of running processes.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxterminal
   (package
     (name "lxterminal")
-    (version "0.3.0")
+    (version "0.3.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/lxde/LXTerminal"
                                   "%20%28terminal%20emulator%29/LXTerminal%20"
                                   version "/" name "-" version ".tar.xz"))
-              (patches (search-patches "lxterminal-CVE-2016-10369.patch"))
               (sha256
                (base32
-                "1yf76s15zvfw0h42b0ay1slpq47khgjmcry8ki2z812zar9lchia"))))
+                "0jrc3m0hbxcmcgahwjlm46s2350gh80ggb6a90xy0h6xqa3z73fd"))))
     (build-system gnu-build-system)
-    (arguments
-     `(;; Tests for "po" fail with "No rule to make target '../src/encoding.c'
-       ;; needed by 'lxterminal.pot'. Stop."
-       #:tests? #f))
     (inputs `(("gtk+" ,gtk+-2)
               ("vte"  ,vte/gtk+-2)))
     (native-inputs `(("intltool"   ,intltool)
@@ -180,7 +177,7 @@ toolkit.  It allows users to monitor and control of running processes.")
 multiple tabs and has only minimal dependencies thus being completely
 desktop-independent.  In order to reduce memory usage and increase the
 performance, all instances of the terminal are sharing a single process.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public menu-cache
@@ -202,13 +199,13 @@ performance, all instances of the terminal are sharing a single process.")
     (synopsis "LXDE implementation of the freedesktop menu's cache")
     (description "Menu-cache is a library creating and utilizing caches to
 speed up the access to freedesktop.org defined application menus.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:lgpl2.1+)))
 
 (define-public pcmanfm
   (package
     (name "pcmanfm")
-    (version "1.2.5")
+    (version "1.3.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/" name "/"
@@ -216,20 +213,21 @@ speed up the access to freedesktop.org defined application menus.")
                                   "%29/PCManFM/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0rxdh0dfzc84l85c54blq42gczygq8adhr3l9hqzy1dp530cm1hc"))))
+                "1ywgfyklms5hqkapsbjps4kyx20ac0d1qk16ww74yagkyfdkwsas"))))
     (build-system gnu-build-system)
-    ;; (#:configure-flags '("--sysconfdir=/etc")) suggested in README.
     (inputs `(("gtk+"   ,gtk+-2)
-              ;; TODO: add ("gvfs" ,gvfs).
+              ("gvfs"   ,gvfs)          ; for trash and mount support
               ("libfm"  ,libfm)
               ("libx11" ,libx11)))
     (native-inputs `(("intltool"   ,intltool)
                      ("libtool"    ,libtool)
                      ("pkg-config" ,pkg-config)))
+    (propagated-inputs
+     `(("lxmenu-data" ,lxmenu-data)))   ; for "Open With..." application list
     (synopsis "LXDE file manager")
     (description "PCMan is a lightweight GTK+ based file manager, compliant
 with freedesktop.org standard.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxmenu-data
@@ -252,7 +250,7 @@ with freedesktop.org standard.")
     (description
      "Lxmenu-data provides files required to build freedesktop.org
 menu spec-compliant desktop menus for LXDE.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:lgpl2.1+)))
 
 (define-public lxde-icon-theme
@@ -273,7 +271,7 @@ menu spec-compliant desktop menus for LXDE.")
     (synopsis "LXDE default icon theme based on nuoveXT2")
     (description
      "Lxde-icon-theme provides an default icon theme for LXDE.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:lgpl3)))
 
 (define-public lxde-common
@@ -312,7 +310,7 @@ menu spec-compliant desktop menus for LXDE.")
     (synopsis "Common files of the LXDE Desktop")
     (description
      "Lxde-common provides common files of the LXDE Desktop.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxinput
@@ -337,7 +335,7 @@ menu spec-compliant desktop menus for LXDE.")
     (description
      "Lxinput provides a small program to configure keyboard and mouse
 in LXDE.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxsession
@@ -389,7 +387,7 @@ in LXDE.")
     (synopsis "Lightweight X11 session manager")
     (description
      "Lxsession provides an lightweight X11 session manager.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxpanel
@@ -440,7 +438,7 @@ in LXDE.")
     (synopsis "X11 Desktop panel for LXDE")
     (description
      "Lxpanel provides an X11 desktop panel for LXDE.")
-    (home-page "http://lxde.org")
+    (home-page "https://lxde.org")
     (license license:gpl2+)))
 
 (define-public lxde

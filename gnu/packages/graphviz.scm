@@ -1,7 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2016 Theodoros Foradis <theodoros@foradis.org>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Gábor Boskovits <boskovits@gmail.com>
+;;; Copyright © 2018 Mathieu Lirzin <mthl@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -39,56 +43,48 @@
   #:use-module (gnu packages compression)
   #:use-module (gnu packages gd)
   #:use-module (gnu packages swig)
-  #:use-module ((guix licenses) #:select (lgpl2.0+ epl1.0 lgpl3+)))
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages tex)
+  #:use-module ((guix licenses) #:prefix license:))
 
 (define-public graphviz
   (package
     (name "graphviz")
-    (version "2.38.0")
+    (version "2.40.1")
     (source (origin
-             (method url-fetch)
-             (uri (string-append
-                   "http://www.graphviz.org/pub/graphviz/ARCHIVE/graphviz-"
-                   version ".tar.gz"))
-             (sha256
-              (base32
-               "17l5czpvv5ilmg17frg0w4qwf89jzh2aglm9fgx0l0aakn6j7al1"))))
+              (method url-fetch)
+              (uri (string-append
+                    "http://www.graphviz.org/pub/graphviz/ARCHIVE/graphviz-"
+                    version ".tar.gz"))
+              (sha256
+               (base32
+                "08d4ygkxz2f553bxj6087da56a23kx1khv0j8ycxa102vvx1hlna"))))
     (build-system gnu-build-system)
     (arguments
      ;; FIXME: rtest/rtest.sh is a ksh script (!).  Add ksh as an input.
      '(#:tests? #f
-
-       #:phases (alist-cons-before
-                 'build 'pre-build
-                 (lambda _
-                   ;; Work around bogus makefile when using an external
-                   ;; libltdl.  Failing to do so, one hits this error:
-                   ;; "No rule to make target `-lltdl', needed by `libgvc.la'."
-                   (substitute* "lib/gvc/Makefile"
-                     (("am__append_5 *=.*")
-                      "am_append_5 =\n")))
-                 (alist-cons-after
-                  'install 'move-docs
-                  (lambda* (#:key outputs #:allow-other-keys)
-                           (let ((out (assoc-ref outputs "out"))
-                                 (doc (assoc-ref outputs "doc")))
-                             (mkdir-p (string-append doc "/share/graphviz"))
-                             (rename-file (string-append out "/share/graphviz/doc")
-                                          (string-append doc "/share/graphviz/doc"))
-                             #t))
-                  (alist-cons-after
-                   'move-docs 'move-guile-bindings
-                   (lambda* (#:key outputs #:allow-other-keys)
-                     (let* ((out (assoc-ref outputs "out"))
-                            (lib (string-append out "/lib"))
-                            (extdir (string-append lib
-                                                   "/guile/2.0/extensions")))
-                       (mkdir-p extdir)
-                       (rename-file (string-append
-                                     lib "/graphviz/guile/libgv_guile.so")
-                                    (string-append extdir
-                                                   "/libgv_guile.so"))))
-                   %standard-phases)))))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'move-docs
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out"))
+                   (doc (assoc-ref outputs "doc")))
+               (mkdir-p (string-append doc "/share/graphviz"))
+               (rename-file (string-append out "/share/graphviz/doc")
+                            (string-append doc "/share/graphviz/doc"))
+               #t)))
+         (add-after 'move-docs 'move-guile-bindings
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (lib (string-append out "/lib"))
+                    (extdir (string-append lib
+                                           "/guile/2.0/extensions")))
+               (mkdir-p extdir)
+               (rename-file (string-append
+                             lib "/graphviz/guile/libgv_guile.so")
+                            (string-append extdir
+                                           "/libgv_guile.so"))
+               #t))))))
     (inputs
      `(("libXrender" ,libxrender)
        ("libX11" ,libx11)
@@ -116,7 +112,30 @@ way of representing structural information as diagrams of abstract graphs and
 networks.  It has important applications in networking, bioinformatics,
 software engineering, database and web design, machine learning, and in visual
 interfaces for other technical domains.")
-    (license epl1.0)))
+    (license license:epl1.0)))
+
+(define-public python-graphviz
+  (package
+    (name "python-graphviz")
+    (version "0.8.2")
+    (source (origin
+              (method url-fetch)
+              (uri (pypi-uri "graphviz" version ".zip"))
+              (sha256
+               (base32
+                "148h7ln8z65c1723w9vpx8khkvl9iigh8csv0qd4pidc53042rv0"))))
+    (build-system python-build-system)
+    (native-inputs
+     `(("unzip" ,unzip)))
+    (home-page "https://github.com/xflr6/graphviz")
+    (synopsis "Simple Python interface for Graphviz")
+    (description
+     "This package provides a simple Python interface for the Graphviz graph
+visualization tool suite.")
+    (license license:expat)))
+
+(define-public python2-graphviz
+  (package-with-python2 python-graphviz))
 
 (define-public gts
   (package
@@ -152,7 +171,7 @@ interfaces for other technical domains.")
     (description
      "Library intended to provide a set of useful functions to deal with
 3D surfaces meshed with interconnected triangles.")
-    (license lgpl2.0+)))
+    (license license:lgpl2.0+)))
 
 (define-public xdot
   (package
@@ -195,4 +214,63 @@ interfaces for other technical domains.")
 @code{graphviz}’s dot language.  Internally, it uses the xdot output format as
 an intermediate format,and @code{gtk} and @code{cairo} for rendering.  Xdot can
 be used either as a standalone application, or as a python library.")
-    (license lgpl3+)))
+    (license license:lgpl3+)))
+
+(define-public python-pydot
+  (package
+    (name "python-pydot")
+    (version "1.2.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "pydot" version))
+       (sha256
+        (base32
+         "00imlz0033dygb9gdag1xr0cybn33gk5jsdi9ffbszzr97rd7dgd"))))
+    (build-system python-build-system)
+    ;; FIXME: No tests in PyPi release tarball.
+    (arguments '(#:tests? #f))
+    (propagated-inputs
+     `(("python-pyparsing" ,python-pyparsing)))
+    (home-page "https://github.com/erocarrera/pydot")
+    (synopsis "Python interface to Graphviz's DOT language")
+    (description
+     "Pydot provides an interface to create, handle, modify and process
+graphs in Graphviz's DOT language, written in pure Python.")
+    (license license:expat)))
+
+(define-public python2-pydot
+  (package-with-python2 python-pydot))
+
+(define-public dot2tex
+  (package
+    (name "dot2tex")
+    (version "2.9.0")
+    (source (origin
+              (method url-fetch)
+              (uri (pypi-uri "dot2tex" version))
+              (sha256
+               (base32
+                "0jhdwp0wv2h0xb7j2s5xiv7i8yaqgfpwwqcyrjvaxkfwsynm8gkx"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:python ,python-2))
+    (inputs
+     `(("texlive-latex-preview" ,texlive-latex-preview)
+       ("graphviz" ,graphviz)))
+    (propagated-inputs
+     `(("python-pyparsing" ,python2-pyparsing)))
+    (home-page "https://github.com/kjellmf/dot2tex")
+    (synopsis "Graphviz to LaTeX converter")
+    (description
+     "The purpose of @code{dot2tex} is to give graphs generated by Graphviz a
+more LaTeX friendly look and feel.  This is accomplished by converting
+@code{xdot} output from Graphviz to a series of PSTricks or PGF/TikZ commands.
+This approach allows:
+
+@itemize @bullet
+@item Typesetting labels with LaTeX, allowing mathematical notation
+@item Using native PSTricks and PGF/TikZ commands for drawing arrows
+@item Using backend specific styles to customize the output
+@end itemize")
+    (license license:expat)))

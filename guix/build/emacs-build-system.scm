@@ -2,6 +2,7 @@
 ;;; Copyright © 2015 Federico Beffa <beffa@fbengineering.ch>
 ;;; Copyright © 2016 David Thompson <davet@gnu.org>
 ;;; Copyright © 2016 Alex Kost <alezost@gmail.com>
+;;; Copyright © 2018 Maxim Cournoyer <maxim.cournoyer@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,7 +43,8 @@
 ;; Directory suffix where we install ELPA packages.  We avoid ".../elpa" as
 ;; Emacs expects to find the ELPA repository 'archive-contents' file and the
 ;; archive signature.
-(define %install-suffix "/share/emacs/site-lisp/guix.d")
+(define %legacy-install-suffix "/share/emacs/site-lisp")
+(define %install-suffix (string-append %legacy-install-suffix "/guix.d"))
 
 ;; These are the default inclusion/exclusion regexps for the install phase.
 (define %default-include '("^[^/]*\\.el$" "^[^/]*\\.info$" "^doc/.*\\.info$"))
@@ -72,35 +74,107 @@ archive, a directory, or an Emacs Lisp file."
         #t)
       (gnu:unpack #:source source)))
 
+(define* (set-emacs-load-path #:key source inputs #:allow-other-keys)
+  (define (inputs->directories inputs)
+    "Extract the directory part from INPUTS."
+    (match inputs
+      (((names . directories) ...) directories)))
+
+  (define (input-directory->el-directory input-directory)
+    "Return the correct Emacs Lisp directory in INPUT-DIRECTORY or #f, if there
+is no Emacs Lisp directory."
+    (let ((legacy-elisp-directory (string-append input-directory %legacy-install-suffix))
+          (guix-elisp-directory
+           (string-append
+            input-directory %install-suffix "/"
+            (store-directory->elpa-name-version input-directory))))
+      (cond
+       ((file-exists? guix-elisp-directory) guix-elisp-directory)
+       ((file-exists? legacy-elisp-directory) legacy-elisp-directory)
+       (else #f))))
+
+  (define (input-directories->el-directories input-directories)
+    "Return the list of Emacs Lisp directories in INPUT-DIRECTORIES."
+    (filter-map input-directory->el-directory input-directories))
+
+  "Set the EMACSLOADPATH environment variable so that dependencies are found."
+  (let* ((source-directory (getcwd))
+         (input-elisp-directories (input-directories->el-directories
+                                   (inputs->directories inputs)))
+         (emacs-load-path-value
+          (string-join
+           (append input-elisp-directories (list source-directory))
+           ":" 'suffix)))
+    (setenv "EMACSLOADPATH" emacs-load-path-value)
+    (format #t "environment variable `EMACSLOADPATH' set to ~a\n"
+            emacs-load-path-value)))
+
 (define* (build #:key outputs inputs #:allow-other-keys)
   "Compile .el files."
   (let* ((emacs (string-append (assoc-ref inputs "emacs") "/bin/emacs"))
          (out (assoc-ref outputs "out"))
          (elpa-name-ver (store-directory->elpa-name-version out))
-         (el-dir (string-append out %install-suffix "/" elpa-name-ver))
-         (deps-dirs (emacs-inputs-directories inputs)))
+         (el-dir (string-append out %install-suffix "/" elpa-name-ver)))
     (setenv "SHELL" "sh")
     (parameterize ((%emacs emacs))
-      (emacs-byte-compile-directory el-dir
-                                    (emacs-inputs-el-directories deps-dirs)))))
+      (emacs-byte-compile-directory el-dir))))
 
 (define* (patch-el-files #:key outputs #:allow-other-keys)
   "Substitute the absolute \"/bin/\" directory with the right location in the
 store in '.el' files."
+
+  (define (file-contains-nul-char? file)
+    (call-with-input-file file
+      (lambda (in)
+        (let loop ((line (read-line in 'concat)))
+          (cond
+           ((eof-object? line) #f)
+           ((string-index line #\nul) #t)
+           (else (loop (read-line in 'concat))))))
+      #:binary #t))
+
   (let* ((out (assoc-ref outputs "out"))
          (elpa-name-ver (store-directory->elpa-name-version out))
          (el-dir (string-append out %install-suffix "/" elpa-name-ver))
-         (substitute-cmd (lambda ()
-                           (substitute* (find-files "." "\\.el$")
-                             (("\"/bin/([^.].*)\"" _ cmd)
-                              (string-append "\"" (which cmd) "\""))))))
+
+         ;; (ice-9 regex) uses libc's regexp routines, which cannot deal with
+         ;; strings containing NULs.  Filter out such files.  TODO: Remove
+         ;; this workaround when <https://bugs.gnu.org/30116> is fixed.
+         (el-files (remove file-contains-nul-char?
+                           (find-files (getcwd) "\\.el$"))))
+    (define (substitute-program-names)
+      (substitute* el-files
+        (("\"/bin/([^.]\\S*)\"" _ cmd-name)
+         (let ((cmd (which cmd-name)))
+           (unless cmd
+             (error "patch-el-files: unable to locate " cmd-name))
+           (string-append "\"" cmd "\"")))))
+
     (with-directory-excursion el-dir
-      ;; Some old '.el' files (e.g., tex-buf.el in AUCTeX) are still encoded
-      ;; with the "ISO-8859-1" locale.
-      (unless (false-if-exception (substitute-cmd))
+      ;; Some old '.el' files (e.g., tex-buf.el in AUCTeX) are still
+      ;; ISO-8859-1-encoded.
+      (unless (false-if-exception (substitute-program-names))
         (with-fluids ((%default-port-encoding "ISO-8859-1"))
-          (substitute-cmd))))
+          (substitute-program-names))))
     #t))
+
+(define* (check #:key tests? (test-command '("make" "check"))
+                (parallel-tests? #t) #:allow-other-keys)
+  "Run the tests by invoking TEST-COMMAND.
+
+When TEST-COMMAND uses make and PARALLEL-TESTS is #t, the tests are run in
+parallel. PARALLEL-TESTS? is ignored when using a non-make TEST-COMMAND."
+  (match-let (((test-program . args) test-command))
+    (let ((using-make? (string=? test-program "make")))
+      (if tests?
+          (apply invoke test-program
+                 `(,@args
+                   ,@(if (and using-make? parallel-tests?)
+                         `("-j" ,(number->string (parallel-job-count)))
+                         '())))
+          (begin
+            (format #t "test suite not run~%")
+            #t)))))
 
 (define* (install #:key outputs
                   (include %default-include)
@@ -110,22 +184,41 @@ store in '.el' files."
 
   (define source (getcwd))
 
-  (define (install-file? file stat)
-    (let ((stripped-file (string-trim (string-drop file (string-length source)) #\/)))
-      (and (any (cut string-match <> stripped-file) include)
-           (not (any (cut string-match <> stripped-file) exclude)))))
+  (define* (install-file? file stat #:key verbose?)
+    (let* ((stripped-file (string-trim
+                           (string-drop file (string-length source)) #\/)))
+      (define (match-stripped-file action regex)
+        (let ((result (string-match regex stripped-file)))
+          (when (and result verbose?)
+                (format #t "info: ~A ~A as it matches \"~A\"\n"
+                        stripped-file action regex))
+          result))
+
+      (when verbose?
+            (format #t "info: considering installing ~A\n" stripped-file))
+
+      (and (any (cut match-stripped-file "included" <>) include)
+           (not (any (cut match-stripped-file "excluded" <>) exclude)))))
 
   (let* ((out (assoc-ref outputs "out"))
          (elpa-name-ver (store-directory->elpa-name-version out))
-         (target-directory (string-append out %install-suffix "/" elpa-name-ver)))
-    (for-each
-     (lambda (file)
-       (let* ((stripped-file (string-drop file (string-length source)))
-              (target-file (string-append target-directory stripped-file)))
-         (format #t "`~a' -> `~a'~%" file target-file)
-         (install-file file (dirname target-file))))
-     (find-files source install-file?)))
-  #t)
+         (target-directory (string-append out %install-suffix "/" elpa-name-ver))
+         (files-to-install (find-files source install-file?)))
+    (cond
+     ((not (null? files-to-install))
+      (for-each
+       (lambda (file)
+         (let* ((stripped-file (string-drop file (string-length source)))
+                (target-file (string-append target-directory stripped-file)))
+           (format #t "`~a' -> `~a'~%" file target-file)
+           (install-file file (dirname target-file))))
+       files-to-install)
+      #t)
+     (else
+      (format #t "error: No files found to install.\n")
+      (find-files source (lambda (file stat)
+                           (install-file? file stat #:verbose? #t)))
+      #f))))
 
 (define* (move-doc #:key outputs #:allow-other-keys)
   "Move info files from the ELPA package directory to the info directory."
@@ -153,41 +246,15 @@ store in '.el' files."
          (elpa-name (package-name->name+version elpa-name-ver))
          (el-dir (string-append out %install-suffix "/" elpa-name-ver)))
     (parameterize ((%emacs emacs))
-      (emacs-generate-autoloads elpa-name el-dir))
-    #t))
+      (emacs-generate-autoloads elpa-name el-dir))))
 
 (define (emacs-package? name)
   "Check if NAME correspond to the name of an Emacs package."
   (string-prefix? "emacs-" name))
 
-(define (emacs-inputs inputs)
-  "Retrieve the list of Emacs packages from INPUTS."
-  (filter (match-lambda
-            ((label . directory)
-             (emacs-package? ((compose package-name->name+version
-                                       strip-store-file-name)
-                              directory)))
-            (_ #f))
-          inputs))
-
-(define (emacs-inputs-directories inputs)
-  "Extract the list of Emacs package directories from INPUTS."
-  (let ((inputs (emacs-inputs inputs)))
-    (match inputs
-      (((names . directories) ...) directories))))
-
-(define (emacs-inputs-el-directories dirs)
-  "Build the list of Emacs Lisp directories from the Emacs package directory
-DIRS."
-  (append-map (lambda (d)
-                (list (string-append d "/share/emacs/site-lisp")
-                      (string-append d %install-suffix "/"
-                                     (store-directory->elpa-name-version d))))
-              dirs))
-
 (define (package-name-version->elpa-name-version name-ver)
   "Convert the Guix package NAME-VER to the corresponding ELPA name-version
-format.  Essnetially drop the prefix used in Guix."
+format.  Essentially drop the prefix used in Guix."
   (if (emacs-package? name-ver)  ; checks for "emacs-" prefix
       (string-drop name-ver (string-length "emacs-"))
       name-ver))
@@ -202,11 +269,14 @@ second hyphen.  This corresponds to 'name-version' as used in ELPA packages."
 (define %standard-phases
   (modify-phases gnu:%standard-phases
     (replace 'unpack unpack)
+    (add-after 'unpack 'set-emacs-load-path set-emacs-load-path)
     (delete 'configure)
-    (delete 'check)
-    (delete 'install)
-    (replace 'build build)
-    (add-before 'build 'install install)
+    ;; Move the build phase after install: the .el files are byte compiled
+    ;; directly in the store.
+    (delete 'build)
+    (replace 'check check)
+    (replace 'install install)
+    (add-after 'install 'build build)
     (add-after 'install 'make-autoloads make-autoloads)
     (add-after 'make-autoloads 'patch-el-files patch-el-files)
     (add-after 'make-autoloads 'move-doc move-doc)))

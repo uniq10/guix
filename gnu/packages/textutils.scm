@@ -5,13 +5,15 @@
 ;;; Copyright © 2015 Roel Janssen <roel@gnu.org>
 ;;; Copyright © 2016 Jelle Licht <jlicht@fsfe.org>
 ;;; Copyright © 2016 Alex Griffin <a@ajgrf.com>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2017 Rene Saavedra <rennes@openmailbox.org>
 ;;; Copyright © 2017 Hartmut Goebel <h.goebel@crazy-compilers.com>
-;;; Copyright © 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2017 Alex Vong <alexvong1995@gmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -35,8 +37,9 @@
   #:use-module (guix git-download)
   #:use-module (guix build-system ant)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system go)
   #:use-module (guix build-system cmake)
-  #:use-module (guix build-system trivial)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages compression)
@@ -52,14 +55,14 @@
 (define-public dos2unix
   (package
     (name "dos2unix")
-    (version "7.3.4")
+    (version "7.4.0")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://waterlan.home.xs4all.nl/" name "/"
                            name "-" version ".tar.gz"))
        (sha256
-        (base32 "1i9hbxn0br7xa18z4bjpkdv7mrzmbfxhm44mzpd07yd2qnxsgkcc"))))
+        (base32 "12h4c61g376bhq03y5g2xszkrkrj5hwd928rly3xsp6rvfmnbixs"))))
     (build-system gnu-build-system)
     (arguments
      '(#:make-flags (list "CC=gcc"
@@ -80,32 +83,25 @@ to DOS format and vice versa.")
 (define-public recode
   (package
     (name "recode")
-    ;; Last beta release (3.7-beta2) is from 2008; last commit from Feb 2014.
-    ;; So we use that commit instead.
-    (version "3.7.0.201402")
+    (version "3.7")
     (source
      (origin
-       (method git-fetch)
-       (uri (git-reference
-             (url "https://github.com/pinard/Recode.git")
-             (commit "2d7092a9999194fc0e9449717a8048c8d8e26c18")))
+       (method url-fetch)
+       (uri (string-append "https://github.com/rrthomas/recode/releases/"
+                           "download/v" version "/" name "-" version ".tar.gz"))
        (sha256
-        (base32 "1wssv8z6g3ryrw33sksz4rjhlnhgvvdqszw1ggl4rcwks34n86zm"))
-       (file-name (string-append name "-" version "-checkout"))))
+        (base32
+         "0r4yhf7i7zp2nl2apyzz7r3i2in12n385hmr8zcfr18ly0ly530q"))
+       (modules '((guix build utils)))
+       (snippet
+        `(begin
+           (delete-file "tests/Recode.c")
+           #t))))
     (build-system gnu-build-system)
-    (native-inputs `(("python" ,python-2)))
-    (arguments
-     '(#:phases
-       (alist-cons-before
-        'check 'pre-check
-        (lambda _
-          (substitute* "tests/setup.py"
-            (("([[:space:]]*)include_dirs=.*" all space)
-             (string-append all space "library_dirs=['../src/.libs'],\n")))
-          ;; The test extension 'Recode.so' lacks RUNPATH for 'librecode.so'.
-          (setenv "LD_LIBRARY_PATH" (string-append (getcwd) "/src/.libs")))
-        %standard-phases)))
-    (home-page "https://github.com/pinard/Recode")
+    (native-inputs
+     `(("python" ,python-2)
+       ("python2-cython" ,python2-cython)))
+    (home-page "https://github.com/rrthomas/recode")
     (synopsis "Text encoding converter")
     (description "The Recode library converts files between character sets and
 usages.  It recognises or produces over 200 different character sets (or about
@@ -113,27 +109,23 @@ usages.  It recognises or produces over 200 different character sets (or about
 any pair.  When exact transliteration are not possible, it gets rid of
 offending characters or falls back on approximations.  The recode program is a
 handy front-end to the library.")
-    (license license:gpl2+)))
+    (license license:gpl3+)))
 
 (define-public enca
   (package
     (name "enca")
-    (version "1.16")
+    (version "1.19")
     (source
      (origin
        (method url-fetch)
        (uri (string-append
              "https://github.com/nijel/enca/archive/" version ".tar.gz"))
        (sha256
-        (base32 "1xik00x0yvhswsw2isnclabhv536xk1s42cf5z54gfbpbhc7ni8l"))
+        (base32 "099z526i7qgij7q1w3lvhl88iv3jc3nqxca2i09h6s08ghyrmzf4"))
        (file-name (string-append name "-" version ".tar.gz"))))
     (build-system gnu-build-system)
-    (inputs `(("recode" ,recode)))
-
-    ;; Both 'test-convert-64.sh' and 'test-convert-filter.sh' manipulate a
-    ;; 'test.tmp' file, so they have to run in sequence.
-    (arguments '(#:parallel-tests? #f))
-
+    ;; enca-1.19 tests fail with recent recode.
+    ;(inputs `(("recode" ,recode)))
     (home-page "https://github.com/nijel/enca")
     (synopsis "Text encoding detection tool")
     (description "Enca (Extremely Naive Charset Analyser) consists of libenca,
@@ -144,7 +136,7 @@ libenca and several charset conversion libraries and tools.")
 (define-public utf8proc
   (package
     (name "utf8proc")
-    (version "2.1.0")
+    (version "2.1.1")
     (source
      (origin
        (method url-fetch)
@@ -153,9 +145,9 @@ libenca and several charset conversion libraries and tools.")
              version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "0q1jhdkk4f9b0zb8s2ql3sba3br5nvjsmbsaybmgj064k9hwbk15"))))
+        (base32 "1cnpigrazhslw65s4j1a56j7p6d7d61wsxxjf1218i9mkwv2yw17"))))
     (build-system gnu-build-system)
-    (inputs                  ;test data that is otherwise downloaded with curl
+    (inputs                 ; test data that is otherwise downloaded with curl
      `(("NormalizationTest.txt"
         ,(origin
            (method url-fetch)
@@ -185,7 +177,7 @@ libenca and several charset conversion libraries and tools.")
              (substitute* "data/GraphemeBreakTest.txt"
                (("÷") "/")
                (("×") "+")))))))
-    (home-page "http://julialang.org/utf8proc/")
+    (home-page "https://julialang.org/utf8proc/")
     (synopsis "C library for processing UTF-8 Unicode data")
     (description "utf8proc is a small C library that provides Unicode
 normalization, case-folding, and other operations for data in the UTF-8
@@ -207,10 +199,9 @@ encoding, supporting Unicode version 9.0.0.")
     (build-system gnu-build-system)
     (arguments
      '(#:phases
-       (alist-cons-after
-        'unpack 'autoreconf
-        (lambda _ (zero? (system* "autoreconf" "-vif")))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'autoreconf
+           (lambda _ (zero? (system* "autoreconf" "-vif")))))))
     (native-inputs
      `(("autoconf" ,autoconf)
        ("automake" ,automake)
@@ -303,16 +294,16 @@ input bits thoroughly but are not suitable for cryptography.")
 (define-public libconfig
   (package
     (name "libconfig")
-    (version "1.5")
+    (version "1.7.2")
+    (home-page "https://hyperrealm.github.io/libconfig/")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://www.hyperrealm.com/libconfig/"
-                                  "libconfig-" version ".tar.gz"))
+              (uri (string-append home-page "/dist/libconfig-"
+                                  version ".tar.gz"))
               (sha256
                (base32
-                "1xh3hzk63v4y8815lc5209m3s6ms2cpgw4h5hg462i4f1lwsl7g3"))))
+                "1ngs2qx3cx5cbwinc5mvadly0b5n7s86zsc68c404czzfff7lg3w"))))
     (build-system gnu-build-system)
-    (home-page "http://www.hyperrealm.com/libconfig/")
     (synopsis "C/C++ configuration file library")
     (description
      "Libconfig is a simple library for manipulating structured configuration
@@ -387,7 +378,14 @@ regular expression object can be specified.")
                             (assoc-ref %outputs "out") "/share/antiword"))
        #:phases
        (modify-phases %standard-phases
-         (delete 'configure)
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Ensure that mapping files can be found in the actual package
+             ;; data directory.
+             (substitute* "antiword.h"
+               (("/usr/share/antiword")
+                (string-append (assoc-ref outputs "out") "/share/antiword")))
+             #t))
          (replace 'install
            (lambda* (#:key make-flags #:allow-other-keys)
              (zero? (apply system* "make" `("global_install" ,@make-flags))))))))
@@ -409,6 +407,7 @@ runs Word\".")
               (method url-fetch)
               (uri (string-append "http://ftp.wagner.pp.ru/pub/catdoc/"
                                   "catdoc-" version ".tar.gz"))
+              (patches (search-patches "catdoc-CVE-2017-11110.patch"))
               (sha256
                (base32
                 "15h7v3bmwfk4z8r78xs5ih6vd0pskn0rj90xghvbzdjj0cc88jji"))))
@@ -443,36 +442,29 @@ spreadsheets and outputs it in comma-separated-value format, and
 (define-public utfcpp
   (package
     (name "utfcpp")
-    (version "2.3.4")
+    (version "2.3.5")
     (source (origin
               (method url-fetch)
               (uri
-               (string-append
-                "mirror://sourceforge/utfcpp/utf8cpp_2x/Release%20"
-                version "/utf8_v"
-                (string-map (lambda (x) (if (eq? x #\.) #\_ x)) version)
-                ".zip"))
-              (file-name (string-append name "-" version ".zip"))
+               (string-append "https://github.com/nemtrif/utfcpp/archive/v"
+                              version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1vqhs0aipcvvdrwcs7h3jsryg6mgbmc4s34n5cm6d36q4nxwwwrk"))))
-    (build-system trivial-build-system)
+                "0gcqcfw19kfim8xw29xdp91l310yfjyrqdj2zsx8xx02dkpy1zzk"))))
+    (build-system cmake-build-system)
     (arguments
-     `(#:modules ((guix build utils))
-       #:builder
-       (begin
-         (use-modules (guix build utils))
-         (let ((source (assoc-ref %build-inputs "source"))
-               (out    (assoc-ref %outputs "out"))
-               (unzip  (string-append (assoc-ref %build-inputs "unzip")
-                                      "/bin/unzip")))
-           (mkdir-p out)
-           (with-directory-excursion out
-             (system* unzip source)
-             (mkdir-p "share/doc")
-             (rename-file "doc" "share/doc/utfcpp")
-             (rename-file "source" "include"))))))
-    (native-inputs `(("unzip" ,unzip)))
+     `(#:out-of-source? #f
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'install              ; no install target
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (include (string-append out "/include"))
+                    (doc (string-append out "/share/doc/" ,name)))
+               (copy-recursively "source" include)
+               (install-file "README.md" doc)
+               #t))))))
     (home-page "https://github.com/nemtrif/utfcpp")
     (synopsis "Portable C++ library for handling UTF-8")
     (description "UTF8-CPP is a C++ library for handling UTF-8 encoded text
@@ -516,10 +508,12 @@ in a portable way.")
          (add-after 'unpack 'delete-test
            ;; See comments about the license.
            (lambda _
-             (delete-file "src/tests/dbacl-jap.shin")))
+             (delete-file "src/tests/dbacl-jap.shin")
+             #t))
          (add-after 'delete-sample6-and-japanese 'autoreconf
            (lambda _
-             (zero? (system* "autoreconf" "-vif"))))
+             (invoke "autoreconf" "-vif")
+             #t))
          (add-after 'unpack 'fix-test-files
            (lambda* (#:key inputs outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
@@ -540,7 +534,7 @@ in a portable way.")
        ("autoconf" ,autoconf)
        ("automake" ,automake)
        ("pkg-config" ,pkg-config)))
-    (home-page "http://www.lbreyer.com/dbacl.html")
+    (home-page "https://www.lbreyer.com/dbacl.html")
     (synopsis "Bayesian text and email classifier")
     (description
      "dbacl is a fast Bayesian text and email classifier.  It builds a variety
@@ -577,7 +571,7 @@ categories.")
      `(#:tests? #f ; FIXME maketest.sh does not work.
        #:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'autoreconf
+         (add-after 'unpack 'autoreconf
            (lambda _
              (zero? (system* "autoreconf" "-vif")))))))
     (native-inputs
@@ -622,3 +616,63 @@ completely with the standard @code{javax.swing.text} package.  It is fast and
 efficient, and can be used in any application that needs to edit or view
 source code.")
     (license license:bsd-3)))
+
+;; We use the sources from git instead of the tarball from pypi, because the
+;; latter does not include the Cython source file from which bycython.cpp is
+;; generated.
+(define-public python-editdistance
+  (let ((commit "3ea84a7dd3258c76aa3be851ef3d50e59c886846")
+        (revision "1"))
+    (package
+      (name "python-editdistance")
+      (version (string-append "0.3.1-" revision "." (string-take commit 7)))
+      (source
+       (origin
+         (method git-fetch)
+         (uri (git-reference
+               (url "https://github.com/aflc/editdistance.git")
+               (commit commit)))
+         (file-name (git-file-name name version))
+         (sha256
+          (base32
+           "1l43svsv12crvzphrgi6x435z6xg8m086c64armp8wzb4l8ccm7g"))))
+      (build-system python-build-system)
+      (arguments
+       `(#:phases
+         (modify-phases %standard-phases
+           (add-after 'unpack 'build-cython-code
+             (lambda _
+               (with-directory-excursion "editdistance"
+                 (delete-file "bycython.cpp")
+                 (invoke "cython" "--cplus" "bycython.pyx")))))))
+      (native-inputs
+       `(("python-cython" ,python-cython)))
+      (home-page "https://www.github.com/aflc/editdistance")
+      (synopsis "Fast implementation of the edit distance (Levenshtein distance)")
+      (description
+       "This library simply implements Levenshtein distance algorithm with C++
+and Cython.")
+      (license license:expat))))
+
+(define-public go-github.com-mattn-go-runewidth
+  (package
+    (name "go-github.com-mattn-go-runewidth")
+    (version "0.0.2")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/mattn/go-runewidth")
+                    (commit (string-append "v" version))))
+              (file-name (git-file-name name version))
+              (sha256
+               (base32
+                "0vkrfrz3fzn5n6ix4k8s0cg0b448459sldq8bp4riavsxm932jzb"))))
+    (build-system go-build-system)
+    (arguments
+     '(#:import-path "github.com/mattn/go-runewidth"))
+    (synopsis "@code{runewidth} provides Go functions to work with string widths")
+    (description
+     "The @code{runewidth} library provides Go functions for padding,
+measuring and checking the width of strings, with support east asian text.")
+    (home-page "https://github.com/jessevdk/go-flags")
+    (license license:expat)))

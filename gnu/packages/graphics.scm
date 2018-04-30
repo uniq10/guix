@@ -6,6 +6,9 @@
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2017 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
+;;; Copyright © 2017, 2018 Ben Woodcroft <donttrustben@gmail.com>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,7 +31,9 @@
   #:use-module (guix packages)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system cmake)
+  #:use-module (guix build-system python)
   #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (guix utils)
   #:use-module (gnu packages)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages audio)
@@ -36,12 +41,18 @@
   #:use-module (gnu packages bash)
   #:use-module (gnu packages bison)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages documentation)
+  #:use-module (gnu packages ghostscript)
   #:use-module (gnu packages haskell)
   #:use-module (gnu packages image)
+  #:use-module (gnu packages imagemagick)
   #:use-module (gnu packages python)
   #:use-module (gnu packages flex)
+  #:use-module (gnu packages fonts)
   #:use-module (gnu packages fontutils)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages pdf)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages pulseaudio)  ;libsndfile, libsamplerate
   #:use-module (gnu packages compression)
@@ -60,6 +71,7 @@
   #:use-module (gnu packages qt)
   #:use-module (gnu packages readline)
   #:use-module (gnu packages sdl)
+  #:use-module (gnu packages swig)
   #:use-module (gnu packages video)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg))
@@ -67,50 +79,58 @@
 (define-public blender
   (package
     (name "blender")
-    (version "2.78a")
+    (version "2.79b")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://download.blender.org/source/"
+              (uri (string-append "https://download.blender.org/source/"
                                   "blender-" version ".tar.gz"))
               (sha256
                (base32
-                "1byf1klrvm8fdw2libx7wldz2i6lblp9nih6y58ydh00paqi8jh1"))))
+                "1g4kcdqmf67srzhi3hkdnr4z1ph4h9sza1pahz38mrj998q4r52c"))))
     (build-system cmake-build-system)
     (arguments
-     `(;; Test files are very large and not included in the release tarball.
-       #:tests? #f
-       #:configure-flags
-       (list "-DWITH_CODEC_FFMPEG=ON"
-             "-DWITH_CODEC_SNDFILE=ON"
-             "-DWITH_CYCLES=ON"
-             "-DWITH_DOC_MANPAGE=ON"
-             "-DWITH_FFTW3=ON"
-             "-DWITH_GAMEENGINE=ON"
-             "-DWITH_IMAGE_OPENJPEG=ON"
-             "-DWITH_INPUT_NDOF=ON"
-             "-DWITH_INSTALL_PORTABLE=OFF"
-             "-DWITH_JACK=ON"
-             "-DWITH_MOD_OCEANSIM=ON"
-             "-DWITH_PLAYER=ON"
-             "-DWITH_PYTHON_INSTALL=OFF"
-             "-DWITH_SYSTEM_OPENJPEG=ON")
-       #:phases
-       (modify-phases %standard-phases
-         (add-after 'unpack 'fix-broken-import
-           (lambda _
-             (substitute* "release/scripts/addons/io_scene_fbx/json2fbx.py"
-               (("import encode_bin") "from . import encode_bin"))
-             #t))
-         (add-after 'set-paths 'add-ilmbase-include-path
-           (lambda* (#:key inputs #:allow-other-keys)
-             ;; OpenEXR propagates ilmbase, but its include files do not appear
-             ;; in the CPATH, so we need to add "$ilmbase/include/OpenEXR/" to
-             ;; the CPATH to satisfy the dependency on "half.h".
-             (setenv "CPATH"
-                     (string-append (assoc-ref inputs "ilmbase")
-                                    "/include/OpenEXR"
-                                    ":" (or (getenv "CPATH") "")))
-             #t)))))
+      (let ((python-version (version-major+minor (package-version python))))
+       `(;; Test files are very large and not included in the release tarball.
+         #:tests? #f
+         #:configure-flags
+         (list "-DWITH_CODEC_FFMPEG=ON"
+               "-DWITH_CODEC_SNDFILE=ON"
+               "-DWITH_CYCLES=ON"
+               "-DWITH_DOC_MANPAGE=ON"
+               "-DWITH_FFTW3=ON"
+               "-DWITH_GAMEENGINE=ON"
+               "-DWITH_IMAGE_OPENJPEG=ON"
+               "-DWITH_INPUT_NDOF=ON"
+               "-DWITH_INSTALL_PORTABLE=OFF"
+               "-DWITH_JACK=ON"
+               "-DWITH_MOD_OCEANSIM=ON"
+               "-DWITH_PLAYER=ON"
+               "-DWITH_PYTHON_INSTALL=OFF"
+               "-DWITH_PYTHON_INSTALL=OFF"
+               "-DWITH_SYSTEM_OPENJPEG=ON"
+               (string-append "-DPYTHON_LIBRARY=python" ,python-version "m")
+               (string-append "-DPYTHON_LIBPATH=" (assoc-ref %build-inputs "python")
+                              "/lib")
+               (string-append "-DPYTHON_INCLUDE_DIR=" (assoc-ref %build-inputs "python")
+                              "/include/python" ,python-version "m")
+               (string-append "-DPYTHON_VERSION=" ,python-version))
+         #:phases
+         (modify-phases %standard-phases
+           (add-after 'unpack 'fix-broken-import
+             (lambda _
+               (substitute* "release/scripts/addons/io_scene_fbx/json2fbx.py"
+                 (("import encode_bin") "from . import encode_bin"))
+               #t))
+           (add-after 'set-paths 'add-ilmbase-include-path
+             (lambda* (#:key inputs #:allow-other-keys)
+               ;; OpenEXR propagates ilmbase, but its include files do not appear
+               ;; in the CPATH, so we need to add "$ilmbase/include/OpenEXR/" to
+               ;; the CPATH to satisfy the dependency on "half.h".
+               (setenv "CPATH"
+                       (string-append (assoc-ref inputs "ilmbase")
+                                      "/include/OpenEXR"
+                                      ":" (or (getenv "CPATH") "")))
+               #t))))))
     (inputs
      `(("boost" ,boost)
        ("jemalloc" ,jemalloc)
@@ -129,9 +149,9 @@
        ("freetype" ,freetype)
        ("glew" ,glew)
        ("openal" ,openal)
-       ("python" ,python-wrapper)
+       ("python" ,python)
        ("zlib" ,zlib)))
-    (home-page "http://blender.org/")
+    (home-page "https://blender.org/")
     (synopsis "3D graphics creation suite")
     (description
      "Blender is a 3D graphics creation suite.  It supports the entirety of
@@ -208,14 +228,14 @@ many more.")
 (define-public ilmbase
   (package
     (name "ilmbase")
-    (version "2.2.0")
+    (version "2.2.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://savannah/openexr/ilmbase-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "1izddjwbh1grs8080vmaix72z469qy29wrvkphgmqmcm0sv1by7c"))
+                "17k0hq19wplx9s029kjrq6c51x2ryrfmaavcappkd0g67gk0dhna"))
               (patches (search-patches "ilmbase-fix-tests.patch"))))
     (build-system gnu-build-system)
     (home-page "http://www.openexr.com/")
@@ -228,17 +248,85 @@ quaternions and other useful 2D and 3D math functions.  Iex is an
 exception-handling library.")
     (license license:bsd-3)))
 
+(define-public ogre
+  (package
+    (name "ogre")
+    (version "1.10.11")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/OGRECave/" name
+                           "/archive/v" version ".tar.gz"))
+       (sha256
+        (base32
+         "13bdh9v4026qf8w8rbfln2rmwf0rby1a8fz55zpdvpy105i6cbpz"))
+       (file-name (string-append name "-" version ".tar.gz"))))
+    (build-system cmake-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           (lambda _
+             ;; It expects googletest source to be downloaded and
+             ;; be in a specific place.
+             (substitute* "Tests/CMakeLists.txt"
+               (("URL(.*)$" _ suffix)
+                (string-append "URL " suffix
+                               "\t\tURL_HASH "
+                               "MD5=16877098823401d1bf2ed7891d7dce36\n")))
+             #t))
+         (add-before 'build 'pre-build
+           (lambda* (#:key inputs #:allow-other-keys)
+             (copy-file (assoc-ref inputs "googletest-source")
+                        (string-append (getcwd)
+                                       "/Tests/googletest-prefix/src/"
+                                       "release-1.8.0.tar.gz"))
+             #t)))
+       #:configure-flags
+       (list "-DOGRE_BUILD_TESTS=TRUE"
+             (string-append "-DCMAKE_INSTALL_RPATH="
+                            (assoc-ref %outputs "out") "/lib:"
+                            (assoc-ref %outputs "out") "/lib/OGRE:"
+                            (assoc-ref %build-inputs "googletest") "/lib")
+             "-DOGRE_INSTALL_DOCS=TRUE"
+             "-DOGRE_INSTALL_SAMPLES=TRUE"
+             "-DOGRE_INSTALL_SAMPLES_SOURCE=TRUE")))
+    (native-inputs
+     `(("boost" ,boost)
+       ("doxygen" ,doxygen)
+       ("googletest-source" ,(package-source googletest))
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("font-dejavu" ,font-dejavu)
+       ("freeimage" ,freeimage)
+       ("freetype" ,freetype)
+       ("glu" ,glu)
+       ("googletest" ,googletest)
+       ("sdl2" ,sdl2)
+       ("libxaw" ,libxaw)
+       ("libxrandr" ,libxrandr)
+       ("tinyxml" ,tinyxml)
+       ("zziplib" ,zziplib)))
+    (synopsis "Scene-oriented, flexible 3D engine written in C++")
+    (description
+     "OGRE (Object-Oriented Graphics Rendering Engine) is a scene-oriented,
+flexible 3D engine written in C++ designed to make it easier and more intuitive
+for developers to produce applications utilising hardware-accelerated 3D
+graphics.")
+    (home-page "http://www.ogre3d.org/")
+    (license license:expat)))
+
 (define-public openexr
   (package
     (name "openexr")
-    (version "2.2.0")
+    (version "2.2.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://savannah/openexr/openexr-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0ca2j526n4wlamrxb85y2jrgcv0gf21b3a19rr0gh4rjqkv1581n"))
+                "1kdf2gqznsdinbd5vcmqnif442nyhdf9l7ckc51410qm2gv5m6lg"))
               (modules '((guix build utils)))
               (snippet
                '(begin
@@ -335,7 +423,10 @@ visual effects work for film.")
        (file-name (string-append name "-" version ".zip"))))
     (build-system cmake-build-system)
     (arguments
-     `(#:tests? #f ;; No test target available.
+     `(#:tests? #f ; no test target available
+       ;; Without this flag, 'rd' will be added to the name of the
+       ;; library binaries and break linking with other programs.
+       #:build-type "Release"
        #:configure-flags
        (list (string-append "-DCMAKE_INSTALL_RPATH="
                             (assoc-ref %outputs "out") "/lib:"
@@ -343,13 +434,13 @@ visual effects work for film.")
     (native-inputs
      `(("unzip" ,unzip)))
     (inputs
-     `(("giflib", giflib)
-       ("jasper", jasper)
-       ("librsvg", librsvg)
-       ("pth", pth)
-       ("qtbase", qtbase)
-       ("ffmpeg", ffmpeg)
-       ("mesa", mesa)))
+     `(("giflib" ,giflib)
+       ("jasper" ,jasper)
+       ("librsvg" ,librsvg)
+       ("pth" ,pth)
+       ("qtbase" ,qtbase)
+       ("ffmpeg" ,ffmpeg)
+       ("mesa" ,mesa)))
     (synopsis "High performance real-time graphics toolkit")
     (description
      "The OpenSceneGraph is a high performance 3D graphics toolkit
@@ -423,7 +514,7 @@ virtual reality, scientific visualization and modeling.")
        ("intltool" ,intltool)
        ("pkg-config" ,pkg-config)
        ("xvfb" ,xorg-server)))
-    (home-page "http://rapicorn.org")
+    (home-page "https://rapicorn.testbit.org/")
     (synopsis "Toolkit for rapid development of user interfaces")
     (description
      "Rapicorn is a toolkit for rapid development of user interfaces in C++
@@ -553,13 +644,12 @@ and understanding different BRDFs (and other component functions).")
              (string-append "--x-libraries=" (assoc-ref %build-inputs "libx11")
                             "/lib"))
        #:phases
-       (alist-cons-after
-        'unpack 'autoreconf
-        (lambda _
-          ;; let's call configure from configure phase and not now
-          (substitute* "autogen.sh" (("./configure") "# ./configure"))
-          (zero? (system* "sh" "autogen.sh")))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'autoreconf
+           (lambda _
+             ;; let's call configure from configure phase and not now
+             (substitute* "autogen.sh" (("./configure") "# ./configure"))
+             (zero? (system* "sh" "autogen.sh")))))))
     (native-inputs
      `(("pkg-config" ,pkg-config)
        ("libtool" ,libtool)
@@ -578,4 +668,117 @@ and understanding different BRDFs (and other component functions).")
      "Anti-Grain Geometry is a high quality rendering engine written in C++.
 It supports sub-pixel resolutions and anti-aliasing.  It is also library for
 rendering SVG graphics.")
+    (license license:gpl2+)))
+
+(define-public python-pastel
+  (package
+    (name "python-pastel")
+    (version "0.1.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "pastel" version))
+       (sha256
+        (base32
+         "1hqbm934n5yjwn31aq8h7shrr0rcy326wrqfc856vyn0gr0sy21i"))))
+    (build-system python-build-system)
+    (native-inputs
+     `(("python-pytest" ,python-pytest)))
+    (home-page "https://github.com/sdispater/pastel")
+    (synopsis "Library to colorize strings in your terminal")
+    (description "Pastel is a simple library to help you colorize strings in
+your terminal.  It comes bundled with predefined styles:
+@enumerate
+@item info: green
+@item comment: yellow
+@item question: black on cyan
+@item error: white on red
+@end enumerate
+")
+    (license license:expat)))
+
+(define-public python2-pastel
+  (package-with-python2 python-pastel))
+
+(define-public fgallery
+  (package
+    (name "fgallery")
+    (version "1.8.2")
+    (source (origin
+              (method url-fetch)
+              (uri
+               (string-append
+                "http://www.thregr.org/~wavexx/software/fgallery/releases/"
+                "fgallery-" version ".zip"))
+              (sha256
+               (base32
+                "18wlvqbxcng8pawimbc8f2422s8fnk840hfr6946lzsxr0ijakvf"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f ; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (delete 'build)
+         (replace 'install
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out    (assoc-ref outputs "out"))
+                    (bin    (string-append out "/bin/"))
+                    (share  (string-append out "/share/fgallery"))
+                    (man    (string-append out "/share/man/man1"))
+                    (perl5lib (getenv "PERL5LIB"))
+                    (script (string-append share "/fgallery")))
+               (define (bin-directory input-name)
+                 (string-append (assoc-ref inputs input-name) "/bin"))
+
+               (mkdir-p man)
+               (copy-file "fgallery.1" (string-append man "/fgallery.1"))
+
+               (mkdir-p share)
+               (copy-recursively "." share)
+
+               ;; fgallery copies files from store when it is run. The
+               ;; read-only permissions from the store directories will cause
+               ;; fgallery to fail. Do not preserve file attributes when
+               ;; copying files to prevent it.
+               (substitute* script
+                 (("'cp'")
+                  "'cp', '--no-preserve=all'"))
+
+               (mkdir-p bin)
+               (symlink script (string-append out "/bin/fgallery"))
+
+               (wrap-program script
+                 `("PATH" ":" prefix
+                   ,(map bin-directory '("imagemagick"
+                                         "lcms"
+                                         "fbida"
+                                         "libjpeg"
+                                         "zip"
+                                         "jpegoptim"
+                                         "pngcrush"
+                                         "p7zip")))
+                 `("PERL5LIB" ":" prefix (,perl5lib)))
+               #t))))))
+    (native-inputs
+     `(("unzip" ,unzip)))
+    ;; TODO: Add missing optional dependency: facedetect.
+    (inputs
+     `(("imagemagick" ,imagemagick)
+       ("lcms" ,lcms)
+       ("fbida" ,fbida)
+       ("libjpeg" ,libjpeg)
+       ("zip" ,zip)
+       ("perl" ,perl)
+       ("perl-cpanel-json-xs" ,perl-cpanel-json-xs)
+       ("perl-image-exiftool" ,perl-image-exiftool)
+       ("jpegoptim" ,jpegoptim)
+       ("pngcrush" ,pngcrush)
+       ("p7zip" ,p7zip)))
+    (home-page "http://www.thregr.org/~wavexx/software/fgallery/")
+    (synopsis "Static photo gallery generator")
+    (description
+     "FGallery is a static, JavaScript photo gallery generator with minimalist
+look.  The result can be uploaded on any web server without additional
+requirements.")
     (license license:gpl2+)))

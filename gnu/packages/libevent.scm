@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015 Eric Dvorsak <eric@dvorsak.fr>
 ;;; Copyright © 2016 David Thompson <davet@gnu.org>
@@ -110,39 +110,37 @@ loop.")
     (home-page "http://software.schmorp.de/pkg/libev.html")
     (synopsis "Event loop loosely modelled after libevent")
     (description
-     "libev is a full-featured and high-performance event loop that
-is loosely modelled after libevent, but without its limitations and
-bugs.  It is used in GNU Virtual Private Ethernet, rxvt-unicode,
-auditd, the Deliantra MORPG Server and Client, and many other
-programs.")
+     "libev provides a full-featured and high-performance event loop that is
+loosely modelled after libevent.  It includes relative timers, absolute timers
+with customized rescheduling, synchronous signals, process status change
+events, event watchers dealing with the event loop itself, file watchers, and
+limited support for fork events.")
     (license
      (list bsd-2 gpl2+))))
 
 (define-public libuv
   (package
     (name "libuv")
-    (version "1.11.0")
+    (version "1.18.0")
     (source (origin
               (method url-fetch)
-              (uri (string-append "https://github.com/libuv/libuv/archive/v"
-                                  version ".tar.gz"))
-              (file-name (string-append name "-" version ".tar.gz"))
+              (uri (string-append "https://dist.libuv.org/dist/v" version
+                                  "/libuv-v" version ".tar.gz"))
               (sha256
                (base32
-                "0yhw86011l2dg2prms0d86szygrix4pxpgnyzs7iljy2xk3fxivf"))))
+                "125bzmzc32m52hd9iv8jvjlc7r3gadxgvp31a2fz2wlil16p7r2l"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-cons-after
-                 'unpack 'autogen
-                 (lambda _
-                   ;; Fashionable people don't run 'make dist' these days, so
-                   ;; we need to do that ourselves.
-                   (zero? (system* "sh" "autogen.sh")))
-                 %standard-phases)
+     '(#:phases (modify-phases %standard-phases
+                  (add-after 'unpack 'autogen
+                    (lambda _
+                      ;; Fashionable people don't run 'make dist' these days, so
+                      ;; we need to do that ourselves.
+                      (zero? (system* "sh" "autogen.sh")))))
 
        ;; XXX: Some tests want /dev/tty, attempt to make connections, etc.
        #:tests? #f))
-    (native-inputs `(("autoconf" ,(autoconf-wrapper))
+    (native-inputs `(("autoconf" ,autoconf-wrapper)
                      ("automake" ,automake)
                      ("libtool" ,libtool)
 
@@ -157,20 +155,20 @@ similar IOCP, and event ports, asynchronous TCP/UDP sockets, asynchronous DNS
 resolution, asynchronous file system operations, and threading primitives.")
 
     ;; A few files fall under other non-copyleft licenses; see 'LICENSE' for
-    ;; details.
-    (license x11)))
+    ;; details.  Documentation is CC-BY 4.0 as of 1.12.0; see 'LICENSE-docs'.
+    (license (list expat cc-by4.0))))
 
 (define-public perl-anyevent
   (package
     (name "perl-anyevent")
-    (version "7.13")
+    (version "7.14")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://cpan/authors/id/M/ML/MLEHMANN/"
                                   "AnyEvent-" version ".tar.gz"))
               (sha256
                (base32
-                "1b84ilkbrfbzqapv25x8z6gva92skbrf2srybdabb1wnxx6ky454"))))
+                "0akxr9y0q9yjkl614x4clbiiayvh5a67y8gmci54plxs4p95i4sk"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-canary-stability" ,perl-canary-stability)))

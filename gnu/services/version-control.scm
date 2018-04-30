@@ -1,6 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Sou Bunnbu <iyzsong@member.fsf.org>
+;;; Copyright © 2017 Oleg Pykhalov <go.wigust@gmail.com>
+;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -21,18 +23,24 @@
   #:use-module (gnu services)
   #:use-module (gnu services base)
   #:use-module (gnu services shepherd)
+  #:use-module (gnu services web)
   #:use-module (gnu system shadow)
   #:use-module (gnu packages version-control)
   #:use-module (gnu packages admin)
   #:use-module (guix records)
   #:use-module (guix gexp)
+  #:use-module (guix store)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
   #:use-module (ice-9 match)
   #:export (git-daemon-service
             git-daemon-service-type
             git-daemon-configuration
-            git-daemon-configuration?))
+            git-daemon-configuration?
+
+            git-http-configuration
+            git-http-configuration?
+            git-http-nginx-location-configuration))
 
 ;;; Commentary:
 ;;;
@@ -129,7 +137,11 @@
           (service-extension account-service-type
                              (const %git-daemon-accounts))
           (service-extension activation-service-type
-                             git-daemon-activation)))))
+                             git-daemon-activation)))
+   (description
+    "Expose Git respositories over the insecure @code{git://} TCP-based
+protocol.")
+   (default-value (git-daemon-configuration))))
 
 (define* (git-daemon-service #:key (config (git-daemon-configuration)))
   "Return a service that runs @command{git daemon}, a simple TCP server to
@@ -139,3 +151,49 @@ The optional @var{config} argument should be a
 @code{<git-daemon-configuration>} object, by default it allows read-only
 access to exported repositories under @file{/srv/git}."
   (service git-daemon-service-type config))
+
+
+;;;
+;;; HTTP access.  Add the result of calling
+;;; git-http-nginx-location-configuration to an nginx-server-configuration's
+;;; "locations" field.
+;;;
+
+(define-record-type* <git-http-configuration>
+  git-http-configuration
+  make-git-http-configuration
+  git-http-configuration?
+  (package          git-http-configuration-package        ;package
+                    (default git))
+  (git-root         git-http-configuration-git-root       ;string
+                    (default "/srv/git"))
+  (export-all?      git-http-configuration-export-all?    ;boolean
+                    (default #f))
+  (uri-path         git-http-configuration-uri-path       ;string
+                    (default "/git/"))
+  (fcgiwrap-socket  git-http-configuration-fcgiwrap-socket ;string
+                    (default "127.0.0.1:9000")))
+
+(define* (git-http-nginx-location-configuration #:optional
+                                                (config
+                                                 (git-http-configuration)))
+  (match config
+    (($ <git-http-configuration> package git-root export-all?
+                                 uri-path fcgiwrap-socket)
+     (nginx-location-configuration
+      (uri (string-append "~ /" (string-trim-both uri-path #\/) "(/.*)"))
+      (body
+       (list
+        (list "fastcgi_pass " fcgiwrap-socket ";")
+        (list "fastcgi_param SCRIPT_FILENAME "
+              package "/libexec/git-core/git-http-backend"
+              ";")
+        "fastcgi_param QUERY_STRING $query_string;"
+        "fastcgi_param REQUEST_METHOD $request_method;"
+        "fastcgi_param CONTENT_TYPE $content_type;"
+        "fastcgi_param CONTENT_LENGTH $content_length;"
+        (if export-all?
+            "fastcgi_param GIT_HTTP_EXPORT_ALL \"\";"
+            "")
+        (list "fastcgi_param GIT_PROJECT_ROOT " git-root ";")
+        "fastcgi_param PATH_INFO $1;"))))))

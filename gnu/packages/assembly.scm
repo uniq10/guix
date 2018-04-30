@@ -3,6 +3,7 @@
 ;;; Copyright © 2013, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,14 +35,14 @@
 (define-public nasm
   (package
     (name "nasm")
-    (version "2.13.01")
+    (version "2.13.03")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://www.nasm.us/pub/nasm/releasebuilds/"
                                   version "/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0plsvcwxc7q3llr3bz10prwq1gn4ll38aqmv0yzfqcq4iw0160ma"))))
+                "0wr58pb2wnyihcl6635hlx98fnscx5yirxm8m84x8nxwvjqcybl1"))))
     (build-system gnu-build-system)
     (native-inputs `(("perl" ,perl)  ;for doc and test target
                      ("texinfo" ,texinfo)))
@@ -103,14 +104,14 @@ debugging information in STABS, DWARF 2, and CodeView 8 formats.")
 (define-public lightning
   (package
     (name "lightning")
-    (version "2.1.0")
+    (version "2.1.2")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnu/lightning/lightning-"
                                  version ".tar.gz"))
              (sha256
               (base32
-               "19j9nwl88k660045s40cbz5zrl1wpd2mcxnnc8qqnnaj311a58qz"))))
+               "0sbs2lm8b9in2m8d52zf0x9gpp40x6r7sl6sha92yq3pr78rwa4v"))))
     (build-system gnu-build-system)
     (native-inputs `(("zlib" ,zlib)))
     (synopsis "Library for generating assembly code at runtime")

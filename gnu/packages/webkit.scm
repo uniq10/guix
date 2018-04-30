@@ -2,7 +2,8 @@
 ;;; Copyright © 2015 Sou Bunnbu <iyzsong@gmail.com>
 ;;; Copyright © 2015 David Hashe <david.hashe@dhashe.com>
 ;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2015, 2016, 2017, 2018 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -46,6 +47,7 @@
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
   #:use-module (gnu packages ruby)
+  #:use-module (gnu packages tls)
   #:use-module (gnu packages video)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg))
@@ -53,14 +55,14 @@
 (define-public webkitgtk
   (package
     (name "webkitgtk")
-    (version "2.16.5")
+    (version "2.20.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://www.webkitgtk.org/releases/"
                                   name "-" version ".tar.xz"))
               (sha256
                (base32
-                "1m3xpqs6ddq3m8z6vn83mqh5mkagxlp68vl5qnc7hxcf8brrc0wf"))))
+                "0nc9dj05dbk31ciip08b3rdsfja7ckc5mgagrj030fafza2k5r23"))))
     (build-system cmake-build-system)
     (arguments
      '(#:tests? #f ; no tests
@@ -69,7 +71,21 @@
                           "-DPORT=GTK"
                           (string-append ; uses lib64 by default
                            "-DLIB_INSTALL_DIR="
-                           (assoc-ref %outputs "out") "/lib"))
+                           (assoc-ref %outputs "out") "/lib")
+
+                          ;; XXX Adding GStreamer GL support would apparently
+                          ;; require adding gst-plugins-bad to the inputs,
+                          ;; which might entail a security risk as a result of
+                          ;; the plugins of dubious code quality that are
+                          ;; included.  More investigation is needed.  For
+                          ;; now, we explicitly disable it to prevent an error
+                          ;; at configuration time.
+                          "-DUSE_GSTREAMER_GL=OFF"
+
+                          ;; XXX Disable WOFF2 ‘web fonts’.  These were never
+                          ;; supported in our previous builds.  Enabling them
+                          ;; requires building libwoff2 and possibly woff2dec.
+                          "-DUSE_WOFF2=OFF")
        #:phases
        (modify-phases %standard-phases
          (add-after
@@ -112,6 +128,7 @@
        ("libnotify" ,libnotify)
        ("libpng" ,libpng)
        ("libsecret" ,libsecret)
+       ("libtasn1" ,libtasn1)
        ("libwebp" ,libwebp)
        ("libxcomposite" ,libxcomposite)
        ("libxml2" ,libxml2)
@@ -119,7 +136,7 @@
        ("libxt" ,libxt)
        ("mesa" ,mesa)
        ("sqlite" ,sqlite)))
-    (home-page "http://www.webkitgtk.org/")
+    (home-page "https://www.webkitgtk.org/")
     (synopsis "Web content engine for GTK+")
     (description
      "WebKitGTK+ is a full-featured port of the WebKit rendering engine,

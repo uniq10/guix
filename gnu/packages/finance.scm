@@ -1,9 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015, 2016 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2016 Hartmut Goebel <h.goebel@crazy-compilers.com>
 ;;; Copyright © 2017 Carlo Zancanaro <carlo@zancanaro.id.au>
+;;; Copyright © 2017 Theodoros Foradis <theodoros@foradis.org>
+;;; Copyright © 2017 Vasile Dumitrascu <va511e@yahoo.com>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2018 Adriano Peluso <catonano@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -21,35 +26,47 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu packages finance)
- #:use-module ((guix licenses) #:prefix license:)
- #:use-module (guix packages)
- #:use-module (guix download)
- #:use-module (guix build-system gnu)
- #:use-module (guix build-system cmake)
- #:use-module (guix build-system python)
- #:use-module (gnu packages base)
- #:use-module (gnu packages boost)
- #:use-module (gnu packages databases)
- #:use-module (gnu packages emacs)
- #:use-module (gnu packages groff)
- #:use-module (gnu packages libedit)
- #:use-module (gnu packages libevent)
- #:use-module (gnu packages linux)
- #:use-module (gnu packages multiprecision)
- #:use-module (gnu packages pkg-config)
- #:use-module (gnu packages protobuf)
- #:use-module (gnu packages python)
- #:use-module (gnu packages qt)
- #:use-module (gnu packages texinfo)
- #:use-module (gnu packages textutils)
- #:use-module (gnu packages tls)
- #:use-module (gnu packages upnp)
- #:use-module (gnu packages gnuzilla))
+  #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (guix packages)
+  #:use-module (guix download)
+  #:use-module (guix build-system gnu)
+  #:use-module (guix build-system cmake)
+  #:use-module (guix build-system python)
+  #:use-module (gnu packages)
+  #:use-module (gnu packages base)
+  #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages databases)
+  #:use-module (gnu packages documentation)
+  #:use-module (gnu packages dns)
+  #:use-module (gnu packages emacs)
+  #:use-module (gnu packages graphviz)
+  #:use-module (gnu packages groff)
+  #:use-module (gnu packages libedit)
+  #:use-module (gnu packages libevent)
+  #:use-module (gnu packages libunwind)
+  #:use-module (gnu packages libusb)
+  #:use-module (gnu packages linux)
+  #:use-module (gnu packages multiprecision)
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages protobuf)
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages python-crypto)
+  #:use-module (gnu packages python-web)
+  #:use-module (gnu packages qt)
+  #:use-module (gnu packages readline)
+  #:use-module (gnu packages texinfo)
+  #:use-module (gnu packages textutils)
+  #:use-module (gnu packages tls)
+  #:use-module (gnu packages upnp)
+  #:use-module (gnu packages web)
+  #:use-module (gnu packages xml)
+  #:use-module (gnu packages gnuzilla))
 
 (define-public bitcoin-core
   (package
     (name "bitcoin-core")
-    (version "0.14.2")
+    (version "0.15.1")
     (source (origin
              (method url-fetch)
              (uri
@@ -57,12 +74,13 @@
                              version "/bitcoin-" version ".tar.gz"))
              (sha256
               (base32
-               "1jp8vdc25gs46gj1d9mraqa1xnampffpa7mdy0fw80xca77fbi0s"))))
+               "1d22fgwdcn343kd95lh389hj417zwbmnhi29cij8n7wc0nz2vpil"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)
        ("python" ,python) ; for the tests
-       ("util-linux" ,util-linux))) ; provides the hexdump command for tests
+       ("util-linux" ,util-linux)   ; provides the hexdump command for tests
+       ("qttools" ,qttools)))
     (inputs
      `(("bdb" ,bdb-5.3) ; with 6.2.23, there is an error: ambiguous overload
        ("boost" ,boost)
@@ -70,8 +88,7 @@
        ("miniupnpc" ,miniupnpc)
        ("openssl" ,openssl)
        ("protobuf" ,protobuf)
-       ;; TODO Build with the modular Qt.
-       ("qt" ,qt)))
+       ("qtbase" ,qtbase)))
     (arguments
      `(#:configure-flags
         (list
@@ -79,7 +96,16 @@
           "--with-incompatible-bdb"
           ;; Boost is not found unless specified manually.
           (string-append "--with-boost="
-                         (assoc-ref %build-inputs "boost")))
+                         (assoc-ref %build-inputs "boost"))
+          ;; XXX: The configure script looks up Qt paths by
+          ;; `pkg-config --variable=host_bins Qt5Core`, which fails to pick
+          ;; up executables residing in 'qttools', so we specify them here.
+          (string-append "ac_cv_path_LRELEASE="
+                         (assoc-ref %build-inputs "qttools")
+                         "/bin/lrelease")
+          (string-append "ac_cv_path_LUPDATE="
+                         (assoc-ref %build-inputs "qttools")
+                         "/bin/lupdate"))
        #:phases
         (modify-phases %standard-phases
           (add-before 'check 'set-home
@@ -108,7 +134,9 @@ line client and a client based on Qt.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "12jlv3gsjhrja25q9hrwh73cdacd2l3c2yyn8qnijav9mdhnbw4h"))))
+                "12jlv3gsjhrja25q9hrwh73cdacd2l3c2yyn8qnijav9mdhnbw4h"))
+              (patches (search-patches "ledger-revert-boost-python-fix.patch"
+                                       "ledger-fix-uninitialized.patch"))))
     (build-system cmake-build-system)
     (arguments
      `(#:modules ((guix build cmake-build-system)
@@ -196,7 +224,7 @@ in ability, and easy to use.")
 (define-public geierlein
   (package
     (name "geierlein")
-    (version "0.9.5")
+    (version "0.9.13")
     (source
      (origin
        (method url-fetch)
@@ -205,13 +233,13 @@ in ability, and easy to use.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0b11fq8v5w8nxjb20jl4dsfhv76xky6n3sq3k3fbb0m2sq9ikikw"))))
+         "11jfa7mxvvf0ldhx0hsvjbx3xwvzvn2wrfjpms8c7qmrnqhwh4wp"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ; would require npm, python and a lot more
        #:phases
         (modify-phases %standard-phases
-          (delete 'configure)
+          (delete 'configure)           ; no configure script
           (add-after 'unpack 'override-target-directory-and-tool-paths
             (lambda* (#:key inputs outputs #:allow-other-keys)
               (substitute* "Makefile"
@@ -230,7 +258,7 @@ in ability, and easy to use.")
               #t)))))
     (inputs
      `(("icecat" ,icecat)))
-    (home-page "http://stesie.github.io/geierlein/")
+    (home-page "https://stesie.github.io/geierlein/")
     (synopsis "Free Elster client, for sending Germany VAT declarations")
     (description
      "Geierlein is a free Elster client, i.e. an application that
@@ -246,7 +274,7 @@ do so.")
 (define-public electrum
   (package
     (name "electrum")
-    (version "2.7.12")
+    (version "3.0.5")
     (source
      (origin
        (method url-fetch)
@@ -255,7 +283,7 @@ do so.")
                            version ".tar.gz"))
        (sha256
         (base32
-         "0vxdfl208if7mdsnva1jg37bnay2dsz3ww157aqwcv1j6512fi1n"))
+         "06z0a5p1jg93jialphslip8d72q9yg3651qqaf494gs3h9kw1sv1"))
        (modules '((guix build utils)))
        (snippet
         '(begin
@@ -264,18 +292,19 @@ do so.")
            #t))))
     (build-system python-build-system)
     (inputs
-     `(("python-slowaes" ,python2-slowaes)
-       ("python-sip" ,python2-sip)
-       ("python-pyqt" ,python2-pyqt-4)
-       ("python-ecdsa" ,python2-ecdsa)
-       ("python-pbkdf2" ,python2-pbkdf2)
-       ("python-requests" ,python2-requests)
-       ("python-qrcode" ,python2-qrcode)
-       ("python-protobuf" ,python2-protobuf)
-       ("python-dnspython" ,python2-dnspython)
-       ("python-jsonrpclib" ,python2-jsonrpclib)))
+     `(("python-pyaes" ,python-pyaes)
+       ("python-pysocks" ,python-pysocks)
+       ("python-sip" ,python-sip)
+       ("python-pyqt" ,python-pyqt)
+       ("python-ecdsa" ,python-ecdsa)
+       ("python-pbkdf2" ,python-pbkdf2)
+       ("python-requests" ,python-requests)
+       ("python-qrcode" ,python-qrcode)
+       ("python-protobuf" ,python-protobuf)
+       ("python-dnspython" ,python-dnspython)
+       ("python-jsonrpclib-pelix" ,python-jsonrpclib-pelix)))
     (arguments
-     `(#:python ,python-2
+     `(#:tests? #f ;; package doesn't have any tests
        #:phases
        (modify-phases %standard-phases
          (add-before 'build 'patch-home
@@ -291,3 +320,435 @@ protocol.  It supports Simple Payment Verification (SPV) and deterministic key
 generation from a seed.  Your secret keys are encrypted and are never sent to
 other machines/servers.  Electrum does not download the Bitcoin blockchain.")
     (license license:expat)))
+
+(define-public monero
+  ;; This package bundles easylogging++ and lmdb.
+  ;; The bundled easylogging++ is modified, and the changes will not be upstreamed.
+  ;; The devs deem the lmdb driver too critical a consenus component, to use
+  ;; the system's dynamically linked library.
+  (package
+    (name "monero")
+    (version "0.11.1.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/monero-project/monero/archive/v"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (modules '((guix build utils)))
+       (snippet
+        '(begin
+           ;; Delete bundled dependencies.
+           (for-each
+            delete-file-recursively
+            '("external/miniupnpc" "external/rapidjson"
+              "external/unbound"))
+           #t))
+       (sha256
+        (base32
+         "16shd834025jyzy68h3gag1sz8vbk875hy4j97hrki8pacz8vd5m"))))
+    (build-system cmake-build-system)
+    (native-inputs
+     `(("doxygen" ,doxygen)
+       ("googletest" ,googletest)
+       ("graphviz" ,graphviz)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("bind" ,isc-bind)
+       ("boost" ,boost)
+       ("expat" ,expat)
+       ("libunwind" ,libunwind)
+       ("lmdb" ,lmdb)
+       ("miniupnpc" ,miniupnpc)
+       ("openssl" ,openssl)
+       ("rapidjson" ,rapidjson)
+       ("unbound" ,unbound)))
+    (arguments
+     `(#:out-of-source? #t
+       #:configure-flags '("-DBUILD_TESTS=ON"
+                           ,@(if (string=? "aarch64-linux" (%current-system))
+                                 '("-DARCH=armv8-a")
+                                 '())
+                           "-DBUILD_GUI_DEPS=ON")
+       #:phases
+       (modify-phases %standard-phases
+         ;; tests/core_tests need a valid HOME
+         (add-before 'configure 'set-home
+           (lambda _
+             (setenv "HOME" (getcwd))
+             #t))
+         (add-after 'set-home 'fix-wallet-path-for-unit-tests
+           (lambda _
+             (substitute* "tests/unit_tests/serialization.cpp"
+               (("\\.\\./\\.\\./\\.\\./\\.\\./") "../../"))
+             #t))
+         (add-after 'fix-wallet-path-for-unit-tests 'change-log-path
+           (lambda _
+             (substitute* "contrib/epee/src/mlog.cpp"
+               (("epee::string_tools::get_current_module_folder\\(\\)")
+                "\".bitmonero\""))
+             (substitute* "contrib/epee/src/mlog.cpp"
+               (("return \\(") "return ((std::string(getenv(\"HOME\"))) / "))
+             #t))
+         (replace 'check
+           (lambda _
+             (zero?
+              (system* "make" "ARGS=-E 'unit_tests|libwallet_api_tests'"
+                       "test"))))
+         ;; The excluded unit tests need network access
+         (add-after 'check 'unit-tests
+           (lambda _
+             (let ((excluded-unit-tests
+                    (string-join
+                     '("AddressFromURL.Success"
+                       "AddressFromURL.Failure"
+                       "DNSResolver.IPv4Success"
+                       "DNSResolver.DNSSECSuccess"
+                       "DNSResolver.DNSSECFailure"
+                       "DNSResolver.GetTXTRecord")
+                     ":")))
+               (zero?
+                (system* "tests/unit_tests/unit_tests"
+                         (string-append "--gtest_filter=-"
+                                        excluded-unit-tests))))))
+         (add-after 'install 'install-blockchain-import-export
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin")))
+               (install-file "bin/monero-blockchain-import" bin)
+               (install-file "bin/monero-blockchain-export" bin)))))))
+    (home-page "https://getmonero.org/")
+    (synopsis "Command-line interface to the Monero currency")
+    (description
+     "Monero is a secure, private, untraceable currency.  This package provides the
+Monero command line client and daemon.")
+    (license license:bsd-3)))
+
+(define-public monero-core
+  (package
+    (name "monero-core")
+    (version "0.11.1.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/monero-project/monero-core/archive/v"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1q7a9kpcjgp74fbplzs2iszdld6gwbfrydyd9in9izhwp100p1rr"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("doxygen" ,doxygen)
+       ("graphviz" ,graphviz)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("boost" ,boost)
+       ("libunwind" ,libunwind)
+       ("openssl" ,openssl)
+       ("qt" ,qt)
+       ("readline" ,readline)
+       ("unbound" ,unbound)))
+    (propagated-inputs
+     `(("monero" ,monero)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (delete 'check)
+         (add-before 'build 'fix-makefile-vars
+           (lambda _
+             (substitute* "src/zxcvbn-c/makefile"
+               (("\\?=") "="))
+             #t))
+         (add-after 'fix-makefile-vars 'fix-library-paths
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "monero-wallet-gui.pro"
+               (("-L/usr/local/lib") "")
+               (("-L/usr/local/opt/openssl/lib")
+                (string-append "-L"
+                               (assoc-ref inputs "openssl")
+                               "/lib"))
+               (("-L/usr/local/opt/boost/lib")
+                (string-append "-L"
+                               (assoc-ref inputs "boost")
+                               "/lib")))
+             #t))
+         (add-after 'fix-library-paths 'fix-monerod-path
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "src/daemon/DaemonManager.cpp"
+               (("QApplication::applicationDirPath\\(\\) \\+ \"/monerod")
+                (string-append "\""(assoc-ref inputs "monero")
+                               "/bin/monerod")))
+             #t))
+         (replace 'build
+           (lambda _
+             (zero? (system* "./build.sh"))))
+         (add-after 'build 'fix-install-path
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* "build/Makefile"
+               (("/opt/monero-wallet-gui")
+                (assoc-ref outputs "out")))
+             #t))
+         (add-before 'install 'change-dir
+           (lambda _
+             (chdir "build"))))))
+    (home-page "https://getmonero.org/")
+    (synopsis "Graphical user interface for the Monero currency")
+    (description
+     "Monero is a secure, private, untraceable currency.  This package provides the
+Monero GUI client.")
+    (license license:bsd-3)))
+
+(define-public python-trezor-agent
+  (package
+    (name "python-trezor-agent")
+    (version "0.9.4")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/romanz/trezor-agent/archive/v"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0h8jb147vpjk7mqbl4za0xdh7lblhx07n9dfk80kn2plwnvrry1x"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'check)
+         (add-after 'install 'check
+           (lambda* (#:key outputs inputs #:allow-other-keys)
+             ;; Make installed package available for running the tests
+             (add-installed-pythonpath inputs outputs)
+             (invoke "py.test"))))))
+    (propagated-inputs
+     `(("python-ecdsa" ,python-ecdsa)
+       ("python-ed25519" ,python-ed25519)
+       ("python-semver" ,python-semver)
+       ("python-unidecode" ,python-unidecode)))
+    (native-inputs
+     `(("python-mock" ,python-mock)
+       ("python-pytest" ,python-pytest)))
+    (home-page "https://github.com/romanz/trezor-agent")
+    (synopsis "TREZOR SSH and GPG host support")
+    (description
+     "@code{libagent} is a library that allows using TREZOR, Keepkey and
+Ledger Nano as a hardware SSH/GPG agent.")
+    (license license:lgpl3)))
+
+(define-public python2-trezor-agent
+  (package-with-python2 python-trezor-agent))
+
+(define-public python-mnemonic
+  (package
+    (name "python-mnemonic")
+    (version "0.18")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "mnemonic" version))
+        (sha256
+          (base32
+            "07bzfa5di6nv5xwwcwbypnflpj50wlfczhh6q6hg8w13g5m319q2"))))
+    (build-system python-build-system)
+    (propagated-inputs
+     `(("python-pbkdf2" ,python-pbkdf2)))
+    (home-page "https://github.com/trezor/python-mnemonic")
+    (synopsis "Implementation of Bitcoin BIP-0039")
+    (description "@code{mnemonic} is a library that provides an implementation
+of Bitcoin BIP-0039.")
+    (license license:expat)))
+
+(define-public python2-mnemonic
+  (package-with-python2 python-mnemonic))
+
+(define-public python-ledgerblue
+  (package
+    (name "python-ledgerblue")
+    (version "0.1.16")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "ledgerblue" version))
+        (sha256
+          (base32
+            "010mghaqh1cmz3a0ifc3f40mmyplilwlw7kpha2mzyrrff46p9gb"))))
+    (build-system python-build-system)
+    (propagated-inputs
+     `(("python-ecpy" ,python-ecpy)
+       ("python-future" ,python-future)
+       ("python-hidapi" ,python-hidapi)
+       ("python-pillow" ,python-pillow)
+       ("python-protobuf" ,python-protobuf)
+       ("python-pycrypto" ,python-pycrypto)))
+    (home-page "https://github.com/LedgerHQ/blue-loader-python")
+    (synopsis "Python library to communicate with Ledger Blue/Nano S")
+    (description "@code{ledgerblue} is a Python library to communicate with
+Ledger Blue/Nano S.")
+    (license license:asl2.0)))
+
+(define-public python2-ledgerblue
+  (package-with-python2 python-ledgerblue))
+
+(define-public python-trezor
+  (package
+    (name "python-trezor")
+    (version "0.7.16")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "trezor" version))
+        (sha256
+          (base32
+            "055kii56wgwadl5z911s59ya2fnsqzk3n5i19s2hb9sv2by6knvb"))))
+    (build-system python-build-system)
+    (propagated-inputs
+     `(("python-ecdsa" ,python-ecdsa)
+       ("python-hidapi" ,python-hidapi)
+       ("python-mnemonic" ,python-mnemonic)
+       ("python-protobuf" ,python-protobuf)
+       ("python-requests" ,python-requests)))
+    (native-inputs
+     `(("python-pyqt" ,python-pyqt))) ; Tests
+    (home-page "https://github.com/trezor/python-trezor")
+    (synopsis "Python library for communicating with TREZOR Hardware Wallet")
+    (description "@code{trezor} is a Python library for communicating with
+TREZOR Hardware Wallet.")
+    (license license:lgpl3)))
+
+(define-public python2-trezor
+  (package-with-python2 python-trezor))
+
+(define-public python-keepkey
+  (package
+    (name "python-keepkey")
+    (version "4.0.2")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "keepkey" version))
+        (sha256
+          (base32
+            "0f4iqqjlqmamw4mhyhik4qlb5bnfd10wbjw9yzgir105wh5fdpnd"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'check)
+         (add-after 'install 'check
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (add-installed-pythonpath inputs outputs)
+             (apply invoke "python" (find-files "tests/unit" "\\.py$")))))))
+    (propagated-inputs
+     `(("python-ecdsa" ,python-ecdsa)
+       ("python-hidapi" ,python-hidapi)
+       ("python-mnemonic" ,python-mnemonic)
+       ("python-protobuf" ,python-protobuf)))
+    (home-page "https://github.com/keepkey/python-keepkey")
+    (synopsis "Python library for communicating with KeepKey Hardware Wallet")
+    (description "@code{keepkey} is a Python library for communicating with
+the KeepKey Hardware Wallet.")
+    (license license:lgpl3)))
+
+(define-public python2-keepkey
+  (package-with-python2 python-keepkey))
+
+(define-public ledger-agent
+  (package
+    (name "ledger-agent")
+    (version "0.9.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "ledger_agent" version))
+       (sha256
+        (base32
+         "03zj602m2rln9yvr08dswy56vzkbldp8b074ixwzz525dafblr92"))))
+    (build-system python-build-system)
+    (inputs
+     `(("python-ledgerblue" ,python-ledgerblue)
+       ("python-trezor-agent" ,python-trezor-agent)))
+    (home-page "http://github.com/romanz/trezor-agent")
+    (synopsis "Ledger as hardware SSH/GPG agent")
+    (description "This package allows using Ledger as hardware SSH/GPG agent.
+
+Usage for SSH: trezor-agent foo@@example.com --connect
+Usage for GPG: Initialize using trezor-gpg init \"Foo <foo@@example.com>\"
+Then set the environment variable GNUPGHOME to
+\"${HOME}/.gnupg/trezor\".")
+    (license license:lgpl3)))
+
+(define-public trezor-agent
+  (package
+    (name "trezor-agent")
+    (version "0.9.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "trezor_agent" version))
+       (sha256
+        (base32
+         "1i5cdamlf3c0ym600pjklij74p8ifj9cv7xrpnrfl1b8nkadswbz"))))
+    (build-system python-build-system)
+    (inputs
+     `(("python-trezor" ,python-trezor)
+       ("python-trezor-agent" ,python-trezor-agent)))
+    (home-page "http://github.com/romanz/trezor-agent")
+    (synopsis "Using Trezor as hardware SSH/GPG agent")
+    (description "This package allows using Trezor as a hardware SSH/GPG
+agent.")
+    (license license:lgpl3)))
+
+(define-public keepkey-agent
+  (package
+    (name "keepkey-agent")
+    (version "0.9.0")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "keepkey_agent" version))
+        (sha256
+          (base32
+            "03779gvlx70i0nnry98i4pl1d92604ix5x6jgdfkrdgzqbh5vj27"))))
+    (build-system python-build-system)
+    (inputs
+     `(("python-keepkey" ,python-keepkey)
+       ("python-trezor-agent" ,python-trezor-agent)))
+    (home-page "http://github.com/romanz/trezor-agent")
+    (synopsis "KeepKey as hardware SSH/GPG agent")
+    (description "This package allows using KeepKey as a hardware SSH/GPG
+agent.")
+    (license license:lgpl3)))
+
+(define-public python-stdnum
+  (package
+    (name "python-stdnum")
+    (version "1.8.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "python-stdnum" version))
+       (sha256
+        (base32
+         "0hvr47q32xbyiznpmbg4r8rcvxhnf0lwf33hcpnynyik57djy5np"))))
+    (build-system python-build-system)
+    (home-page
+     "https://arthurdejong.org/python-stdnum/")
+    (synopsis
+     "Python module to handle standardized number and code formats")
+    (description
+     "This is a Python library that aims to provide functions to handle,
+parse and validate standard numbers.
+The module supports more than 100 different number formats
+amongst which a great number of VAT and other tax numbers,
+personal identity and company identification codes,
+international standard numbers (ISBN, IBAN, EAN, etc.)
+and various other formats.
+The module also inclused implementations of the Verhoeff,
+Luhn and family of ISO/IEC 7064 check digit algorithms. ")
+    (license license:lgpl2.1+)))
+
+(define-public python2-stdnum
+  (package-with-python2 python-stdnum))

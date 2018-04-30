@@ -2,10 +2,10 @@
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2016 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 John Darrington <jmd@gnu.org>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
-;;; Copyright © 2016, 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2016 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Vasile Dumitrascu <va511e@yahoo.com>
 ;;; Copyright © 2017 Gregor Giesen <giesen@zaehlwerk.net>
@@ -59,7 +59,7 @@
 (define-public dnsmasq
   (package
     (name "dnsmasq")
-    (version "2.76")
+    (version "2.79")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -67,7 +67,7 @@
                     version ".tar.xz"))
               (sha256
                (base32
-                "15lzih6671gh9knzpl8mxchiml7z5lfqzr7jm2r0rjhrxs6nk4jb"))))
+                "07w6cw706yyahwvbvslhkrbjf2ynv567cgy9pal8bz8lrbsp9bbq"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -75,20 +75,19 @@
      `(("dbus" ,dbus)))
     (arguments
      `(#:phases
-       (alist-delete 'configure %standard-phases)
+       (modify-phases %standard-phases (delete 'configure))
        #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out"))
                           "CC=gcc"
                           "COPTS=\"-DHAVE_DBUS\"")
-       ;; No 'check' target.
-       #:tests? #f))
+       #:tests? #f))                    ; no ‘check’ target
     (home-page "http://www.thekelleys.org.uk/dnsmasq/doc.html")
     (synopsis "Small caching DNS proxy and DHCP/TFTP server")
     (description
-     "Dnsmasq is a lightweight DNS forwarder and DHCP server.  It is designed
-to provide DNS and optionally, DHCP, to a small network.  It can serve the
+     "Dnsmasq is a light-weight DNS forwarder and DHCP server.  It is designed
+to provide DNS and, optionally, DHCP to a small network.  It can serve the
 names of local machines which are not in the global DNS.  The DHCP server
 integrates with the DNS server and allows machines with DHCP-allocated
-addresses to appear in the DNS with names configured either in each host or in
+addresses to appear in the DNS with names configured either on each host or in
 a central configuration file.  Dnsmasq supports static and dynamic DHCP leases
 and BOOTP/TFTP for network booting of diskless machines.")
     ;; Source files only say GPL2 and GPL3 are allowed.
@@ -99,7 +98,7 @@ and BOOTP/TFTP for network booting of diskless machines.")
 (define-public isc-bind
   (package
     (name "bind")
-    (version "9.11.1-P3")
+    (version "9.12.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -107,7 +106,7 @@ and BOOTP/TFTP for network booting of diskless machines.")
                     version ".tar.gz"))
               (sha256
                (base32
-                "1x6cfwkcv6nwc0mh5fzv70f38nl04yhgq90gr5nrjiif8dsnwhjj"))))
+                "043mjcw405qa0ghm5dkhfsq35gsy279724fz3mjqpr1mbi14dr0n"))))
     (build-system gnu-build-system)
     (outputs `("out" "utils"))
     (inputs
@@ -149,7 +148,8 @@ and BOOTP/TFTP for network booting of diskless machines.")
          ;;          (system "bin/tests/system/ifconfig.sh up")))
          (replace 'check
            (lambda _
-             (zero? (system* "make" "force-test")))))))
+             (invoke "make" "force-test")
+             #t)))))
     (synopsis "An implementation of the Domain Name System")
     (description "BIND is an implementation of the @dfn{Domain Name System}
 (DNS) protocols for the Internet.  It is a reference implementation of those
@@ -181,7 +181,7 @@ high-volume and high-reliability applications. The name BIND stands for
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'autoreconf
+         (add-after 'unpack 'autoreconf
            (lambda _
              ;; Re-generate build files due to unbundling ltdl.
              ;; TODO: Prevent generating new libltdl and building it.
@@ -229,7 +229,7 @@ servers is included, and an up-to-date version is available at
        #:tests? #f
        #:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'create-configure
+         (add-after 'unpack 'create-configure
            (lambda _
              (zero? (system* "make" "configure")))))))
     (native-inputs
@@ -284,7 +284,7 @@ asynchronous fashion.")
 (define-public unbound
   (package
     (name "unbound")
-    (version "1.6.3")
+    (version "1.6.8")
     (source
      (origin
        (method url-fetch)
@@ -292,7 +292,7 @@ asynchronous fashion.")
                            version ".tar.gz"))
        (sha256
         (base32
-         "0pw4m4z5qspsagxzbjb61xq5bhd57amw26xqvqzi6b8d3mf6azjc"))))
+         "0jfxhh4gc5amhndikskz1s7da27ycn442j3l20bm992n7zijid73"))))
     (build-system gnu-build-system)
     (outputs '("out" "python"))
     (native-inputs
@@ -443,34 +443,41 @@ served by AS112.  Stub and forward zones are supported.")
 (define-public yadifa
   (package
     (name "yadifa")
-    (version "2.2.5")
+    (version "2.3.8")
     (source
-     (let ((build "6937"))
+     (let ((build "7713"))
        (origin
          (method url-fetch)
          (uri
           (string-append "http://cdn.yadifa.eu/sites/default/files/releases/"
                          name "-" version "-" build ".tar.gz"))
          (sha256
-          (base32
-           "146fs52izf6dfwsxal3srpwin2yyl41g31cy4pyvbi5mqy2craj7")))))
+          (base32 "15xhzg4crjcxascwpz6y8qpqcgypzv2p9bspdskp4nx1x1y4316c")))))
     (build-system gnu-build-system)
     (native-inputs
      `(("which" ,which)))
     (inputs
      `(("openssl" ,openssl)))
     (arguments
-     `(#:phases (modify-phases %standard-phases
-                  (add-before 'configure 'omit-example-configurations
-                              (lambda _
-                                (substitute* "Makefile.in"
-                                  ((" (etc|var)") ""))
-                                #t)))
-       #:configure-flags (list "--sysconfdir=/etc"      "--localstatedir=/var"
-                               "--enable-shared"        "--disable-static"
-                               "--enable-messages"      "--enable-ctrl"
-                               "--enable-nsec"          "--enable-nsec3"
-                               "--enable-tsig"          "--enable-caching")))
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'omit-example-configurations
+           (lambda _
+             (substitute* "Makefile.in"
+               ((" (etc|var)") ""))
+             #t)))
+       #:configure-flags
+       (list "--sysconfdir=/etc"
+             "--localstatedir=/var"
+             "--disable-build-timestamp" ; build reproducibly
+             "--enable-shared"
+             "--disable-static"
+             "--enable-acl"
+             "--enable-caching"
+             "--enable-ctrl"            ; enable remote control
+             "--enable-nsec"
+             "--enable-nsec3"
+             "--enable-tsig")))
     (home-page "http://www.yadifa.eu/")
     (synopsis "Authoritative DNS name server")
     (description "YADIFA is an authoritative name server for the @dfn{Domain
@@ -483,31 +490,27 @@ Extensions} (DNSSEC).")
 (define-public knot
   (package
     (name "knot")
-    (version "2.5.3")
+    (version "2.6.6")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://secure.nic.cz/files/knot-dns/"
                                   name "-" version ".tar.xz"))
               (sha256
                (base32
-                "13lxxnnw0v7s0q648grz87bwlfwjh5sfbj1qax7jdklalqqy52np"))
+                "02h8qdkja4kic3br79svws6r2pq1ijz945238v99d998d2jxh6ci"))
               (modules '((guix build utils)))
               (snippet
                '(begin
-                  ;; Remove bundled libraries and dependencies on them.
-                  (substitute* "configure"
-                    (("src/contrib/dnstap/Makefile") ""))
-                  (substitute* "src/Makefile.in"
-                    (("contrib/dnstap ") ""))
+                  ;; Delete bundled libraries.
                   (with-directory-excursion "src/contrib"
-                    (for-each delete-file-recursively
-                              (list "dnstap" "lmdb")))
+                    (delete-file-recursively "lmdb"))
                   #t))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
     (inputs
-     `(("gnutls" ,gnutls)
+     `(("fstrm" ,fstrm)
+       ("gnutls" ,gnutls)
        ("jansson" ,jansson)
        ("libcap-ng" ,libcap-ng)
        ("libedit" ,libedit)
@@ -516,6 +519,7 @@ Extensions} (DNSSEC).")
        ("lmdb" ,lmdb)
        ("ncurses" ,ncurses)
        ("nettle" ,nettle)
+       ("protobuf-c" ,protobuf-c)
 
        ;; For ‘pykeymgr’, needed to migrate keys from versions <= 2.4.
        ("python" ,python-2)
@@ -548,6 +552,7 @@ Extensions} (DNSSEC).")
        (list "--sysconfdir=/etc"
              "--localstatedir=/var"
              "--with-module-rosedb=yes" ; serve static records from a database
+             "--with-module-dnstap=yes" ; allow detailed query logging
              (string-append "--with-bash-completions="
                             (assoc-ref %outputs "out")
                             "/etc/bash_completion.d"))))
@@ -560,6 +565,11 @@ number of programming techniques to improve speed.  For example, the responder
 is completely lock-free, resulting in a very high response rate.  Other features
 include automatic @dfn{DNS Security Extensions} (DNSSEC) signing, dynamic record
 synthesis, and on-the-fly re-configuration.")
-    (license (list license:expat        ; src/contrib/{hat-trie,murmurhash3}
-                   license:lgpl2.0+     ; parts of scr/contrib/ucw
-                   license:gpl3+))))    ; everything else
+    (license
+     (list
+      ;; src/contrib/{hat-trie,murmurhash3,openbsd},
+      ;; src/dnssec/contrib/vpool.[ch], and parts of libtap/ are ‘MIT’ (expat).
+      license:expat
+      license:lgpl2.0+              ; parts of scr/contrib/ucw
+      license:public-domain         ; src/contrib/fnv and possibly murmurhash3
+      license:gpl3+))))             ; everything else

@@ -3,6 +3,7 @@
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;; Copyright © 2016, 2017 Mathieu Lirzin <mthl@gnu.org>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -186,8 +187,8 @@ their dependencies.")
       (license l:gpl3+))))
 
 (define-public cuirass
-  (let ((commit "870e8d6ad3415ac61c52e57095fcc6164023a0fc")
-        (revision "6"))
+  (let ((commit "238f856e48ee333ed3e19fa32ce5e1742c650c67")
+        (revision "16"))
     (package
       (name "cuirass")
       (version (string-append "0.0.1-" revision "." (string-take commit 7)))
@@ -199,7 +200,7 @@ their dependencies.")
                 (file-name (string-append name "-" version))
                 (sha256
                  (base32
-                  "0lp5a5p42k7lml15lbmmd7az9i0gw5kips3sh3awd2z79h0w2knw"))))
+                  "15iwdgy561gnsr224rs5z8qn7nrsh1wdlsxr8gwxyk0v4zp6yvbf"))))
       (build-system gnu-build-system)
       (arguments
        '(#:modules ((guix build utils)
@@ -215,7 +216,12 @@ their dependencies.")
                (substitute* "Makefile.am"
                  (("tests/repo.scm \\\\") "\\"))
                #t))
-           (add-before 'configure 'bootstrap
+           (add-after 'disable-repo-tests 'patch-/bin/sh
+             (lambda _
+               (substitute* "build-aux/git-version-gen"
+                 (("#!/bin/sh") (string-append "#!" (which "sh"))))
+               #t))
+           (add-after 'patch-/bin/sh 'bootstrap
              (lambda _ (zero? (system* "sh" "bootstrap"))))
            (add-after 'install 'wrap-program
              (lambda* (#:key inputs outputs #:allow-other-keys)
@@ -223,7 +229,9 @@ their dependencies.")
                (let* ((out    (assoc-ref outputs "out"))
                       (json   (assoc-ref inputs "guile-json"))
                       (sqlite (assoc-ref inputs "guile-sqlite3"))
-                      (git    (assoc-ref inputs "git"))
+                      (git    (assoc-ref inputs "guile-git"))
+                      (bytes  (assoc-ref inputs "guile-bytestructures"))
+                      (fibers (assoc-ref inputs "guile-fibers"))
                       (guix   (assoc-ref inputs "guix"))
                       (guile  (assoc-ref %build-inputs "guile"))
                       (effective (read-line
@@ -232,29 +240,49 @@ their dependencies.")
                                               "-c" "(display (effective-version))")))
                       (mods   (string-append json "/share/guile/site/"
                                              effective ":"
+                                             git "/share/guile/site/"
+                                             effective ":"
+                                             bytes "/share/guile/site/"
+                                             effective ":"
                                              sqlite "/share/guile/site/"
+                                             effective ":"
+                                             fibers "/share/guile/site/"
                                              effective ":"
                                              guix "/share/guile/site/"
                                              effective)))
-                 ;; Make sure 'cuirass' can find the 'git' and 'evaluate'
-                 ;; commands, as well as the relevant Guile modules.
+                 ;; Make sure 'cuirass' can find the 'evaluate' command, as
+                 ;; well as the relevant Guile modules.
                  (wrap-program (string-append out "/bin/cuirass")
-                   `("PATH" ":" prefix (,(string-append out "/bin")
-                                        ,(string-append git "/bin")))
+                   `("PATH" ":" prefix (,(string-append out "/bin")))
                    `("GUILE_LOAD_PATH" ":" prefix (,mods))
                    `("GUILE_LOAD_COMPILED_PATH" ":" prefix (,mods)))
                  #t))))))
       (inputs
        `(("guile" ,guile-2.2)
+         ("guile-fibers" ,guile-fibers)
          ("guile-json" ,guile-json)
          ("guile-sqlite3" ,guile-sqlite3)
-         ("guix" ,guix)
-         ("git" ,git)))
+         ("guile-git" ,guile-git)
+         ;; FIXME: this is propagated by "guile-git", but it needs to be among
+         ;; the inputs to add it to GUILE_LOAD_PATH.
+         ("guile-bytestructures" ,guile-bytestructures)
+         ("guix" ,guix)))
       (native-inputs
        `(("autoconf" ,autoconf)
          ("automake" ,automake)
          ("pkg-config" ,pkg-config)
          ("texinfo" ,texinfo)))
+      (native-search-paths
+       ;; For HTTPS access, Cuirass itself honors these variables, with the
+       ;; same semantics as Git and OpenSSL (respectively).
+       (list (search-path-specification
+              (variable "GIT_SSL_CAINFO")
+              (file-type 'regular)
+              (separator #f)                      ;single entry
+              (files '("etc/ssl/certs/ca-certificates.crt")))
+             (search-path-specification
+              (variable "SSL_CERT_DIR")
+              (files '("etc/ssl/certs")))))
       (synopsis "Continuous integration system")
       (description
        "Cuirass is a continuous integration tool using GNU Guix.  It is

@@ -20,6 +20,7 @@
 (define-module (gnu bootloader extlinux)
   #:use-module (gnu bootloader)
   #:use-module (gnu system)
+  #:use-module (gnu build bootloader)
   #:use-module (gnu packages bootloaders)
   #:use-module (guix gexp)
   #:use-module (guix monads)
@@ -38,14 +39,13 @@
 corresponding to old generations of the system."
 
   (define all-entries
-    (append entries (map menu-entry->boot-parameters
-                         (bootloader-configuration-menu-entries config))))
+    (append entries (bootloader-configuration-menu-entries config)))
 
-  (define (boot-parameters->gexp params)
-    (let ((label (boot-parameters-label params))
-          (kernel (boot-parameters-kernel params))
-          (kernel-arguments (boot-parameters-kernel-arguments params))
-          (initrd (boot-parameters-initrd params)))
+  (define (menu-entry->gexp entry)
+    (let ((label (menu-entry-label entry))
+          (kernel (menu-entry-linux entry))
+          (kernel-arguments (menu-entry-linux-arguments entry))
+          (initrd (menu-entry-initrd entry)))
       #~(format port "LABEL ~a
   MENU LABEL ~a
   KERNEL ~a
@@ -54,7 +54,7 @@ corresponding to old generations of the system."
   APPEND ~a
 ~%"
                 #$label #$label
-                #$kernel #$kernel #$initrd
+                #$kernel (dirname #$kernel) #$initrd
                 (string-join (list #$@kernel-arguments)))))
 
   (define builder
@@ -69,11 +69,11 @@ TIMEOUT ~a~%"
                     (if (> timeout 0) 1 0)
                     ;; timeout is expressed in 1/10s of seconds.
                     (* 10 timeout))
-            #$@(map boot-parameters->gexp all-entries)
+            #$@(map menu-entry->gexp all-entries)
 
             #$@(if (pair? old-entries)
                    #~((format port "~%")
-                      #$@(map boot-parameters->gexp old-entries)
+                      #$@(map menu-entry->gexp old-entries)
                       (format port "~%"))
                    #~())))))
 
@@ -86,14 +86,6 @@ TIMEOUT ~a~%"
 ;;; Install procedures.
 ;;;
 
-(define dd
-  #~(lambda (bs count if of)
-      (zero? (system* "dd"
-                      (string-append "bs=" (number->string bs))
-                      (string-append "count=" (number->string count))
-                      (string-append "if=" if)
-                      (string-append "of=" of)))))
-
 (define (install-extlinux mbr)
   #~(lambda (bootloader device mount-point)
       (let ((extlinux (string-append bootloader "/sbin/extlinux"))
@@ -102,9 +94,10 @@ TIMEOUT ~a~%"
         (for-each (lambda (file)
                     (install-file file install-dir))
                   (find-files syslinux-dir "\\.c32$"))
-
-        (unless (and (zero? (system* extlinux "--install" install-dir))
-                     (#$dd 440 1 (string-append syslinux-dir "/" #$mbr) device))
+        (unless
+            (and (zero? (system* extlinux "--install" install-dir))
+                 (write-file-on-device
+                  (string-append syslinux-dir "/" #$mbr) 440 device 0))
           (error "failed to install SYSLINUX")))))
 
 (define install-extlinux-mbr

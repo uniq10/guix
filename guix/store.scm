@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2017 Caleb Ristvedt <caleb.ristvedt@cune.org>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -26,6 +26,7 @@
   #:use-module (guix base16)
   #:use-module (guix base32)
   #:use-module (guix hash)
+  #:use-module (guix profiling)
   #:autoload   (guix build syscalls) (terminal-columns)
   #:use-module (rnrs bytevectors)
   #:use-module (rnrs io ports)
@@ -42,6 +43,8 @@
   #:use-module (ice-9 regex)
   #:use-module (ice-9 vlist)
   #:use-module (ice-9 popen)
+  #:use-module (ice-9 threads)
+  #:use-module (ice-9 format)
   #:use-module (web uri)
   #:use-module (guix store database)
   #:use-module (guix store deduplication)
@@ -611,7 +614,7 @@ encoding conversion errors."
            (let* ((max-len (read-int p))
                   (data    (make-bytevector max-len))
                   (len     (get-bytevector-n! user-port data 0 max-len)))
-             (write-bytevector data p)
+             (write-bytevector data p len)
              #f))
           ((= k %stderr-next)
            ;; Log a string.  Build logs are usually UTF-8-encoded, but they
@@ -797,16 +800,14 @@ bytevector) as its internal buffer, and a thunk to flush this output port."
 
 (define record-operation
   ;; Optionally, increment the number of calls of the given RPC.
-  (let ((profiled (or (and=> (getenv "GUIX_PROFILING") string-tokenize)
-                      '())))
-    (if (member "rpc" profiled)
-        (begin
-          (add-hook! exit-hook show-rpc-profile)
-          (lambda (name)
-            (let ((count (or (hashq-ref %rpc-calls name) 0)))
-              (hashq-set! %rpc-calls name (+ count 1)))))
-        (lambda (_)
-          #t))))
+  (if (profiled? "rpc")
+      (begin
+        (register-profiling-hook! "rpc" show-rpc-profile)
+        (lambda (name)
+          (let ((count (or (hashq-ref %rpc-calls name) 0)))
+            (hashq-set! %rpc-calls name (+ count 1)))))
+      (lambda (_)
+        #t)))
 
 (define-syntax operation
   (syntax-rules ()
@@ -1482,7 +1483,8 @@ where FILE is the entry's absolute file name and STAT is the result of
 (define* (run-with-store store mval
                          #:key
                          (guile-for-build (%guile-for-build))
-                         (system (%current-system)))
+                         (system (%current-system))
+                         (target #f))
   "Run MVAL, a monadic value in the store monad, in STORE, an open store
 connection, and return the result."
   ;; Initialize the dynamic bindings here to avoid bad surprises.  The
@@ -1490,7 +1492,7 @@ connection, and return the result."
   ;; bind-time and not at call time, which can be disconcerting.
   (parameterize ((%guile-for-build guile-for-build)
                  (%current-system system)
-                 (%current-target-system #f))
+                 (%current-target-system target))
     (call-with-values (lambda ()
                         (run-with-state mval store))
       (lambda (result store)
@@ -1619,8 +1621,10 @@ must be an absolute store file name, or a derivation file name."
                                         "/log/guix/drvs/"
                                         (string-take base 2) "/"
                                         (string-drop base 2)))
+                (log.gz  (string-append log ".gz"))
                 (log.bz2 (string-append log ".bz2")))
-           (cond ((file-exists? log.bz2) log.bz2)
+           (cond ((file-exists? log.gz) log.gz)
+                 ((file-exists? log.bz2) log.bz2)
                  ((file-exists? log) log)
                  (else #f))))
         (else

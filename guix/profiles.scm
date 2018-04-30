@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2014, 2016 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
@@ -33,6 +33,7 @@
   #:use-module (guix derivations)
   #:use-module (guix search-paths)
   #:use-module (guix gexp)
+  #:use-module (guix modules)
   #:use-module (guix monads)
   #:use-module (guix store)
   #:use-module (guix sets)
@@ -493,19 +494,19 @@ must be a manifest-pattern."
 Remove MANIFEST entries that have the same name and output as ENTRIES."
   (define (same-entry? entry name output)
     (match entry
-      (($ <manifest-entry> entry-name _ entry-output _ ...)
+      (($ <manifest-entry> entry-name _ entry-output _)
        (and (equal? name entry-name)
             (equal? output entry-output)))))
 
   (make-manifest
-   (append entries
-           (fold (lambda (entry result)
-                   (match entry
-                     (($ <manifest-entry> name _ out _ ...)
-                      (filter (negate (cut same-entry? <> name out))
-                              result))))
-                 (manifest-entries manifest)
-                 entries))))
+   (fold (lambda (entry result)                   ;XXX: quadratic
+           (match entry
+             (($ <manifest-entry> name _ out _)
+              (cons entry
+                    (remove (cut same-entry? <> name out)
+                            result)))))
+         (manifest-entries manifest)
+         entries)))
 
 (define (manifest-lookup manifest pattern)
   "Return the first item of MANIFEST that matches PATTERN, or #f if there is
@@ -812,7 +813,8 @@ MANIFEST.  Single-file bundles are required by programs such as Git and Lynx."
           ;; install a UTF-8 locale.
           (setenv "LOCPATH"
                   (string-append #+glibc-utf8-locales "/lib/locale/"
-                                 #+(package-version glibc-utf8-locales)))
+                                 #+(version-major+minor
+                                    (package-version glibc-utf8-locales))))
           (setlocale LC_ALL "en_US.utf8")
 
           (match (append-map ca-files '#$(manifest-inputs manifest))
@@ -1095,9 +1097,11 @@ files for the fonts of the @var{manifest} entries."
                                 (unless (and (zero? (system* mkfontscale))
                                              (zero? (system* mkfontdir)))
                                   (exit #f))
-                                (when (empty-file? fonts-scale-file)
+                                (when (and (file-exists? fonts-scale-file)
+                                           (empty-file? fonts-scale-file))
                                   (delete-file fonts-scale-file))
-                                (when (empty-file? fonts-dir-file)
+                                (when (and (file-exists? fonts-dir-file)
+                                           (empty-file? fonts-dir-file))
                                   (delete-file fonts-dir-file))))
                             directories)))))))
 
@@ -1111,86 +1115,73 @@ files for the fonts of the @var{manifest} entries."
 (define (manual-database manifest)
   "Return a derivation that builds the manual page database (\"mandb\") for
 the entries in MANIFEST."
-  (define man-db                                  ;lazy reference
-    (module-ref (resolve-interface '(gnu packages man)) 'man-db))
+  (define gdbm-ffi
+    (module-ref (resolve-interface '(gnu packages guile))
+                'guile-gdbm-ffi))
+
+  (define zlib
+    (module-ref (resolve-interface '(gnu packages compression)) 'zlib))
+
+  (define config.scm
+    (scheme-file "config.scm"
+                 #~(begin
+                     (define-module (guix config)
+                       #:export (%libz))
+
+                     (define %libz
+                       #+(file-append zlib "/lib/libz")))))
+
+  (define modules
+    (cons `((guix config) => ,config.scm)
+          (delete '(guix config)
+                  (source-module-closure `((guix build utils)
+                                           (guix man-db))))))
 
   (define build
-    #~(begin
-        (use-modules (guix build utils)
-                     (srfi srfi-1)
-                     (srfi srfi-19)
-                     (srfi srfi-26))
+    (with-imported-modules modules
+      #~(begin
+          (add-to-load-path (string-append #$gdbm-ffi "/share/guile/site/"
+                                           (effective-version)))
 
-        (define entries
-          (filter-map (lambda (directory)
-                        (let ((man (string-append directory "/share/man")))
-                          (and (directory-exists? man)
-                               man)))
-                      '#$(manifest-inputs manifest)))
+          (use-modules (guix man-db)
+                       (guix build utils)
+                       (srfi srfi-1)
+                       (srfi srfi-19))
 
-        (define manpages-collection-dir
-          (string-append (getenv "PWD") "/manpages-collection"))
+          (define (compute-entries)
+            (append-map (lambda (directory)
+                          (let ((man (string-append directory "/share/man")))
+                            (if (directory-exists? man)
+                                (mandb-entries man)
+                                '())))
+                        '#$(manifest-inputs manifest)))
 
-        (define man-directory
-          (string-append #$output "/share/man"))
+          (define man-directory
+            (string-append #$output "/share/man"))
 
-        (define (get-manpage-tail-path manpage-path)
-          (let ((index (string-contains manpage-path "/share/man/")))
-            (unless index
-              (error "Manual path doesn't contain \"/share/man/\":"
-                     manpage-path))
-            (string-drop manpage-path (+ index (string-length "/share/man/")))))
+          (mkdir-p man-directory)
 
-        (define (populate-manpages-collection-dir entries)
-          (let ((manpages (append-map (cut find-files <> #:stat stat) entries)))
-            (for-each (lambda (manpage)
-                        (let* ((dest-file (string-append
-                                           manpages-collection-dir "/"
-                                           (get-manpage-tail-path manpage))))
-                          (mkdir-p (dirname dest-file))
-                          (catch 'system-error
-                            (lambda ()
-                              (symlink manpage dest-file))
-                            (lambda args
-                              ;; Different packages may contain the same
-                              ;; manpage.  Simply ignore the symlink error.
-                              #t))))
-                      manpages)))
-
-        (mkdir-p manpages-collection-dir)
-        (populate-manpages-collection-dir entries)
-
-        ;; Create a mandb config file which contains a custom made
-        ;; manpath. The associated catpath is the location where the database
-        ;; gets generated.
-        (copy-file #+(file-append man-db "/etc/man_db.conf")
-                   "man_db.conf")
-        (substitute* "man_db.conf"
-          (("MANDB_MAP	/usr/man		/var/cache/man/fsstnd")
-           (string-append "MANDB_MAP " manpages-collection-dir " "
-                          man-directory)))
-
-        (mkdir-p man-directory)
-        (setenv "MANPATH" (string-join entries ":"))
-
-        (format #t "Creating manual page database for ~a packages... "
-                (length entries))
-        (force-output)
-        (let* ((start-time (current-time))
-               (exit-status (system* #+(file-append man-db "/bin/mandb")
-                                    "--quiet" "--create"
-                                    "-C" "man_db.conf"))
-               (duration (time-difference (current-time) start-time)))
-          (format #t "done in ~,3f s~%"
-                  (+ (time-second duration)
-                     (* (time-nanosecond duration) (expt 10 -9))))
+          (format #t "Creating manual page database...~%")
           (force-output)
-          (zero? exit-status))))
+          (let* ((start    (current-time))
+                 (entries  (compute-entries))
+                 (_        (write-mandb-database (string-append man-directory
+                                                                "/index.db")
+                                                 entries))
+                 (duration (time-difference (current-time) start)))
+            (format #t "~a entries processed in ~,1f s~%"
+                    (length entries)
+                    (+ (time-second duration)
+                       (* (time-nanosecond duration) (expt 10 -9))))
+            (force-output)))))
 
   (gexp->derivation "manual-database" build
-                    #:modules '((guix build utils)
-                                (srfi srfi-19)
-                                (srfi srfi-26))
+
+                    ;; Work around GDBM 1.13 issue whereby uninitialized bytes
+                    ;; get written to disk:
+                    ;; <https://debbugs.gnu.org/cgi/bugreport.cgi?bug=29654#23>.
+                    #:env-vars `(("MALLOC_PERTURB_" . "1"))
+
                     #:local-build? #t))
 
 (define %default-profile-hooks
@@ -1254,7 +1245,8 @@ are cross-built for TARGET."
       #~(begin
           (setenv "LOCPATH"
                   #$(file-append glibc-utf8-locales "/lib/locale/"
-                                 (package-version glibc-utf8-locales)))
+                                 (version-major+minor
+                                  (package-version glibc-utf8-locales))))
           (setlocale LC_ALL "en_US.utf8")))
 
     (define builder
@@ -1289,6 +1281,9 @@ are cross-built for TARGET."
     (gexp->derivation "profile" builder
                       #:system system
                       #:target target
+
+                      ;; Don't complain about _IO* on Guile 2.2.
+                      #:env-vars '(("GUILE_WARN_DEPRECATED" . "no"))
 
                       ;; Not worth offloading.
                       #:local-build? #t

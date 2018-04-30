@@ -2,12 +2,15 @@
 ;;; Copyright © 2012, 2013 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2015 Mathieu Lirzin <mthl@gnu.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;; Copyright © 2016 Roel Janssen <roel@gnu.org>
 ;;; Copyright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Hartmut Goebel <h.goebel@crazy-compilers.com>
+;;; Copyright © 2017 Stefan Reichör <stefan@xsteve.at>
+;;; Copyright © 2018 Vasile Dumitrascu <va511e@yahoo.com>
+;;; Copyright © 2018 Eric Bavier <bavier@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,8 +33,11 @@
   #:use-module (guix download)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system trivial)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages)
   #:use-module (gnu packages base)
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages databases)
   #:use-module (gnu packages docbook)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages glib)
@@ -90,7 +96,7 @@ tables.  It includes a library and command-line utility.")
 (define-public fdisk
   (package
     (name "fdisk")
-    (version "2.0.0a")
+    (version "2.0.0a1")
     (source
      (origin
       (method url-fetch)
@@ -98,13 +104,27 @@ tables.  It includes a library and command-line utility.")
                           version ".tar.gz"))
       (sha256
        (base32
-        "04nd7civ561x2lwcmxhsqbprml3178jfc58fy1v7hzqg5k4nbhy3"))))
+        "1d8za79kw8ihnp2br084rgyjv9whkwp7957rzw815i0izx6xhqy9"))))
     (build-system gnu-build-system)
     (inputs
      `(("gettext" ,gettext-minimal)
        ("guile" ,guile-1.8)
        ("util-linux" ,util-linux)
        ("parted" ,parted)))
+    ;; The build neglects to look for its own headers in its own tree.  A next
+    ;; release should fix this, but may never come: GNU fdisk looks abandoned.
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'skip-broken-header-probes
+           (lambda _
+             (substitute* "backend/configure"
+               (("gnufdisk-common.h .*") "\n"))
+             #t)))
+       #:make-flags (list (string-append "CPPFLAGS="
+                                         " -I../common/include "
+                                         " -I../debug/include "
+                                         " -I../exception/include"))))
     (home-page "https://www.gnu.org/software/fdisk/")
     (synopsis "Low-level disk partitioning and formatting")
     (description
@@ -116,7 +136,7 @@ tables, and it understands a variety of different formats.")
 (define-public gptfdisk
   (package
     (name "gptfdisk")
-    (version "1.0.1")
+    (version "1.0.3")
     (source
      (origin
       (method url-fetch)
@@ -124,7 +144,7 @@ tables, and it understands a variety of different formats.")
                           version "/" name "-" version ".tar.gz"))
       (sha256
        (base32
-        "1izazbyv5n2d81qdym77i8mg9m870hiydmq4d0s51npx5vp8lk46"))))
+        "0p0vr67lnqdsgdv2y144xmjqa1a2nijrrd3clc8dc2f46pn5mzc9"))))
     (build-system gnu-build-system)
     (inputs
      `(("gettext" ,gettext-minimal)
@@ -154,15 +174,15 @@ tables, and it understands a variety of different formats.")
     (home-page "http://www.rodsbooks.com/gdisk/")
     (synopsis "Low-level GPT disk partitioning and formatting")
     (description "GPT fdisk (aka gdisk) is a text-mode partitioning tool that
-works on Globally Unique Identifier (GUID) Partition Table (GPT) disks, rather
-than on the more common (through 2009) Master Boot Record (MBR) partition
-tables.")
+works on Globally Unique Identifier (@dfn{GUID}) Partition Table (@dfn{GPT})
+disks, rather than on the older Master Boot Record (@dfn{MBR}) partition
+scheme.")
     (license license:gpl2)))
 
 (define-public ddrescue
   (package
     (name "ddrescue")
-    (version "1.22")
+    (version "1.23")
     (source
      (origin
       (method url-fetch)
@@ -170,7 +190,7 @@ tables.")
                           version ".tar.lz"))
       (sha256
        (base32
-        "19qhx9ggkkjl0g3a88g501wmybkj1y4n5lm5kp0km0blh0p7p189"))))
+        "13cd6c0x91zq10vdlyl6r5rib47bmsn5sshmkin3igwj8pa2vbm9"))))
     (build-system gnu-build-system)
     (home-page "https://www.gnu.org/software/ddrescue/ddrescue.html")
     (synopsis "Data recovery utility")
@@ -200,7 +220,7 @@ to recover data more efficiently by only reading the necessary blocks.")
      `(#:make-flags (list (string-append "PREFIX=" %output)
                           "CC=gcc")))
     (native-inputs
-     `(("xxd" ,vim))) ; for tests
+     `(("xxd" ,xxd))) ; for tests
     (home-page "https://github.com/dosfstools/dosfstools")
     (synopsis "Utilities for making and checking MS-DOS FAT file systems")
     (description
@@ -245,7 +265,7 @@ and a @command{fsck.vfat} compatibility symlink for use in an initrd.")
 (define-public sdparm
   (package
     (name "sdparm")
-    (version "1.09")
+    (version "1.10")
     (source
      (origin
        (method url-fetch)
@@ -253,7 +273,7 @@ and a @command{fsck.vfat} compatibility symlink for use in an initrd.")
                            name "-" version ".tar.xz"))
        (sha256
         (base32
-         "0jakqyjwi72zqjzss04bally0xl0lc4710mx8da08vpmir1hfphg"))))
+         "1jjq3lzgfy4r76rc26q02lv4wm5cb4dx5nh913h489zjrr4f3jbx"))))
     (build-system gnu-build-system)
     (home-page "http://sg.danny.cz/sg/sdparm.html")
     (synopsis "Provide access to SCSI device parameters")
@@ -303,17 +323,17 @@ and can dramatically shorten the lifespan of the drive if left unchecked.")
 (define-public gparted
   (package
     (name "gparted")
-    (version "0.28.1")
+    (version "0.31.0")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "mirror://sourceforge/gparted/gparted/gparted-"
                            version "/gparted-" version ".tar.gz"))
        (sha256
-        (base32 "0cyk8lpimm6wani8khw0szwqkgw5wpq2mfnfxkbgfm2774a1z2bn"))))
+        (base32 "1fh7rpgb4xxdhgyjsirb83zvjfc5mfngb8a1pjbv7r6r6jj4jyrv"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:tests? #f ; Tests require a network connection.
+     `(#:tests? #f                      ; tests require a network connection
        #:configure-flags '("--disable-scrollkeeper")))
     (inputs
      `(("util-linux" ,util-linux)
@@ -330,7 +350,7 @@ and can dramatically shorten the lifespan of the drive if left unchecked.")
     (native-inputs
      `(("intltool" ,intltool)
        ("pkg-config" ,pkg-config)))
-    (home-page "https://sourceforge.net/projects/gparted/")
+    (home-page "https://gparted.org/")
     (synopsis "Partition editor to graphically manage disk partitions")
     (description "GParted is a GNOME partition editor for creating,
 reorganizing, and deleting disk partitions.  It uses libparted from the parted
@@ -339,6 +359,25 @@ permit managing file systems not included in libparted.")
     ;; The home page says GPLv2, but the source code says GPLv2+.
     (license license:gpl2+)))
 
+(define-public pydf
+  (package
+    (name "pydf")
+    (version "12")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "pydf" version))
+       (sha256
+        (base32
+         "0f8ly8xyp93i2hm9c0qjqd4y86nz73axw2f09z01mszwmg1sfivz"))))
+  (build-system python-build-system)
+  (home-page "http://kassiopeia.juls.savba.sk/~garabik/software/pydf/")
+  (synopsis "Colourised @command{df} clone")
+  (description "All-singing, all-dancing, fully colourised @command{df} clone
+written in Python.  It displays the amount of disk space available on the
+mounted file systems, using different colours for different types of file
+systems.  Output format is completely customizable.")
+  (license license:public-domain)))
 
 (define-public f3
   (package
@@ -381,3 +420,113 @@ capacity of a flash card (flash drive, flash disk, pendrive).  F3 writes to
 the card and then checks if can read it.  It will assure you haven't been sold
 a card with a smaller capacity than stated.")
     (license license:gpl3+)))
+
+(define-public python-parted
+  (package
+    (name "python-parted")
+    (version "3.11.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/dcantrell/pyparted/archive/v"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "0r1nyjj40nacnfnv17x2mnsj6ga1qplyxyza82v2809dfhim2fwq"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'check)
+         (add-after 'install 'check
+           (lambda* (#:key outputs inputs #:allow-other-keys)
+             (add-installed-pythonpath inputs outputs)
+             ;; See <https://github.com/dcantrell/pyparted/issues/47>.
+             (substitute* "tests/test__ped_ped.py"
+               (("\"/tmp/temp-device-\"") "self.path"))
+             (invoke "python" "-m" "unittest" "discover" "-v")
+             #t)))))
+    (native-inputs
+     `(("e2fsprogs" ,e2fsprogs)
+       ("pkg-config" ,pkg-config)))
+    (propagated-inputs
+     `(("python-six" ,python-six)))
+    (inputs
+     `(("parted" ,parted)))
+    (home-page "https://github.com/dcantrell/pyparted")
+    (synopsis "Parted bindings for Python")
+    (description "This package provides @code{parted} bindings for Python.")
+    (license license:gpl2+)))
+
+(define-public python2-parted
+  (package-with-python2 python-parted))
+
+(define-public duperemove
+  (package
+    (name "duperemove")
+    (version "v0.11.beta4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/markfasheh/duperemove/archive/"
+                    version ".tar.gz"))
+              (sha256
+               (base32
+                "1h5nk03kflfnzihvn2rvfz1h623x1zpkn9hp29skd7n3f2bc5k7x"))
+              (file-name (string-append name "-" version ".tar.gz"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("glib" ,glib)
+       ("sqlite" ,sqlite)))
+    (arguments
+     `(#:tests? #f                                ;no test suite
+       #:phases
+       (modify-phases %standard-phases
+         ;; no configure script
+         (delete 'configure))
+       #:make-flags (list (string-append "PREFIX=" %output)
+                          "CC=gcc")))
+    (home-page "https://github.com/markfasheh/duperemove")
+    (synopsis "Tools for de-duplicating file system data")
+    (description "Duperemove is a simple tool for finding duplicated extents
+and submitting them for deduplication.  When given a list of files it will
+hash their contents on a block by block basis and compare those hashes to each
+other, finding and categorizing blocks that match each other.  When given the
+@option{-d} option, duperemove will submit those extents for deduplication
+using the Linux kernel extent-same @code{ioctl}.
+
+Duperemove can store the hashes it computes in a @dfn{hash file}.  If given an
+existing hash file, duperemove will only compute hashes for those files which
+have changed since the last run.  Thus you can run duperemove repeatedly on
+your data as it changes, without having to re-checksum unchanged data.
+
+Duperemove can also take input from the @command{fdupes} program.")
+    (license license:gpl2)))
+
+(define-public ranger
+  (package
+    (name "ranger")
+    (version "1.9.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://ranger.github.io/"
+                                  "ranger-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1lnzkrxcnlwnyi3z0v8ybyp8d5rm26qm35rr68kbs2lbs06inha0"))))
+    (build-system python-build-system)
+    (native-inputs                      ;for tests
+     `(("python-pytest" ,python-pytest)
+       ("python-pylint" ,python-pylint)
+       ("python-flake8" ,python-flake8)
+       ("which" ,which)))
+    (arguments '(#:test-target "test"))
+    (home-page "https://ranger.github.io/")
+    (synopsis "Console file manager")
+    (description "ranger is a console file manager with Vi key bindings.  It
+provides a minimalistic and nice curses interface with a view on the directory
+hierarchy.  It ships with @code{rifle}, a file launcher that is good at
+automatically finding out which program to use for what file type.")
+    (license license:gpl3)))

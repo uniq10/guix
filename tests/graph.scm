@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -110,19 +110,23 @@ edges."
                                              (text-file "foo" "bar")))))
            (p        (dummy-package "p" (source o)))
            (implicit (map (match-lambda
-                            ((label package) package))
+                            ((label package) package)
+                            ((label package output) package))
                           (standard-packages))))
       (run-with-store %store
         (export-graph (list p) 'port
                       #:node-type %bag-emerged-node-type
                       #:backend backend))
       ;; We should see exactly P and IMPLICIT, with one edge from P to each
-      ;; element of IMPLICIT.  O must not appear among NODES.
+      ;; element of IMPLICIT.  O must not appear among NODES.  Note: IMPLICIT
+      ;; contains "glibc" twice, once for "out" and a second time for
+      ;; "static", hence the 'delete-duplicates' call below.
       (let-values (((nodes edges) (nodes+edges)))
         (and (equal? (match nodes
                        (((labels names) ...)
                         names))
-                     (map package-full-name (cons p implicit)))
+                     (map package-full-name
+                          (cons p (delete-duplicates implicit))))
              (equal? (match edges
                        (((sources destinations) ...)
                         (zip (map store-path-package-name sources)
@@ -266,6 +270,24 @@ edges."
                              ids))
                           (list txt out))
                   (equal? edges `((,txt ,out)))))))))))
+
+(test-assert "module graph"
+  (let-values (((backend nodes+edges) (make-recording-backend)))
+    (run-with-store %store
+      (export-graph '((gnu packages guile)) 'port
+                    #:node-type %module-node-type
+                    #:backend backend))
+
+    (let-values (((nodes edges) (nodes+edges)))
+      (and (member '(gnu packages guile)
+                   (match nodes
+                     (((ids labels) ...) ids)))
+           (->bool (and (member (list '(gnu packages guile)
+                                      '(gnu packages libunistring))
+                                edges)
+                        (member (list '(gnu packages guile)
+                                      '(gnu packages bdw-gc))
+                                edges)))))))
 
 (test-assert "node-edges"
   (run-with-store %store

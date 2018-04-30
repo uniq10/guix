@@ -1,14 +1,17 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 Sou Bunnbu <iyzsong@gmail.com>
-;;; Copyright © 2015 Andy Wingo <wingo@pobox.com>
+;;; Copyright © 2015, 2017 Andy Wingo <wingo@pobox.com>
 ;;; Copyright © 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2015, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 David Hashe <david.hashe@dhashe.com>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
 ;;; Copyright © 2017 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017, 2018 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2017 Brendan Tildesley <brendan.tildesley@openmailbox.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,18 +30,24 @@
 
 (define-module (gnu packages freedesktop)
   #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (guix utils)
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system meson)
+  #:use-module (guix build-system perl)
   #:use-module (guix build-system python)
   #:use-module (gnu packages acl)
   #:use-module (gnu packages admin)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages bash)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages cryptsetup)
   #:use-module (gnu packages databases)
+  #:use-module (gnu packages disk)
   #:use-module (gnu packages docbook)
   #:use-module (gnu packages documentation)
   #:use-module (gnu packages gettext)
@@ -54,18 +63,25 @@
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages m4)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages polkit)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages valgrind)
   #:use-module (gnu packages w3m)
+  #:use-module (gnu packages web)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xdisorg)
-  #:use-module (gnu packages xorg))
+  #:use-module (gnu packages xorg)
+  #:use-module (srfi srfi-1))
 
 (define-public xdg-utils
   (package
     (name "xdg-utils")
-    (version "1.1.1")
+    (version "1.1.2")
     (source
       (origin
         (method url-fetch)
@@ -74,7 +90,7 @@
                  version ".tar.gz"))
           (sha256
             (base32
-             "09a1pk3ifsndc5qz2kcd1557i137gpgnv3d739pv22vfayi67pdh"))))
+             "1k4b4m3aiyqn9k12a0ihcdahzlspl3zhskmm1d7228dvqvi546cm"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("docbook-xsl" ,docbook-xsl)
@@ -83,7 +99,8 @@
        ("w3m" ,w3m)
        ("xmlto" ,xmlto)))
     (propagated-inputs
-     `(("xprop" ,xprop) ; for Xfce detecting
+     `(("perl-file-mimeinfo" ,perl-file-mimeinfo) ; for mimeopen fallback
+       ("xprop" ,xprop) ; for Xfce detecting
        ("xset" ,xset))) ; for xdg-screensaver
     (arguments
      `(#:tests? #f   ; no check target
@@ -129,26 +146,31 @@ freedesktop.org project.")
 (define-public libinput
   (package
     (name "libinput")
-    (version "1.7.3")
+    (version "1.10.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://freedesktop.org/software/libinput/"
                                   name "-" version ".tar.xz"))
               (sha256
                (base32
-                "07fbzxddvhjcch43hdxb24sj7ri96zzpcjalvsicmw0i4wnn2v89"))))
-    (build-system gnu-build-system)
+                "1fbv354ii1g4wc4k7d7gbnalqjpzmk9zlpi8linqrzlf6inpc28m"))))
+    (build-system meson-build-system)
+    (arguments
+     `(#:configure-flags '("-Ddocumentation=false")))
     (native-inputs
-     `(("cairo" ,cairo)
-       ("gtk+" ,gtk+)
-       ("pkg-config" ,pkg-config)))
+     `(("check" ,check)
+       ("pkg-config" ,pkg-config)
+       ("valgrind" ,valgrind)))
     (propagated-inputs
-     `(("libudev" ,eudev))) ; required by libinput.pc
-    (inputs
-     `(("glib" ,glib)
+     `(;; In Requires.private of libinput.pc.
        ("libevdev" ,libevdev)
-       ("mtdev" ,mtdev)
-       ("libwacom" ,libwacom)))
+       ("libudev" ,eudev)
+       ("libwacom" ,libwacom)
+       ("mtdev" ,mtdev)))
+    (inputs
+     `(("cairo" ,cairo)
+       ("glib" ,glib)
+       ("gtk+" ,gtk+)))
     (home-page "https://www.freedesktop.org/wiki/Software/libinput/")
     (synopsis "Input devices handling library")
     (description
@@ -159,14 +181,15 @@ other applications that need to directly deal with input devices.")
 (define-public libinput-minimal
   (package (inherit libinput)
     (name "libinput-minimal")
-    (native-inputs
-     `(("pkg-config" ,pkg-config)))
-    (inputs
-     `(("libevdev" ,libevdev)
-       ("mtdev" ,mtdev)))
+    (inputs '())
+    (propagated-inputs
+     (alist-delete "libwacom" (package-propagated-inputs libinput)))
     (arguments
-      `(#:configure-flags
-        '("--disable-libwacom")))))
+     (substitute-keyword-arguments (package-arguments libinput)
+      ((#:configure-flags flags ''())
+       `(cons* "-Dlibwacom=false"
+               "-Ddebug-gui=false"    ;requires gtk+@3
+               ,flags))))))
 
 (define-public libxdg-basedir
   (package
@@ -204,14 +227,15 @@ the freedesktop.org XDG Base Directory specification.")
 (define-public elogind
   (package
     (name "elogind")
-    (version "219.14")
+    (version "232.4")
     (source (origin
               (method url-fetch)
-              (uri (string-append "https://wingolog.org/pub/" name "/"
-                                  name "-" version ".tar.xz"))
+              (uri (string-append "https://github.com/elogind/elogind/"
+                                  "archive/v" version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1jckc4wx199n1q4r4fv43ibjs6nlq91s39w9r78ilk1z383m1hcx"))
+                "1qcxian48z2dj5gfmp7brrngdydqf2jm00f4rjr5sy1myh8fy931"))
               (modules '((guix build utils)))
               (snippet
                '(begin
@@ -222,25 +246,73 @@ the freedesktop.org XDG Base Directory specification.")
                     (("XSLTPROC_FLAGS = ") "XSLTPROC_FLAGS = --novalid"))))))
     (build-system gnu-build-system)
     (arguments
-     `(#:configure-flags
-       (list (string-append "--with-libcap="
-                            (assoc-ref %build-inputs "libcap"))
-             (string-append "--with-udevrulesdir="
+     `(#:tests? #f ;FIXME: "make check" in the "po" directory fails.
+       #:configure-flags
+       (list (string-append "--with-udevrulesdir="
                             (assoc-ref %outputs "out")
-                            "/lib/udev/rules.d"))
+                            "/lib/udev/rules.d")
+
+             ;; Let elogind be its own cgroup controller, rather than relying
+             ;; on systemd or OpenRC.  By default, 'configure' makes an
+             ;; incorrect guess.
+             "--with-cgroup-controller=elogind"
+
+             (string-append "--with-rootprefix="
+                            (assoc-ref %outputs "out"))
+             (string-append "--with-rootlibexecdir="
+                            (assoc-ref %outputs "out")
+                            "/libexec/elogind")
+             ;; These are needed to ensure that lto linking works.
+             "RANLIB=gcc-ranlib"
+             "AR=gcc-ar"
+             "NM=gcc-nm")
        #:make-flags '("PKTTYAGENT=/run/current-system/profile/bin/pkttyagent")
-       #:phases (modify-phases %standard-phases
-                  (add-before 'build 'fix-service-file
-                    (lambda* (#:key outputs #:allow-other-keys)
-                      ;; Fix the file name of the 'elogind' binary in the D-Bus
-                      ;; '.service' file.
-                      (substitute* "src/login/org.freedesktop.login1.service"
-                        (("^Exec=.*")
-                         (string-append "Exec=" (assoc-ref %outputs "out")
-                                        "/libexec/elogind/elogind\n"))))))))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-locale-header
+           (lambda _
+             ;; Fix compilation with glibc >= 2.26, which removed xlocale.h.
+             ;; This can be removed for elogind 234.
+             (substitute* "src/basic/parse-util.c"
+               (("xlocale\\.h") "locale.h"))))
+         (add-before 'configure 'autogen
+           (lambda _
+             (and (zero? (system* "intltoolize" "--force" "--automake"))
+                  (zero? (system* "autoreconf" "-vif")))))
+         (add-before 'build 'fix-service-file
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Fix the file name of the 'elogind' binary in the D-Bus
+             ;; '.service' file.
+             (substitute* "src/login/org.freedesktop.login1.service"
+               (("^Exec=.*")
+                (string-append "Exec=" (assoc-ref %outputs "out")
+                               "/libexec/elogind/elogind\n")))))
+         (add-after 'install 'add-libcap-to-search-path
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             ;; Add a missing '-L' for libcap in libelogind.la.  See
+             ;; <https://lists.gnu.org/archive/html/guix-devel/2017-09/msg00084.html>.
+             (let ((libcap (assoc-ref inputs "libcap"))
+                   (out    (assoc-ref outputs "out")))
+               (substitute* (string-append out "/lib/libelogind.la")
+                 (("-lcap")
+                  (string-append "-L" libcap "/lib -lcap")))
+               #t)))
+         (add-after 'unpack 'remove-uaccess-tag
+           (lambda _
+             ;; systemd supports a "uaccess" built-in tag, but eudev currently
+             ;; doesn't.  This leads to eudev warnings that we'd rather not
+             ;; see, so remove the reference to "uaccess."
+             (substitute* "src/login/73-seat-late.rules.in"
+               (("^TAG==\"uaccess\".*" line)
+                (string-append "# " line "\n")))
+             #t)))))
     (native-inputs
-     `(("intltool" ,intltool)
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)
+       ("intltool" ,intltool)
        ("gettext" ,gettext-minimal)
+       ("python" ,python)
        ("docbook-xsl" ,docbook-xsl)
        ("docbook-xml" ,docbook-xml)
        ("xsltproc" ,libxslt)
@@ -260,7 +332,7 @@ the freedesktop.org XDG Base Directory specification.")
        ("dbus" ,dbus)
        ("eudev" ,eudev)
        ("acl" ,acl)))           ;to add individual users to ACLs on /dev nodes
-    (home-page "https://github.com/wingo/elogind")
+    (home-page "https://github.com/elogind/elogind")
     (synopsis "User, seat, and session management service")
     (description "Elogind is the systemd project's \"logind\" service,
 extracted out as a separate project.  Elogind integrates with PAM to provide
@@ -271,7 +343,7 @@ of a the system to know what users are logged in, and where.")
 (define-public packagekit
   (package
     (name "packagekit")
-    (version "1.1.5")
+    (version "1.1.10")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -280,7 +352,7 @@ of a the system to know what users are logged in, and where.")
                    "PackageKit-" version ".tar.xz"))
              (sha256
               (base32
-               "035pqxgkyki813hyw2frrbpfllq113zfk5qcp9wvsq5lsp74ix2h"))))
+               "1msfmb22cm4s3l6vsbr86b8s0v897sy6gcga3qg87z7640a0di2b"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f
@@ -295,7 +367,7 @@ of a the system to know what users are logged in, and where.")
        ("glib:bin" ,glib "bin")))
     (inputs
      `(("glib" ,glib)
-       ("bash-completion", bash-completion)
+       ("bash-completion" ,bash-completion)
        ("polkit" ,polkit)))
     (propagated-inputs
      `(("sqlite" ,sqlite)))
@@ -324,28 +396,30 @@ manager for the current system.")
     (build-system python-build-system)
     (arguments
      '(#:phases
-       (alist-replace
-        'check
-        (lambda* (#:key inputs #:allow-other-keys)
-          (setenv "XDG_DATA_DIRS"
-                  (string-append (assoc-ref inputs "shared-mime-info")
-                                 "/share/"))
-          (substitute* "test/test-icon.py"
-            (("/usr/share/icons/hicolor/index.theme")
-             (string-append (assoc-ref inputs "hicolor-icon-theme")
-                            "/share/icons/hicolor/index.theme")))
+       (modify-phases %standard-phases
+         (replace 'check
+           (lambda* (#:key inputs #:allow-other-keys)
+             (setenv "XDG_DATA_DIRS"
+                     (string-append (assoc-ref inputs "shared-mime-info")
+                                    "/share/"))
+             (substitute* "test/test-icon.py"
+               (("/usr/share/icons/hicolor/index.theme")
+                (string-append (assoc-ref inputs "hicolor-icon-theme")
+                               "/share/icons/hicolor/index.theme"))
+               ;; FIXME: This test fails because the theme contains the unknown
+               ;; key "Scale".
+               (("theme.validate\\(\\)") "#"))
 
-          ;; One test fails with:
-          ;; AssertionError: 'x-apple-ios-png' != 'png'
-          (substitute* "test/test-mime.py"
-            (("self.check_mimetype\\(imgpng, 'image', 'png'\\)") "#"))
-          (zero? (system* "nosetests" "-v")))
-        %standard-phases)))
+             ;; One test fails with:
+             ;; AssertionError: 'x-apple-ios-png' != 'png'
+             (substitute* "test/test-mime.py"
+               (("self.check_mimetype\\(imgpng, 'image', 'png'\\)") "#"))
+             (zero? (system* "nosetests" "-v")))))))
     (native-inputs
      `(("shared-mime-info" ,shared-mime-info) ;for tests
        ("hicolor-icon-theme" ,hicolor-icon-theme) ;for tests
        ("python-nose" ,python-nose)))
-    (home-page "http://freedesktop.org/wiki/Software/pyxdg")
+    (home-page "https://www.freedesktop.org/wiki/Software/pyxdg")
     (synopsis "Implementations of freedesktop.org standards in Python")
     (description
      "PyXDG is a collection of implementations of freedesktop.org standards in
@@ -358,16 +432,17 @@ Python.")
 (define-public wayland
   (package
     (name "wayland")
-    (version "1.13.0")
+    (version "1.14.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://wayland.freedesktop.org/releases/"
                                   name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0lgywr1m0d79vr4s8aimj8a307nss29hhy68gjpqj7m667055c39"))))
+                "1f3sla6h0bw15fz8pjc67jhwj7pwmfdc7qlj42j5k9v116ycm07d"))))
     (build-system gnu-build-system)
-    (arguments `(#:parallel-tests? #f))
+    (arguments
+     `(#:parallel-tests? #f))
     (native-inputs
      `(("doxygen" ,doxygen)
        ("graphviz" ,graphviz)
@@ -393,7 +468,7 @@ applications, X servers (rootless or fullscreen) or other display servers.")
 (define-public wayland-protocols
   (package
     (name "wayland-protocols")
-    (version "1.7")
+    (version "1.12")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -401,7 +476,7 @@ applications, X servers (rootless or fullscreen) or other display servers.")
                     "wayland-protocols-" version ".tar.xz"))
               (sha256
                (base32
-                "07qw166s6bm81zfnhf4lmww6wj0il960fm3vp7n1z3rign9jlpv3"))))
+                "1cn8ny4zr9xlcdh8qi1qnkmvia8cp4ixnsbhd9sp9571w6lyh69v"))))
     (build-system gnu-build-system)
     (inputs
      `(("wayland" ,wayland)))
@@ -415,7 +490,7 @@ applications, X servers (rootless or fullscreen) or other display servers.")
 (define-public weston
   (package
     (name "weston")
-    (version "2.0.0")
+    (version "3.0.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -423,7 +498,7 @@ applications, X servers (rootless or fullscreen) or other display servers.")
                     "weston-" version ".tar.xz"))
               (sha256
                (base32
-                "1n35acsknwqfhsni854q5mjq2gnbnfdvinh92rpij67i4yn4dr5l"))))
+                "19936zlkb75xcaidd8fag4ah8000wrh2ziqy7nxkq36pimgdbqfd"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)
@@ -564,7 +639,9 @@ Analysis and Reporting Technology) functionality.")
        ("libatasmart" ,libatasmart)
        ("libgudev" ,libgudev)
        ("polkit" ,polkit)
-       ("util-linux" ,util-linux)))
+       ("util-linux" ,util-linux)
+       ("cryptsetup" ,cryptsetup)
+       ("parted" ,parted)))
     (outputs '("out"
                "doc"))                            ;5 MiB of gtk-doc HTML
     (arguments
@@ -604,14 +681,22 @@ Analysis and Reporting Technology) functionality.")
                "girdir = $(datadir)/gir-1.0\n")
               (("typelibsdir = .*")
                "typelibsdir = $(libdir)/girepository-1.0\n"))))
-         (add-after 'install 'set-mount-file-name
+         (add-after 'install 'wrap-udisksd
            (lambda* (#:key outputs inputs #:allow-other-keys)
              ;; Tell 'udisksd' where to find the 'mount' command.
              (let ((out   (assoc-ref outputs "out"))
-                   (utils (assoc-ref inputs "util-linux")))
+                   (utils (assoc-ref inputs "util-linux"))
+                   (cryptsetup (assoc-ref inputs "cryptsetup"))
+                   (parted (assoc-ref inputs "parted")))
                (wrap-program (string-append out "/libexec/udisks2/udisksd")
                  `("PATH" ":" prefix
                    (,(string-append utils "/bin") ;for 'mount'
+                    ;; cryptsetup is required for setting encrypted
+                    ;; partitions, e.g. in gnome-disks
+                    ,(string-append cryptsetup "/sbin")
+                    ;; parted is required for managing partitions, e.g. in
+                    ;; gnome-disks
+                    ,(string-append parted "/sbin")
                     "/run/current-system/profile/bin"
                     "/run/current-system/profile/sbin")))
                #t))))))
@@ -645,10 +730,17 @@ message bus.")
        (modify-phases %standard-phases
          (add-before
           'configure 'pre-configure
-          (lambda _
-            ;; Don't try to create /var/lib/AccoutsService.
+          (lambda* (#:key inputs #:allow-other-keys)
+            ;; Don't try to create /var/lib/AccountsService.
             (substitute* "src/Makefile.in"
               (("\\$\\(MKDIR_P\\).*/lib/AccountsService.*") "true"))
+            (let ((shadow (assoc-ref inputs "shadow")))
+              (substitute* '("src/user.c" "src/daemon.c")
+                (("/usr/sbin/usermod") (string-append shadow "/sbin/usermod"))
+                (("/usr/sbin/useradd") (string-append shadow "/sbin/useradd"))
+                (("/usr/sbin/userdel") (string-append shadow "/sbin/userdel"))
+                (("/usr/bin/passwd")   (string-append shadow "/bin/passwd"))
+                (("/usr/bin/chage")    (string-append shadow "/bin/chage"))))
             #t)))))
     (native-inputs
      `(("glib:bin" ,glib "bin") ; for gdbus-codegen, etc.
@@ -656,8 +748,9 @@ message bus.")
        ("intltool" ,intltool)
        ("pkg-config" ,pkg-config)))
     (inputs
-     `(("polkit" ,polkit)))
-    (home-page "http://www.freedesktop.org/wiki/Software/AccountsService/")
+     `(("shadow" ,shadow)
+       ("polkit" ,polkit)))
+    (home-page "https://www.freedesktop.org/wiki/Software/AccountsService/")
     (synopsis "D-Bus interface for user account query and manipulation")
     (description
      "The AccountService project provides a set of D-Bus interfaces for querying
@@ -668,7 +761,7 @@ interfaces, based on the useradd, usermod and userdel commands.")
 (define-public libmbim
   (package
     (name "libmbim")
-    (version "1.12.4")
+    (version "1.16.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -676,7 +769,7 @@ interfaces, based on the useradd, usermod and userdel commands.")
                     name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0flpgzsqpjgybjkx4smbb4rjxf2w1xgd1v9gmz61rvl89qasznbv"))))
+                "1hpsjc7bzmakzvj8z9fffvqknc38fa8ridpmklq46jyxxnz51jn8"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("glib:bin" ,glib "bin") ; for glib-mkenums
@@ -757,7 +850,7 @@ which speak the Qualcomm MSM Interface (QMI) protocol.")
        ("libqmi" ,libqmi)
        ("polkit" ,polkit)))
     (synopsis "Mobile broadband modems manager")
-    (home-page "http://www.freedesktop.org/wiki/Software/ModemManager/")
+    (home-page "https://www.freedesktop.org/wiki/Software/ModemManager/")
     (description
      "ModemManager is a DBus-activated daemon which controls mobile
 broadband (2G/3G/4G) devices and connections.  Whether built-in devices, USB
@@ -799,7 +892,7 @@ modems and setup connections with them.")
        ("sqlite" ,sqlite)
        ("telepathy-glib" ,telepathy-glib)))
     (synopsis "Telepathy logger library")
-    (home-page "http://telepathy.freedesktop.org/")
+    (home-page "https://telepathy.freedesktop.org/")
     (description
      "Telepathy logger is a headless observer client that logs information
 received by the Telepathy framework.  It features pluggable backends to log
@@ -826,7 +919,7 @@ different sorts of messages in different formats.")
        ("python-dbus" ,python2-dbus)))
     (propagated-inputs
      `(("telepathy-glib" ,telepathy-glib)))
-    (home-page "http://telepathy.freedesktop.org/")
+    (home-page "https://telepathy.freedesktop.org/")
     (synopsis "Telepathy IRC connection manager")
     (description
      "Idle is an IRC connection manager for the Telepathy framework.  This
@@ -888,7 +981,7 @@ share connections to real-time communication services without conflicting.")
      `(("colord" ,colord)
        ("gtk+" ,gtk+)))
     (synopsis "GTK integration for libcolord")
-    (home-page "http://www.freedesktop.org/software/colord/")
+    (home-page "https://www.freedesktop.org/software/colord/")
     (description
      "This is a GTK+ convenience library for interacting with colord.  It is
 useful for both applications which need colour management and applications that
@@ -985,7 +1078,7 @@ to applications simultaneously competing for fingerprint readers.")
      `(("pkg-config" ,pkg-config)))
     (inputs
      `(("glib" ,glib)))
-    (home-page "http://www.freedesktop.org/wiki/Software/desktop-file-utils/")
+    (home-page "https://www.freedesktop.org/wiki/Software/desktop-file-utils/")
     (synopsis "Utilities for working with desktop entries")
     (description
      "This package contains a few command line utilities for working with
@@ -1000,3 +1093,154 @@ desktop-file-install: installs a desktop file to the applications directory,
 update-desktop-database: updates the database containing a cache of MIME types
                          handled by desktop files.")
     (license license:gpl2+)))
+
+(define-public xdg-user-dirs
+  (package
+    (name "xdg-user-dirs")
+    (version "0.17")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://user-dirs.freedesktop.org/releases/"
+                                    name "-" version ".tar.gz"))
+              (sha256
+               (base32 "13216b8rfkzak5k6bvpx6jvqv3cnbgpijnjwj8a8d3kq4cl0a1ra"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("gettext" ,gettext-minimal)
+       ("docbook-xsl" ,docbook-xsl)
+       ("docbook-xml" ,docbook-xml-4.3)
+       ("xsltproc" ,libxslt)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'locate-catalog-files
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((xmldoc (string-append (assoc-ref inputs "docbook-xml")
+                                          "/xml/dtd/docbook"))
+                   (xsldoc (string-append (assoc-ref inputs "docbook-xsl")
+                                          "/xml/xsl/docbook-xsl-"
+                                          ,(package-version docbook-xsl))))
+               (for-each (lambda (file)
+                           (substitute* file
+                             (("http://.*/docbookx\\.dtd")
+                              (string-append xmldoc "/docbookx.dtd"))))
+                         (find-files "man" "\\.xml$"))
+               (substitute* "man/Makefile"
+                 (("http://.*/docbook\\.xsl")
+                  (string-append xsldoc "/manpages/docbook.xsl")))
+               #t))))))
+    (home-page "https://www.freedesktop.org/wiki/Software/xdg-user-dirs/")
+    (synopsis "Tool to help manage \"well known\" user directories")
+    (description "xdg-user-dirs is a tool to help manage \"well known\" user
+directories, such as the desktop folder or the music folder. It also handles
+localization (i.e. translation) of the file names.  Designed to be
+automatically run when a user logs in, xdg-user-dirs can also be run
+manually by a user.")
+    (license license:gpl2)))
+
+(define-public perl-file-basedir
+  (package
+    (name "perl-file-basedir")
+    (version "0.08")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/K/KI/KIMRYAN/"
+                           "File-BaseDir-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1qq5ag9zffx8zc5i9b4z03ar80pqj4drgk3vjdlyfapjwb9zqrf0"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-build" ,perl-module-build)
+       ("perl-file-which" ,perl-file-which)
+       ("perl-test-pod" ,perl-test-pod)
+       ("perl-test-pod-coverage" ,perl-test-pod-coverage)
+       ("xdg-user-dirs" ,xdg-user-dirs)))
+    (propagated-inputs
+     `(("perl-ipc-system-simple" ,perl-ipc-system-simple)))
+    (home-page "http://search.cpan.org/dist/File-BaseDir/")
+    (synopsis "Use the Freedesktop.org base directory specification")
+    (description
+     "@code{File::Basedir} can be used to find directories and files as
+specified by the Freedesktop.org Base Directory Specification.  This
+specifications gives a mechanism to locate directories for configuration,
+application data and cache data.")
+    (license license:perl-license)))
+
+(define-public perl-file-desktopentry
+  (package
+    (name "perl-file-desktopentry")
+    (version "0.22")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/M/MI/MICHIELB/"
+                           "File-DesktopEntry-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1f1maqix2kbfg2rf008m7mqnvv6nvcf9y6pcgdv2kxp2vbih370n"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-test-pod" ,perl-test-pod)
+       ("perl-test-pod-coverage" ,perl-test-pod-coverage)))
+    (propagated-inputs
+     `(("perl-file-basedir" ,perl-file-basedir)
+       ("perl-uri" ,perl-uri)))
+    (home-page "http://search.cpan.org/~michielb/File-DesktopEntry/")
+    (synopsis "Handle @file{.desktop} files")
+    (description
+     "@code{File::DesktopEntry} parses @file{.desktop} files defined by the
+Freedesktop.org @dfn{Desktop Entry} specification.  It can also run the
+applications define in those files.")
+    (license license:perl-license)))
+
+(define-public perl-file-mimeinfo
+  (package
+    (name "perl-file-mimeinfo")
+    (version "0.28")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/M/MI/MICHIELB/"
+                           "File-MimeInfo-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1ipbh63bkh1r2gy5g7q4bzhki8j29mm1jkhbv60p9vwsdys5s91a"))))
+    (build-system perl-build-system)
+    ;; If the tests are fixed, add perl-test-pod, perl-test-pod-coverage, and
+    ;; perl-test-tiny as native-inputs.
+    (propagated-inputs
+     `(("shared-mime-info" ,shared-mime-info)
+       ("perl-file-desktopentry" ,perl-file-desktopentry)))
+    (arguments
+     ;; Some tests fail due to requiring the mimetype of perl files to be
+     ;; text/plain when they are actually application/x-perl.
+     `(#:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'wrap-programs
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (for-each (lambda (prog)
+                           (wrap-program (string-append out "/bin/" prog)
+                             `("PERL5LIB" ":" prefix
+                               (,(string-append (getenv "PERL5LIB") ":" out
+                                                "/lib/perl5/site_perl")))))
+                         '("mimeopen" "mimetype")))
+             #t)))))
+    (home-page "http://search.cpan.org/dist/File-MimeInfo/")
+    (synopsis "Determine file type from the file name")
+    (description
+     "@code{File::Mimeinfo} can be used to determine the MIME type of a file.
+It tries to implement the Freedesktop specification for a shared MIME
+database.
+
+This package also contains two related utilities:
+
+@itemize
+@item @command{mimetype} determines a file's MIME type;
+@item @command{mimeopen} opens files in an appropriate program according to
+their MIME type.
+@end itemize")
+    (license license:perl-license)))

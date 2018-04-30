@@ -282,7 +282,7 @@ Report the size of PACKAGE and its dependencies.\n"))
 
 (define %default-options
   `((system . ,(%current-system))
-    (profile<? . ,profile-closure<?)))
+    (profile<? . ,profile-self<?)))
 
 
 ;;;
@@ -291,7 +291,8 @@ Report the size of PACKAGE and its dependencies.\n"))
 
 (define (guix-size . args)
   (with-error-handling
-    (let* ((opts     (parse-command-line args %options (list %default-options)))
+    (let* ((opts     (parse-command-line args %options (list %default-options)
+                                         #:build-options? #f))
            (files    (filter-map (match-lambda
                                    (('argument . file) file)
                                    (_ #f))

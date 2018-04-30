@@ -2,6 +2,7 @@
 ;;; Copyright © 2015 Andy Wingo <wingo@igalia.com>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Carlo Zancanaro <carlo@zancanaro.id.au>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -745,12 +746,6 @@ allowed too, like 10.0.0.10-10.0.0.30.")
    "How long to redirect users to a specific server after it no longer
 has any connections.")
 
-  (director-doveadm-port
-   (non-negative-integer 0)
-   "TCP/IP port that accepts doveadm connections (instead of director
-connections) If you enable this, you'll also need to add
-@samp{inet-listener} for the port.")
-
   (director-username-hash
    (string "%Lu")
    "How the username is translated before being hashed.  Useful values
@@ -831,7 +826,7 @@ string.")
 string, %$ contains the data we want to log.")
 
   (mail-log-prefix
-   (string "\"%s(%u): \"")
+   (string "\"%s(%u)<%{pid}><%{session}>: \"")
    "Log prefix for mail processes.  See doc/wiki/Variables.txt for list
 of possible variables you can use.")
 
@@ -1145,7 +1140,7 @@ files.  If an index file already exists it's still read, just not
 updated.")
 
   (mdbox-rotate-size
-   (non-negative-integer #e2e6)
+   (non-negative-integer #e10e6)
    "Maximum dbox file size until it's rotated.")
 
   (mdbox-rotate-interval
@@ -1262,18 +1257,12 @@ it, set @samp{auth-ssl-require-client-cert? #t} in auth section.")
 x500UniqueIdentifier are the usual choices.  You'll also need to set
 @samp{auth-ssl-username-from-cert? #t}.")
 
-  (ssl-parameters-regenerate
-   (hours 168)
-   "How often to regenerate the SSL parameters file.  Generation is
-quite CPU intensive operation.  The value is in hours, 0 disables
-regeneration entirely.")
-
-  (ssl-protocols
-   (string "!SSLv2")
-   "SSL protocols to use.")
+  (ssl-min-protocol
+   (string "TLSv1")
+   "Minimum SSL protocol version to accept.")
 
   (ssl-cipher-list
-   (string "ALL:!LOW:!SSLv2:!EXP:!aNULL")
+   (string "ALL:!kRSA:!SRP:!kDHd:!DSS:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK:!RC4:!ADH:!LOW@STRENGTH")
    "SSL ciphers to use.")
 
   (ssl-crypto-device
@@ -1356,14 +1345,15 @@ get \"Too long argument\" or \"IMAP command line too large\" errors
 often.")
 
   (imap-logout-format
-   (string "in=%i out=%o")
+   (string "in=%i out=%o deleted=%{deleted} expunged=%{expunged} trashed=%{trashed} hdr_count=%{fetch_hdr_count} hdr_bytes=%{fetch_hdr_bytes} body_count=%{fetch_body_count} body_bytes=%{fetch_body_bytes}")
    "IMAP logout format string:
 @table @code
 @item %i
 total number of bytes read from client
 @item %o
 total number of bytes sent to client.
-@end table")
+@end table
+See @file{doc/wiki/Variables.txt} for a list of all the variables you can use.")
 
   (imap-capability
    (string "")
@@ -1445,90 +1435,91 @@ greyed out, instead of only later giving \"not selectable\" popup error.
          (home-directory "/var/empty")
          (shell (file-append shadow "/sbin/nologin")))))
 
-(define %dovecot-activation
+(define (%dovecot-activation config)
   ;; Activation gexp.
-  #~(begin
-      (use-modules (guix build utils))
-      (define (mkdir-p/perms directory owner perms)
-        (mkdir-p directory)
-        (chown "/var/run/dovecot" (passwd:uid owner) (passwd:gid owner))
-        (chmod directory perms))
-      (define (build-subject parameters)
-        (string-concatenate
-         (map (lambda (pair)
-                (let ((k (car pair)) (v (cdr pair)))
-                  (define (escape-char str chr)
-                    (string-join (string-split str chr) (string #\\ chr)))
-                  (string-append "/" k "="
-                                 (escape-char (escape-char v #\=) #\/))))
-              (filter (lambda (pair) (cdr pair)) parameters))))
-      (define* (create-self-signed-certificate-if-absent
-                #:key private-key public-key (owner (getpwnam "root"))
-                (common-name (gethostname))
-                (organization-name "GuixSD")
-                (organization-unit-name "Default Self-Signed Certificate")
-                (subject-parameters `(("CN" . ,common-name)
-                                      ("O" . ,organization-name)
-                                      ("OU" . ,organization-unit-name)))
-                (subject (build-subject subject-parameters)))
-        ;; Note that by default, OpenSSL outputs keys in PEM format.  This
-        ;; is what we want.
-        (unless (file-exists? private-key)
-          (cond
-           ((zero? (system* (string-append #$openssl "/bin/openssl")
-                            "genrsa" "-out" private-key "2048"))
-            (chown private-key (passwd:uid owner) (passwd:gid owner))
-            (chmod private-key #o400))
-           (else
-            (format (current-error-port)
-                    "Failed to create private key at ~a.\n" private-key))))
-        (unless (file-exists? public-key)
-          (cond
-           ((zero? (system* (string-append #$openssl "/bin/openssl")
-                            "req" "-new" "-x509" "-key" private-key
-                            "-out" public-key "-days" "3650"
-                            "-batch" "-subj" subject))
-            (chown public-key (passwd:uid owner) (passwd:gid owner))
-            (chmod public-key #o444))
-           (else
-            (format (current-error-port)
-                    "Failed to create public key at ~a.\n" public-key)))))
-      (let ((user (getpwnam "dovecot")))
-        (mkdir-p/perms "/var/run/dovecot" user #o755)
-        (mkdir-p/perms "/var/lib/dovecot" user #o755)
-        (mkdir-p/perms "/etc/dovecot" user #o755)
-        (mkdir-p/perms "/etc/dovecot/private" user #o700)
-        (create-self-signed-certificate-if-absent
-         #:private-key "/etc/dovecot/private/default.pem"
-         #:public-key "/etc/dovecot/default.pem"
-         #:owner (getpwnam "root")
-         #:common-name (format #f "Dovecot service on ~a" (gethostname))))))
+  (let ((config-str
+         (cond
+          ((opaque-dovecot-configuration? config)
+           (opaque-dovecot-configuration-string config))
+          (else
+           (with-output-to-string
+             (lambda ()
+               (serialize-configuration config
+                                        dovecot-configuration-fields)))))))
+    #~(begin
+        (use-modules (guix build utils))
+        (define (mkdir-p/perms directory owner perms)
+          (mkdir-p directory)
+          (chown "/var/run/dovecot" (passwd:uid owner) (passwd:gid owner))
+          (chmod directory perms))
+        (define (build-subject parameters)
+          (string-concatenate
+           (map (lambda (pair)
+                  (let ((k (car pair)) (v (cdr pair)))
+                    (define (escape-char str chr)
+                      (string-join (string-split str chr) (string #\\ chr)))
+                    (string-append "/" k "="
+                                   (escape-char (escape-char v #\=) #\/))))
+                (filter (lambda (pair) (cdr pair)) parameters))))
+        (define* (create-self-signed-certificate-if-absent
+                  #:key private-key public-key (owner (getpwnam "root"))
+                  (common-name (gethostname))
+                  (organization-name "GuixSD")
+                  (organization-unit-name "Default Self-Signed Certificate")
+                  (subject-parameters `(("CN" . ,common-name)
+                                        ("O" . ,organization-name)
+                                        ("OU" . ,organization-unit-name)))
+                  (subject (build-subject subject-parameters)))
+          ;; Note that by default, OpenSSL outputs keys in PEM format.  This
+          ;; is what we want.
+          (unless (file-exists? private-key)
+            (cond
+             ((zero? (system* (string-append #$openssl "/bin/openssl")
+                              "genrsa" "-out" private-key "2048"))
+              (chown private-key (passwd:uid owner) (passwd:gid owner))
+              (chmod private-key #o400))
+             (else
+              (format (current-error-port)
+                      "Failed to create private key at ~a.\n" private-key))))
+          (unless (file-exists? public-key)
+            (cond
+             ((zero? (system* (string-append #$openssl "/bin/openssl")
+                              "req" "-new" "-x509" "-key" private-key
+                              "-out" public-key "-days" "3650"
+                              "-batch" "-subj" subject))
+              (chown public-key (passwd:uid owner) (passwd:gid owner))
+              (chmod public-key #o444))
+             (else
+              (format (current-error-port)
+                      "Failed to create public key at ~a.\n" public-key)))))
+        (let ((user (getpwnam "dovecot")))
+          (mkdir-p/perms "/var/run/dovecot" user #o755)
+          (mkdir-p/perms "/var/lib/dovecot" user #o755)
+          (mkdir-p/perms "/etc/dovecot" user #o755)
+          (copy-file #$(plain-file "dovecot.conf" config-str)
+                     "/etc/dovecot/dovecot.conf")
+          (mkdir-p/perms "/etc/dovecot/private" user #o700)
+          (create-self-signed-certificate-if-absent
+           #:private-key "/etc/dovecot/private/default.pem"
+           #:public-key "/etc/dovecot/default.pem"
+           #:owner (getpwnam "root")
+           #:common-name (format #f "Dovecot service on ~a" (gethostname)))))))
 
 (define (dovecot-shepherd-service config)
   "Return a list of <shepherd-service> for CONFIG."
-  (let* ((config-str
-          (cond
-           ((opaque-dovecot-configuration? config)
-            (opaque-dovecot-configuration-string config))
-           (else
-            (with-output-to-string
-              (lambda ()
-                (serialize-configuration config
-                                         dovecot-configuration-fields))))))
-         (config-file (plain-file "dovecot.conf" config-str))
-         (dovecot (if (opaque-dovecot-configuration? config)
-                      (opaque-dovecot-configuration-dovecot config)
-                      (dovecot-configuration-dovecot config))))
+  (let ((dovecot (if (opaque-dovecot-configuration? config)
+                     (opaque-dovecot-configuration-dovecot config)
+                     (dovecot-configuration-dovecot config))))
     (list (shepherd-service
            (documentation "Run the Dovecot POP3/IMAP mail server.")
            (provision '(dovecot))
            (requirement '(networking))
            (start #~(make-forkexec-constructor
                      (list (string-append #$dovecot "/sbin/dovecot")
-                           "-F" "-c" #$config-file)))
+                           "-F")))
            (stop #~(make-forkexec-constructor
                     (list (string-append #$dovecot "/sbin/dovecot")
-                          "-c" #$config-file "stop")))))))
+                          "stop")))))))
 
 (define %dovecot-pam-services
   (list (unix-pam-service "dovecot")))
@@ -1543,7 +1534,7 @@ greyed out, instead of only later giving \"not selectable\" popup error.
                        (service-extension pam-root-service-type
                                           (const %dovecot-pam-services))
                        (service-extension activation-service-type
-                                          (const %dovecot-activation))))))
+                                          %dovecot-activation)))))
 
 (define* (dovecot-service #:key (config (dovecot-configuration)))
   "Return a service that runs @command{dovecot}, a mail server that can run

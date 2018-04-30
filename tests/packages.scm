@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -377,24 +377,9 @@
 (unless (network-reachable?) (test-skip 1))
 (test-equal "package-source-derivation, snippet"
   "OK"
-  (let* ((file   (search-bootstrap-binary (match (%current-system)
-                                            ("armhf-linux"
-                                             "guile-2.0.11.tar.xz")
-                                            ("aarch64-linux"
-                                             "guile-2.0.14.tar.xz")
-                                            (_
-                                             "guile-2.0.9.tar.xz"))
-                                          (%current-system)))
-         (sha256 (call-with-input-file file port-sha256))
-         (fetch  (lambda* (url hash-algo hash
-                           #:optional name #:key system)
-                   (pk 'fetch url hash-algo hash name system)
-                   (interned-file url)))
-         (source (bootstrap-origin
+  (let* ((source (bootstrap-origin
                   (origin
-                    (method fetch)
-                    (uri file)
-                    (sha256 sha256)
+                    (inherit (bootstrap-guile-origin (%current-system)))
                     (patch-inputs
                      `(("tar" ,%bootstrap-coreutils&co)
                        ("xz" ,%bootstrap-coreutils&co)
@@ -556,6 +541,24 @@
     (and (build-derivations %store (list d))
          (let ((p (pk 'drv d (derivation->output-path d))))
            (eq? 'hello (call-with-input-file p read))))))
+
+(test-assert "trivial with #:allowed-references"
+  (let* ((p (package
+              (inherit (dummy-package "trivial"))
+              (build-system trivial-build-system)
+              (arguments
+               `(#:guile ,%bootstrap-guile
+                 #:allowed-references (,%bootstrap-guile)
+                 #:builder
+                 (begin
+                   (mkdir %output)
+                   ;; The reference to itself isn't allowed so building it
+                   ;; should fail.
+                   (symlink %output (string-append %output "/self")))))))
+         (d (package-derivation %store p)))
+    (guard (c ((nix-protocol-error? c) #t))
+      (build-derivations %store (list d))
+      #f)))
 
 (test-assert "search paths"
   (let* ((p (make-prompt-tag "return-search-paths"))

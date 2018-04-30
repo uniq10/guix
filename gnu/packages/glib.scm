@@ -5,6 +5,10 @@
 ;;; Copyright © 2014, 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Lukas Gradl <lgradl@openmailbox.org>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Petter <petter@mykolab.ch>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Alex Vong <alexvong1995@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,35 +26,40 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu packages glib)
-  #:use-module ((guix licenses) #:prefix license:)
-  #:use-module (guix packages)
-  #:use-module (guix download)
-  #:use-module (guix utils)
-  #:use-module (guix build-system gnu)
-  #:use-module (guix build-system python)
   #:use-module (gnu packages)
-  #:use-module (gnu packages base)
   #:use-module (gnu packages backup)
+  #:use-module (gnu packages base)
+  #:use-module (gnu packages bash)
   #:use-module (gnu packages bison)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages enlightenment)
+  #:use-module (gnu packages file)
   #:use-module (gnu packages flex)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages gnome)
+  #:use-module (gnu packages gperf)
   #:use-module (gnu packages gtk)
   #:use-module (gnu packages libffi)
   #:use-module (gnu packages linux)
+  #:use-module (gnu packages m4)
   #:use-module (gnu packages nettle)
   #:use-module (gnu packages pcre)
+  #:use-module (gnu packages package-management)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
-  #:use-module (gnu packages xml)
-  #:use-module (gnu packages bash)
-  #:use-module (gnu packages file)
+  #:use-module (gnu packages web)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg)
-  #:use-module (gnu packages m4)
+  #:use-module (guix build-system gnu)
+  #:use-module (guix build-system meson)
+  #:use-module (guix build-system perl)
+  #:use-module (guix build-system python)
+  #:use-module (guix download)
+  #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (guix packages)
+  #:use-module (guix utils)
 
   ;; Export variables up-front to allow circular dependency with the 'xorg'
   ;; module.
@@ -62,12 +71,14 @@
             itstool
             libsigc++
             glibmm
-            telepathy-glib))
+            telepathy-glib
+            perl-net-dbus
+            perl-net-dbus-glib))
 
 (define dbus
   (package
     (name "dbus")
-    (version "1.10.18")
+    (version "1.12.2")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -75,7 +86,7 @@
                     version ".tar.gz"))
               (sha256
                (base32
-                "0jjirhw6xwz2ffmbg5kr79108l8i1bdaw7szc67n3qpkygaxsjb0"))
+                "121xm3cy48vbv6nv522lfkk4zyiqc1g6v4lb3344gc3h2w4vaar7"))
               (patches (search-patches "dbus-helper-search-path.patch"))))
     (build-system gnu-build-system)
     (arguments
@@ -114,7 +125,7 @@
        ;; '--autolaunch'.
        ("libx11" ,libx11)))
 
-    (home-page "http://dbus.freedesktop.org/")
+    (home-page "https://www.freedesktop.org/wiki/Software/dbus/")
     (synopsis "Message bus for inter-process communication (IPC)")
     (description
      "D-Bus is a message bus system, a simple way for applications to
@@ -137,7 +148,7 @@ shared NFS home directories.")
 (define glib
   (package
    (name "glib")
-   (version "2.52.2")
+   (version "2.54.2")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnome/sources/"
@@ -145,8 +156,9 @@ shared NFS home directories.")
                                 name "-" version ".tar.xz"))
             (sha256
              (base32
-              "1l65kab6jr9zlllgbjcbvrbgah3sdd577fpw4pdb2j195ag5s3ph"))
-            (patches (search-patches "glib-tests-timer.patch"))))
+              "0v4ffl172kbqgxrhgxyafhpw36bq3iklb2zjqyl6jcfkmb2yb2dv"))
+            (patches (search-patches "glib-respect-datadir.patch"
+                                     "glib-tests-timer.patch"))))
    (build-system gnu-build-system)
    (outputs '("out"           ; everything
               "bin"           ; glib-mkenums, gtester, etc.; depends on Python
@@ -165,9 +177,9 @@ shared NFS home directories.")
       ("python" ,python-wrapper)
       ("perl" ,perl)                              ; needed by GIO tests
       ("bash" ,bash)
-      ("tzdata" ,tzdata-2017a)))                  ; for tests/gdatetime.c
+      ("tzdata" ,tzdata-for-tests)))                  ; for tests/gdatetime.c
    (arguments
-    `(#:disallowed-references (,tzdata-2017a)
+    `(#:disallowed-references (,tzdata-for-tests)
       #:phases
       (modify-phases %standard-phases
         (add-before 'build 'pre-build
@@ -247,12 +259,7 @@ shared NFS home directories.")
 
                      ("gio/tests/gdbus-unix-addresses.c"
                       (;; Requires /etc/machine-id.
-                       "/gdbus/x11-autolaunch"))
-
-                     ("glib/tests/gdatetime.c"
-                      (;; Assumes that the Brasilian time zone is named 'BRT',
-                       ;; which is no longer true as of tzdata-2017a.
-                       "/GDateTime/new_full")))))
+                       "/gdbus/x11-autolaunch")))))
               (and-map (lambda (x) (apply disable x)) failing-tests)))))
 
       ;; Note: `--docdir' and `--htmldir' are not honored, so work around it.
@@ -283,20 +290,20 @@ shared NFS home directories.")
     "GLib provides data structure handling for C, portability wrappers,
 and interfaces for such runtime functionality as an event loop, threads,
 dynamic loading, and an object system.")
-   (home-page "http://developer.gnome.org/glib/")
-   (license license:lgpl2.0+)))                        ; some files are under lgpl2.1+
+   (home-page "https://developer.gnome.org/glib/")
+   (license license:lgpl2.1+)))
 
 (define gobject-introspection
   (package
     (name "gobject-introspection")
-    (version "1.52.1")
+    (version "1.54.1")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnome/sources/"
                    "gobject-introspection/" (version-major+minor version)
                    "/gobject-introspection-" version ".tar.xz"))
              (sha256
-              (base32 "1x5gkyrglv3dn9b4fsgw6asqgjw1wj7qc37g9pyac6pyaa6w7l1f"))
+              (base32 "0zl7pfkzkm07733391b4f3cwjbnvb1nwvpmajf5bajh6bxgfv3dq"))
              (modules '((guix build utils)))
              (snippet
               '(substitute* "tools/g-ir-tool-template.in"
@@ -347,6 +354,7 @@ bindings to call into the C library.")
              (uri (string-append "https://launchpad.net/intltool/trunk/"
                                  version "/+download/intltool-"
                                  version ".tar.gz"))
+             (patches (search-patches "intltool-perl-compatibility.patch"))
              (sha256
               (base32
                "1karx4sb7bnm2j67q0q74hspkfn6lqprpy5r99vkn5bb36a4viv7"))))
@@ -405,13 +413,12 @@ The intltool collection can be used to do these things:
     (arguments
      '(#:phases
        (modify-phases %standard-phases
-         (add-after
-          'install 'wrap-program
-          (lambda* (#:key outputs #:allow-other-keys)
-            (let ((prog (string-append (assoc-ref outputs "out")
-                                       "/bin/itstool")))
-              (wrap-program prog
-                `("PYTHONPATH" = (,(getenv "PYTHONPATH"))))))))))
+         (add-after 'install 'wrap-program
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((prog (string-append (assoc-ref outputs "out")
+                                        "/bin/itstool")))
+               (wrap-program prog
+                 `("PYTHONPATH" = (,(getenv "PYTHONPATH"))))))))))
     (home-page "http://www.itstool.org")
     (synopsis "Tool to translate XML documents with PO files")
     (description
@@ -455,7 +462,7 @@ translated.")
     (native-inputs
      `(("glib" ,glib "bin")
        ("pkg-config" ,pkg-config)))
-    (home-page "http://dbus.freedesktop.org/doc/dbus-glib/")
+    (home-page "https://dbus.freedesktop.org/doc/dbus-glib/")
     (synopsis "D-Bus GLib bindings")
     (description
      "GLib bindings for D-Bus.  The package is obsolete and superseded
@@ -492,7 +499,7 @@ has an ease of use unmatched by other C++ callback libraries.")
 (define glibmm
   (package
     (name "glibmm")
-    (version "2.50.1")
+    (version "2.54.1")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnome/sources/glibmm/"
@@ -500,31 +507,35 @@ has an ease of use unmatched by other C++ callback libraries.")
                                  "/glibmm-" version ".tar.xz"))
              (sha256
               (base32
-               "1926b3adx903hzvdp8glblsgjyadzqnwgkj8hg605d4wv98m1n0z"))))
+               "0jkapw18icz59cmlmsl00nwwz0wh291kb4hc9z9hxmq45drqrhkw"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:phases (alist-cons-before
-                 'build 'pre-build
-                 (lambda _
-                   ;; This test uses /etc/fstab as an example file to read
-                   ;; from; choose a better example.
-                   (substitute* "tests/giomm_simple/main.cc"
-                     (("/etc/fstab")
-                      (string-append (getcwd)
-                                     "/tests/giomm_simple/main.cc")))
+     `(;; XXX: Some tests uses C++14 features.  Remove this when the default
+       ;; compiler is >= GCC6.
+       #:configure-flags '("CXXFLAGS=-std=gnu++14")
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'pre-build
+           (lambda _
+             ;; This test uses /etc/fstab as an example file to read
+             ;; from; choose a better example.
+             (substitute* "tests/giomm_simple/main.cc"
+               (("/etc/fstab")
+                (string-append (getcwd)
+                               "/tests/giomm_simple/main.cc")))
 
-                   ;; This test does a DNS lookup, and then expects to be able
-                   ;; to open a TLS session; just skip it.
-                   (substitute* "tests/giomm_tls_client/main.cc"
-                     (("Gio::init.*$")
-                      "return 77;\n")))
-                 %standard-phases)))
+             ;; This test does a DNS lookup, and then expects to be able
+             ;; to open a TLS session; just skip it.
+             (substitute* "tests/giomm_tls_client/main.cc"
+               (("Gio::init.*$")
+                "return 77;\n"))
+             #t)))))
     (native-inputs `(("pkg-config" ,pkg-config)
                      ("glib" ,glib "bin")))
     (propagated-inputs
      `(("libsigc++" ,libsigc++)
        ("glib" ,glib)))
-    (home-page "http://gtkmm.org/")
+    (home-page "https://gtkmm.org/")
     (synopsis "C++ interface to the GLib library")
     (description
      "Glibmm provides a C++ programming interface to the part of GLib that are
@@ -536,7 +547,7 @@ useful for C++.")
     (name "python2-pygobject")
     ;; This was the last version to declare the 2.0 platform number, i.e. its
     ;; pkg-config files were named pygobject-2.0.pc
-    (version "2.28.6")
+    (version "2.28.7")
     (source
      (origin
        (method url-fetch)
@@ -545,7 +556,7 @@ useful for C++.")
                            "/pygobject-" version ".tar.xz"))
        (sha256
         (base32
-         "1f5dfxjnil2glfwxnqr14d2cjfbkghsbsn8n04js2c2icr7iv2pv"))
+         "0nkam61rsn7y3wik3vw46wk5q2cjfh2iph57hl9m39rc8jijb7dv"))
        (patches (search-patches
                  "python2-pygobject-2-gi-info-type-error-domain.patch"))))
     (build-system gnu-build-system)
@@ -615,6 +626,33 @@ useful for C++.")
        ("python-pycairo" ,python2-pycairo)
        ("gobject-introspection" ,gobject-introspection)))))
 
+(define-public perl-glib
+  (package
+    (name "perl-glib")
+    (version "1.326")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "mirror://cpan/authors/id/X/XA/XAOC/Glib-"
+                    version ".tar.gz"))
+              (sha256
+               (base32
+                "0prn9kkdpwjq9qmzqashbhk3pq4gvlrmvm3b10xf1dhc48406382"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-extutils-depends" ,perl-extutils-depends)
+       ("perl-extutils-pkgconfig" ,perl-extutils-pkgconfig)))
+    (inputs
+     `(("glib" ,glib)))
+    (home-page "http://search.cpan.org/dist/Glib/")
+    (synopsis "Perl wrappers for the GLib utility and Object libraries")
+    (description "This module provides perl access to GLib and GLib's GObject
+libraries.  GLib is a portability and utility library; GObject provides a
+generic type system with inheritance and a powerful signal system.  Together
+these libraries are used as the foundation for many of the libraries that make
+up the Gnome environment, and are used in many unrelated projects.")
+    (license license:lgpl2.1+)))
+
 (define telepathy-glib
   (package
     (name "telepathy-glib")
@@ -655,7 +693,7 @@ useful for C++.")
      `(("dbus" ,dbus)
        ("dbus-glib" ,dbus-glib)
        ("glib" ,glib)))
-    (home-page "http://telepathy.freedesktop.org/wiki/")
+    (home-page "https://telepathy.freedesktop.org/wiki/")
     (synopsis "GLib Real-time communications framework over D-Bus")
     (description "Telepathy is a flexible, modular communications framework
 that enables real-time communication over D-Bus via pluggable protocol
@@ -708,7 +746,7 @@ programming langauage.  It also contains the utility
 (define-public appstream-glib
   (package
     (name "appstream-glib")
-    (version "0.6.7")
+    (version "0.7.5")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://people.freedesktop.org/~hughsient/"
@@ -716,30 +754,36 @@ programming langauage.  It also contains the utility
                                   "appstream-glib-" version ".tar.xz"))
               (sha256
                (base32
-                "08mrf4k0jhnpdd4fig2grmi2vbxkgdhrwk0d0zq0j1wp5ip7arwp"))))
-    (build-system gnu-build-system)
+                "0ps80cbqnf3q86rvz3ajqjssdgkjc9kmynqf0wxqfir7ayc9y9ag"))))
+    (build-system meson-build-system)
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
+     `(("gettext" ,gettext-minimal)
+       ("glib:bin" ,glib "bin")         ; for glib-compile-resources
+       ("pkg-config" ,pkg-config)))
+    (propagated-inputs
+     `(("gcab" ,gcab) ; for .pc file
+       ("gdk-pixbuf" ,gdk-pixbuf) ; for .pc file
+       ("util-linux" ,util-linux))) ; for .pc file
     (inputs
-     `(("gdk-pixbuf" ,gdk-pixbuf)
-       ("glib" ,glib)
+     `(("glib" ,glib)
+       ("gperf" ,gperf)
        ("gtk+" ,gtk+)
        ("json-glib" ,json-glib)
        ("libarchive" ,libarchive)
        ("libsoup" ,libsoup)
-       ("nettle" ,nettle)
-       ("util-linux" ,util-linux)))
+       ("libyaml" ,libyaml)))
     (arguments
      `(#:configure-flags
-       '("--disable-firmware" "--disable-dep11")
+       (list "-Ddep11=false"
+             "-Dintrospection=false"    ; avoid g-ir-scanner dependency
+             "-Drpm=false"
+             "-Dstemmer=false")
        #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'patch-tests
            (lambda _
              (substitute* "libappstream-glib/as-self-test.c"
-               (("g_test_add_func.*as_test_store_local_appdata_func);") "")
-               (("g_test_add_func.*as_test_store_speed_appdata_func);") "")
-               (("g_test_add_func.*as_test_store_speed_desktop_func);") ""))
+               (("g_test_add_func.*as_test_store_local_appdata_func);") ""))
              #t)))))
     (home-page "https://github.com/hughsie/appstream-glib")
     (synopsis "Library for reading and writing AppStream metadata")
@@ -747,3 +791,57 @@ programming langauage.  It also contains the utility
 reading and writing @uref{https://www.freedesktop.org/wiki/Distributions/AppStream,AppStream}
 metadata.")
     (license license:lgpl2.1+)))
+
+(define perl-net-dbus
+  (package
+    (name "perl-net-dbus")
+    (version "1.1.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/D/DA/DANBERR/Net-DBus-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "0sg2w147b9r9ykfzjs7y9qxry73xkjnhnk4qf95kfv79p5nnk4c3"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("perl-test-pod" ,perl-test-pod)
+       ("perl-test-pod-coverage" ,perl-test-pod-coverage)))
+    (inputs
+     `(("dbus" ,dbus)))
+    (propagated-inputs
+     `(("perl-xml-twig" ,perl-xml-twig)))
+    (home-page "http://search.cpan.org/dist/Net-DBus/")
+    (synopsis "Extension for the DBus bindings")
+    (description "@code{Net::DBus} provides a Perl XS API to the DBus
+inter-application messaging system.  The Perl API covers the core base level
+of the DBus APIs, not concerning itself yet with the GLib or QT wrappers.")
+    (license license:perl-license)))
+
+(define perl-net-dbus-glib
+  (package
+    (name "perl-net-dbus-glib")
+    (version "0.33.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/D/DA/DANBERR/"
+                           "Net-DBus-GLib-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1z4mbv8z0rad604xahijpg5szzi8qak07hbahh230z4jf96fkxvj"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("dbus-glib" ,dbus-glib)))
+    (home-page "http://search.cpan.org/~danberr/Net-DBus-GLib-0.33.0/")
+    (synopsis "Perl extension for the DBus GLib bindings")
+    (description "This package provides an extension to the @code{Net::DBus}
+module allowing integration with the GLib mainloop.  To integrate with the
+main loop, simply get a connection to the bus via the methods in
+@code{Net::DBus::GLib} rather than the usual @code{Net::DBus} module.  Every
+other API remains the same.")
+    (license license:gpl2+)))

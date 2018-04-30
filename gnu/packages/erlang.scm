@@ -1,7 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 Steve Sprang <scs@stevesprang.com>
-;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016, 2017 Pjotr Prins <pjotr.guix@thebird.nl>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,6 +24,8 @@
   #:use-module (guix build-system gnu)
   #:use-module (guix download)
   #:use-module (guix packages)
+  #:use-module (guix utils)
+  #:use-module (gnu packages)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages gl)
@@ -34,7 +37,7 @@
 (define-public erlang
   (package
     (name "erlang")
-    (version "19.3")
+    (version "20.2.3")
     (source (origin
               (method url-fetch)
               ;; The tarball from http://erlang.org/download contains many
@@ -45,7 +48,8 @@
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1b47jh549yywyp8fbs8a8j4ydr3zn982navzyqvlms6rg8vwb0pw"))))
+                "0s9g4ijdbqq21k4cqggz074d3fiimah942qisv2kgizhlivpw2nm"))
+              (patches (search-patches "erlang-man-path.patch"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("perl" ,perl)
@@ -57,10 +61,10 @@
         ,(origin
            (method url-fetch)
            (uri (string-append "http://erlang.org/download/otp_doc_man_"
-                               version ".tar.gz"))
+                               (version-major+minor version) ".tar.gz"))
            (sha256
             (base32
-             "0p6r3n3y7lbhv38sw8f2vi1xlmc137gyspk9ap086w1nszyjy6gq"))))))
+             "1pyb8wbk7znsyni8d1k4dj1m01lr191dcrrzisli1z27ks7hh3lm"))))))
     (inputs
      `(("ncurses" ,ncurses)
        ("openssl" ,openssl)
@@ -91,9 +95,9 @@
          (add-after 'unpack 'remove-timestamps
            (lambda _
              (let ((source-date-epoch
-                     (time-utc->date
-                       (make-time time-utc 0 (string->number
-                                               (getenv "SOURCE_DATE_EPOCH"))))))
+                    (time-utc->date
+                     (make-time time-utc 0 (string->number
+                                            (getenv "SOURCE_DATE_EPOCH"))))))
                (substitute* "lib/reltool/src/reltool_target.erl"
                  (("Date = date\\(\\),")
                   (string-append "Date = "
@@ -109,12 +113,11 @@
                  (("date\\(\\), time\\(\\),")
                   (date->string source-date-epoch
                                 "{~Y,~m,~d}, {~H,~M,~S},")))
-               (substitute* '("lib/dialyzer/test/small_SUITE_data/src/gs_make.erl"
-                              "lib/gs/src/gs_make.erl")
+               (substitute* "lib/dialyzer/test/small_SUITE_data/src/gs_make.erl"
                  (("tuple_to_list\\(date\\(\\)\\),tuple_to_list\\(time\\(\\)\\)")
                   (date->string
-                    source-date-epoch
-                    "tuple_to_list({~Y,~m,~d}), tuple_to_list({~H,~M,~S})")))
+                   source-date-epoch
+                   "tuple_to_list({~Y,~m,~d}), tuple_to_list({~H,~M,~S})")))
                (substitute* "lib/snmp/src/compile/snmpc_mib_to_hrl.erl"
                  (("\\{Y,Mo,D\\} = date\\(\\),")
                   (date->string source-date-epoch
@@ -122,7 +125,8 @@
                (substitute* "lib/snmp/src/compile/snmpc_mib_to_hrl.erl"
                  (("\\{H,Mi,S\\} = time\\(\\),")
                   (date->string source-date-epoch
-                                "{H,Mi,S} = {~H,~M,~S},"))))))
+                                "{H,Mi,S} = {~H,~M,~S},")))
+               #t)))
          (add-after 'patch-source-shebangs 'patch-source-env
            (lambda _
              (let ((escripts
@@ -138,32 +142,38 @@
                        "make/verify_runtime_dependencies"
                        "make/emd2exml.in"))))
                (substitute* escripts
-                 (("/usr/bin/env") (which "env"))))))
+                 (("/usr/bin/env") (which "env")))
+               #t)))
          (add-before 'configure 'set-erl-top
            (lambda _
-             (setenv "ERL_TOP" (getcwd))))
-         (add-before 'configure 'autoconf
-           (lambda _ (zero? (system* "./otp_build" "autoconf"))))
+             (setenv "ERL_TOP" (getcwd))
+             #t))
+         (add-after 'patch-source-env 'autoconf
+           (lambda _
+             (invoke "./otp_build" "autoconf")
+             #t))
          (add-after 'install 'patch-erl
            ;; This only works after install.
-           (lambda _
-             (substitute* (string-append (assoc-ref %outputs "out") "/bin/erl")
-               (("sed") (which "sed")))))
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out")))
+               (substitute* (string-append out "/bin/erl")
+                 (("sed") (which "sed")))
+               #t)))
          (add-after 'install 'install-doc
            (lambda* (#:key inputs outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
                     (manpages (assoc-ref inputs "erlang-manpages"))
                     (share (string-append out "/share/")))
-             (mkdir-p share)
-             (mkdir-p (string-append share "/misc/erlang"))
-             (with-directory-excursion share
-               (and
-                 (zero? (system* "tar" "xvf" manpages))
+               (mkdir-p share)
+               (mkdir-p (string-append share "/misc/erlang"))
+               (with-directory-excursion share
+                 (invoke "tar" "xvf" manpages)
                  (rename-file "COPYRIGHT"
                               (string-append share "/misc/erlang/COPYRIGHT"))
                  ;; Delete superfluous file.
-                 (delete-file "PR.template")))))))))
-    (home-page "http://erlang.org/")
+                 (delete-file "PR.template"))
+               #t))))))
+    (home-page "https://www.erlang.org/")
     (synopsis "The Erlang programming language")
     (description
      "Erlang is a programming language used to build massively

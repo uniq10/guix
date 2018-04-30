@@ -3,8 +3,10 @@
 ;;; Copyright © 2014 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2015, 2016 Sou Bunnbu <iyzsong@gmail.com>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -45,6 +47,7 @@
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages mp3)
+  #:use-module (gnu packages ncurses)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pulseaudio)
   #:use-module (gnu packages qt)
@@ -64,14 +67,14 @@
 (define-public orc
   (package
     (name "orc")
-    (version "0.4.27")
+    (version "0.4.28")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://gstreamer.freedesktop.org/data/src/"
                                   "orc/orc-" version ".tar.xz"))
               (sha256
                (base32
-                "14vbwdydwarcvswzf744jdjb3ibhv6k4j6hzdacfan41zic3xrai"))))
+                "1kl3rlmzr27bdpn78nvpnjs142ja1m6grvafdhw74mmhcdjprkdz"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -85,7 +88,7 @@
                             "testsuite/exec_opcodes_sys.c")
                (("if \\(error\\) return 1;")
                 "if (error) return 77;")))))))
-    (home-page "http://gstreamer.freedesktop.org/modules/orc.html")
+    (home-page "https://gstreamer.freedesktop.org/modules/orc.html")
     (synopsis "Oil runtime compiler")
     (description
      "Orc is a just-in-time compiler implemented as a library and set of
@@ -98,7 +101,7 @@ arrays of data.")
 (define-public gstreamer
   (package
     (name "gstreamer")
-    (version "1.12.2")
+    (version "1.12.4")
     (source
      (origin
       (method url-fetch)
@@ -107,7 +110,7 @@ arrays of data.")
             version ".tar.xz"))
       (sha256
        (base32
-        "1fllz7n58lavyy4nh64xc7izd4ffhl12a2ff0yg4z67al8wkzplz"))))
+        "0x06jxmc5fhlz7cr1pl5lp0hm1jgz519jjic37d09srf9jm091ss"))))
     (build-system gnu-build-system)
     (outputs '("out" "doc"))
     (arguments
@@ -146,7 +149,7 @@ This package provides the core library and elements.")
 (define-public gst-plugins-base
   (package
     (name "gst-plugins-base")
-    (version "1.12.2")
+    (version "1.12.4")
     (source
      (origin
       (method url-fetch)
@@ -154,7 +157,7 @@ This package provides the core library and elements.")
                           name "-" version ".tar.xz"))
       (sha256
        (base32
-        "0x86a7aph0y6gyq178plvwvbbyhkfb3hf0gadx9sk5z1mzixqrsh"))))
+        "10i255q7i8an1hxz3szb36x1jcs9nfdy511pj2wg24h2vw1nnc2c"))))
     (build-system gnu-build-system)
     (outputs '("out" "doc"))
     (propagated-inputs
@@ -201,7 +204,7 @@ for the GStreamer multimedia library.")
 (define-public gst-plugins-good
   (package
     (name "gst-plugins-good")
-    (version "1.12.2")
+    (version "1.12.4")
     (source
      (origin
       (method url-fetch)
@@ -210,7 +213,7 @@ for the GStreamer multimedia library.")
             name "-" version ".tar.xz"))
       (sha256
        (base32
-        "15pfw54fsh9s9xwrnbap4z4njwgqdfvq52k562d2hc5b11rfx4am"))))
+        "0mxrbrqrfq1946gn9im19maj7ivld4k946vkwrzd94h8qsz4k7v4"))))
     (build-system gnu-build-system)
     (inputs
      `(("aalib" ,aalib)
@@ -244,15 +247,9 @@ for the GStreamer multimedia library.")
           'unpack 'disable-failing-tests
           (lambda _
             ;; Disable tests that fail non-deterministically.
-            ;; XXX FIXME: Try removing this for version > 1.8.0.
-            (substitute* "tests/check/elements/rtprtx.c"
-              (("tcase_add_test \\(tc_chain, test_push_forward_seq\\);" all)
-               (string-append "/* " all " */"))
-              (("tcase_add_test \
-\\(tc_chain, test_rtxreceive_data_reconstruction\\);" all)
-               (string-append "/* " all " */")))
-            (substitute* "tests/check/elements/splitmux.c"
-              (("tcase_add_test \\(tc_chain, test_splitmuxsink\\);" all)
+            ;; This test fails on aarch64 on 1.12.x.
+            (substitute* "tests/check/elements/alpha.c"
+              (("tcase_add_test \\(tc_chain, test_chromakeying\\);" all)
                (string-append "/* " all " */")))
             #t)))))
     (home-page "https://gstreamer.freedesktop.org/")
@@ -266,14 +263,14 @@ developers consider to have good quality code and correct functionality.")
 (define-public gst-plugins-bad
   (package
     (name "gst-plugins-bad")
-    (version "1.12.2")
+    (version "1.12.4")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://gstreamer.freedesktop.org/src/"
                                   name "/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0dwyq03g2m0p16dwx8q5qvjn5x9ia72h21sf87mp97gmwkfpwb4w"))))
+                "021d3q81m968lpnah517sfclagadcqwd6jz3lqdmqvb82sz5fy0c"))))
     (outputs '("out" "doc"))
     (build-system gnu-build-system)
     (arguments
@@ -331,8 +328,7 @@ developers consider to have good quality code and correct functionality.")
        ;("qtx11extras" ,qtx11extras)
        ("soundtouch" ,soundtouch)
        ("x265" ,x265)
-       ;("wayland" ,wayland) ; needs gtk+ built with wayland support
-       ))
+       ("wayland" ,wayland)))
     (home-page "https://gstreamer.freedesktop.org/")
     (synopsis "Plugins for the GStreamer multimedia library")
     (description
@@ -343,7 +339,7 @@ par compared to the rest.")
 (define-public gst-plugins-ugly
   (package
     (name "gst-plugins-ugly")
-    (version "1.12.2")
+    (version "1.12.4")
     (source
      (origin
        (method url-fetch)
@@ -351,7 +347,7 @@ par compared to the rest.")
                            name "/" name "-" version ".tar.xz"))
        (sha256
         (base32
-         "0rplyp1qk359c97ig9i2vc1v34g92khd8dslwfipva1ypwmr9hqw"))))
+         "08p5kggk1szvr76cdbx3q3yfc235w1przb76v2n51lwfi26mn5hw"))))
     (build-system gnu-build-system)
     (inputs
      `(("gst-plugins-base" ,gst-plugins-base)
@@ -382,7 +378,7 @@ distribution problems in some jurisdictions, e.g. due to patent threats.")
 (define-public gst-libav
   (package
     (name "gst-libav")
-    (version "1.12.2")
+    (version "1.12.4")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -390,7 +386,7 @@ distribution problems in some jurisdictions, e.g. due to patent threats.")
                     name "-" version ".tar.xz"))
               (sha256
                (base32
-                "1crdahkjm23byg1awcrjkmgfbalfpvvac7h7whm6b2r1pfwkbdsv"))))
+                "0qly3lgamm36xql9q7wg5751gi6j2d3ifzz1pkr15ncc5mfslmia"))))
     (build-system gnu-build-system)
     (arguments
      '(#:configure-flags '("--with-system-libav")
@@ -407,10 +403,10 @@ distribution problems in some jurisdictions, e.g. due to patent threats.")
        ("python" ,python)))
     (inputs
      `(("gst-plugins-base" ,gst-plugins-base)
-       ("ffmpeg" ,ffmpeg)
+       ("ffmpeg" ,ffmpeg-3.4)
        ("orc" ,orc)
        ("zlib" ,zlib)))
-    (home-page "http://gstreamer.freedesktop.org/")
+    (home-page "https://gstreamer.freedesktop.org/")
     (synopsis "Plugins for the GStreamer multimedia library")
     (description
      "This GStreamer plugin supports a large number of audio and video
@@ -420,7 +416,7 @@ compression formats through the use of the libav library.")
 (define-public python-gst
   (package
     (name "python-gst")
-    (version "1.12.2")
+    (version "1.12.5")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -428,7 +424,7 @@ compression formats through the use of the libav library.")
                     "gst-python-" version ".tar.xz"))
               (sha256
                (base32
-                "0iwy0v2k27wd3957ich6j5f0f04b0wb2mb175ypf2lx68snk5k7l"))))
+                "1x8g9mdkf6hzhlkx6nhrrp607p8g4zkhl3crs8vh504zpbbf71ip"))))
     (build-system gnu-build-system)
     (arguments
      ;; XXX: Factorize python-sitedir with python-build-system.
@@ -467,3 +463,31 @@ be used by Python applications using GStreamer.")
     (propagated-inputs
      `(("gst-plugins-base" ,gst-plugins-base)
        ("python-pygobject" ,python2-pygobject)))))
+
+(define-public gst123
+  (package
+    (name "gst123")
+    (version "0.3.5")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://space.twc.de/~stefan/gst123/gst123-"
+                                  version ".tar.bz2"))
+              (sha256
+               (base32
+                "0zaa117n4wkya9p903vkj8hj58lmdb66pxsdx5wwcv7nffbp5d67"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("gtk+" ,gtk+-2)
+       ("ncurses" ,ncurses)
+       ("gstreamer" ,gstreamer)
+       ("gst-plugins-base" ,gst-plugins-base)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (home-page "http://space.twc.de/~stefan/gst123.php")
+    (synopsis "Flexible command line media player based on gstreamer")
+    (description "The program gst123 is designed to be a more flexible command
+line player in the spirit of ogg123 and mpg123, based on the gstreamer media
+framework.  It plays all file formats gstreamer supports, so if you have a
+music collection which contains different file formats, like flac, ogg and
+mp3, you can use gst123 to play all your music files.")
+    (license license:lgpl2.0+)))

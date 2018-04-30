@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2014, 2015 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,7 +31,7 @@
 (define-public pciutils
   (package
     (name "pciutils")
-    (version "3.5.4")
+    (version "3.5.6")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -38,7 +39,7 @@
                     version ".tar.xz"))
               (sha256
                (base32
-                "0rpy7kkb2y89wmbcbfjjjxsk2x89v5xxhxib4vpl131ip5m3qab4"))))
+                "08dvsk1b5m1r7qqzsm849h4glq67mngf8zw7bg0102ff1jwywipk"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
@@ -56,12 +57,18 @@
                  ;; $prefix/share/man, and wrongly so.
                 (string-append "MANDIR := " (assoc-ref outputs "out")
                                "/share/man\n"))
+
                (("^SHARED=.*$")
                 ;; Build libpciutils.so.
                 "SHARED := yes\n")
                (("^ZLIB=.*$")
-                ;; Ask for zlib support.
-                "ZLIB := yes\n"))))
+                ;; Ask for zlib support, for 'pci.ids.gz' decompression.
+                "ZLIB := yes\n")
+
+               (("^IDSDIR=.*$")
+                ;; Installation directory of 'pci.ids.gz'.
+                "IDSDIR = $(SHAREDIR)/hwdata\n"))
+             #t))
          (replace 'install
            (lambda* (#:key outputs #:allow-other-keys)
              ;; Install the commands, library, and .pc files.
@@ -79,11 +86,12 @@
     (inputs
      `(("kmod" ,kmod)
        ("zlib" ,zlib)))
-    (home-page "http://mj.ucw.cz/sw/pciutils/")
+    (home-page "https://mj.ucw.cz/sw/pciutils/")
     (synopsis "Programs for inspecting and manipulating PCI devices")
     (description
      "The PCI Utilities are a collection of programs for inspecting and
 manipulating configuration of PCI devices, all based on a common portable
 library libpci which offers access to the PCI configuration space on a variety
-of operating systems.  This includes the 'lspci' and 'setpci' commands.")
+of operating systems.  This includes the @command{lspci} and @command{setpci}
+commands.")
     (license license:gpl2+)))

@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,7 +25,12 @@
   #:use-module (ice-9 match)
   #:export (missing-dependency-error?
             missing-dependency-module
+            missing-dependency-search-path
 
+            file-name->module-name
+            module-name->file-name
+
+            source-module-dependencies
             source-module-closure
             live-module-closure
             guix-module-name?))
@@ -43,7 +48,8 @@
 ;; The error corresponding to a missing module.
 (define-condition-type &missing-dependency-error &error
   missing-dependency-error?
-  (module  missing-dependency-module))
+  (module      missing-dependency-module)
+  (search-path missing-dependency-search-path))
 
 (define (colon-symbol? obj)
   "Return true if OBJ is a symbol that starts with a colon."
@@ -93,6 +99,13 @@ depends on."
           (_
            '()))))))
 
+(define file-name->module-name
+  (let ((not-slash (char-set-complement (char-set #\/))))
+    (lambda (file)
+      "Return the module name (a list of symbols) corresponding to FILE."
+      (map string->symbol
+           (string-tokenize (string-drop-right file 4) not-slash)))))
+
 (define (module-name->file-name module)
   "Return the file name for MODULE."
   (string-append (string-join (map symbol->string module) "/")
@@ -121,7 +134,8 @@ depends on."
          (module-file-dependencies file))
         (#f
          (raise (condition (&missing-dependency-error
-                            (module module))))))))
+                            (module module)
+                            (search-path load-path))))))))
 
 (define* (module-closure modules
                          #:key

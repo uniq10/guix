@@ -1,5 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017 Stefan Reichör <stefan@xsteve.at>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -20,6 +22,8 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix git-download)
+  #:use-module (guix build-system gnu)
   #:use-module (guix build-system glib-or-gtk)
   #:use-module (gnu packages)
   #:use-module (gnu packages xml)
@@ -29,7 +33,8 @@
   #:use-module (gnu packages xorg)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages glib)
-  #:use-module (gnu packages pkg-config))
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages libusb))
 
 (define-public florence
   (package
@@ -76,3 +81,42 @@ available to help to click.")
     ;; The documentation is under FDL1.2, but we do not install the
     ;; documentation.
     (license license:gpl2+)))
+
+(define-public footswitch
+  (let ((commit "deedd87fd90fad90ce342aeabafd4a3198d7d3d4")
+        (revision "2"))
+    (package
+      (name "footswitch")
+      (version (git-version "0.1" revision commit))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/rgerganov/footswitch")
+                      (commit commit)))
+                (file-name (git-file-name name version))
+                (sha256
+                 (base32 "1ys90wqyz62kffa8m3hgaq1dl7f29x3mrc3zqfjrkbn2ps0k6ps0"))))
+      (build-system gnu-build-system)
+      (native-inputs
+       `(("pkg-config" ,pkg-config)))
+      (inputs
+       `(("hidapi" ,hidapi)))
+      (arguments
+       `(#:tests? #f ; no tests
+         #:make-flags (list "CC=gcc")
+         #:phases (modify-phases %standard-phases
+                    (delete 'configure)
+                    ;; Install target in the Makefile does not work for Guix
+                    (replace 'install
+                      (lambda* (#:key outputs #:allow-other-keys)
+                        (let ((bin (string-append (assoc-ref outputs "out")
+                                                  "/bin")))
+                          (install-file "footswitch" bin)
+                          #t))))))
+      (home-page "https://github.com/rgerganov/footswitch")
+      (synopsis "Command line utility for PCsensor foot switch")
+      (description
+       "Command line utility for programming foot switches sold by PCsensor.
+It works for both single pedal devices and three pedal devices.  All supported
+devices have vendorId:productId = 0c45:7403 or 0c45:7404.")
+    (license license:expat))))

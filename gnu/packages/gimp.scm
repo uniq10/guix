@@ -1,7 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -43,29 +44,32 @@
 (define-public babl
   (package
     (name "babl")
-    (version "0.1.18")
+    (version "0.1.40")
     (source (origin
               (method url-fetch)
               (uri (list (string-append "https://download.gimp.org/pub/babl/"
-                                        "0.1/babl-" version ".tar.bz2")
-                         (string-append "http://ftp.gtk.org/pub/babl/0.1/babl-"
-                                        version ".tar.bz2")
-                         (string-append "ftp://ftp.gtk.org/pub/babl/0.1/babl-"
-                                        version ".tar.bz2")))
+                                        (version-major+minor version)
+                                        "/babl-" version ".tar.bz2")
+                         (string-append "http://ftp.gtk.org/pub/babl/"
+                                        (version-major+minor version)
+                                        "/babl-" version ".tar.bz2")
+                         (string-append "ftp://ftp.gtk.org/pub/babl/"
+                                        (version-major+minor version)
+                                        "/babl-" version ".tar.bz2")))
               (sha256
                (base32
-                "1ygvnq22pf0zvf3bj7h67vvbpz7b8hhjvrr79ribws7sr5dljfj8"))))
+                "08cdl6rcfvkhqsnhb214xzr0wbrv0956xzlrzqxcb1k1madgjanh"))))
     (build-system gnu-build-system)
     (home-page "http://gegl.org/babl/")
     (synopsis "Image pixel format conversion library")
     (description
-     "Babl is a dynamic, any to any, pixel format translation library.
-It allows converting between different methods of storing pixels known as
-pixel formats that have with different bitdepths and other data
-representations, color models and component permutations.
+     "Babl is a dynamic, any-to-any pixel format translation library.
+It allows converting between different methods of storing pixels, known as
+@dfn{pixel formats}, that have different bit depths and other data
+representations, color models, and component permutations.
 
 A vocabulary to formulate new pixel formats from existing primitives is
-provided as well as the framework to add new color models and data types.")
+provided, as well as a framework to add new color models and data types.")
     (license license:lgpl3+)))
 
 (define-public gegl
@@ -83,26 +87,27 @@ provided as well as the framework to add new color models and data types.")
               (patches (search-patches "gegl-CVE-2012-4433.patch"))))
     (build-system gnu-build-system)
     (arguments
-     `(;; More than just the one test disabled below now fails; disable them
+     '(;; More than just the one test disabled below now fails; disable them
        ;; all according to the rationale given below.
        #:tests? #f
+       #:configure-flags '("LDFLAGS=-lm")
        #:phases
-       (alist-cons-before
-        'build 'pre-build
-        (lambda _
-          ;; This test program seems to crash on exit. Specifically, whilst
-          ;; g_object_unreffing bufferA and bufferB - This seems to be a bug
-          ;; in the destructor.  This is just a test program so will not have
-          ;; any wider effect, although might be hiding another problem.
-          ;; According to advice received on irc.gimp.org#gegl although 0.2.0
-          ;; is the latest released version, any bug reports against it will
-          ;; be ignored.  So we are on our own.
-          (substitute* "tools/img_cmp.c"
-            (("g_object_unref \\(buffer.\\);") ""))
+       (modify-phases %standard-phases
+         (add-before 'build 'pre-build
+           (lambda _
+             ;; This test program seems to crash on exit. Specifically, whilst
+             ;; g_object_unreffing bufferA and bufferB - This seems to be a bug
+             ;; in the destructor.  This is just a test program so will not have
+             ;; any wider effect, although might be hiding another problem.
+             ;; According to advice received on irc.gimp.org#gegl although 0.2.0
+             ;; is the latest released version, any bug reports against it will
+             ;; be ignored.  So we are on our own.
+             (substitute* "tools/img_cmp.c"
+               (("g_object_unref \\(buffer.\\);") ""))
 
-          (substitute* "tests/compositions/Makefile"
-            (("/bin/sh") (which "sh"))))
-        %standard-phases)))
+             (substitute* "tests/compositions/Makefile"
+               (("/bin/sh") (which "sh")))
+             #t)))))
     (inputs
      `(("babl" ,babl)
        ("glib" ,glib)
@@ -132,6 +137,11 @@ buffers.")
               (uri (string-append "http://download.gimp.org/pub/gimp/v"
                                   (version-major+minor version)
                                   "/gimp-" version ".tar.bz2"))
+              (patches (search-patches "gimp-CVE-2017-17784.patch"
+                                       "gimp-CVE-2017-17785.patch"
+                                       "gimp-CVE-2017-17786.patch"
+                                       "gimp-CVE-2017-17787.patch"
+                                       "gimp-CVE-2017-17789.patch"))
               (sha256
                (base32
                 "12k3lp938qdc9cqj29scg55f3bb8iav2fysd29w0s49bqmfa71wi"))))
@@ -165,12 +175,12 @@ buffers.")
        ("libjpeg" ,libjpeg-8)
        ("atk" ,atk)
        ("gtk+" ,gtk+-2)
-       ("exif" ,libexif)                         ;optional, EXIF + XMP support
-       ("lcms" ,lcms)                            ;optional, color management
-       ("librsvg" ,librsvg)                      ;optional, SVG support
-       ("poppler", poppler)             ; optional, PDF support
-       ("python" ,python-2)                      ;optional, Python support
-       ("python2-pygtk" ,python2-pygtk)          ;optional, Python support
+       ("exif" ,libexif)                ; optional, EXIF + XMP support
+       ("lcms" ,lcms)                   ; optional, color management
+       ("librsvg" ,librsvg)             ; optional, SVG support
+       ("poppler" ,poppler)             ; optional, PDF support
+       ("python" ,python-2)             ; optional, Python support
+       ("python2-pygtk" ,python2-pygtk) ; optional, Python support
        ("gegl" ,gegl)))
     (native-inputs
      `(("pkg-config" ,pkg-config)

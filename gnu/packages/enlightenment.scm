@@ -1,8 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Tomáš Čech <sleep_walker@suse.cz>
 ;;; Copyright © 2015 Daniel Pimentel <d4n1@member.fsf.org>
-;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2015, 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -24,6 +25,7 @@
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system meson)
   #:use-module (guix build-system python)
   #:use-module (gnu packages)
   #:use-module (gnu packages bash)
@@ -47,18 +49,20 @@
   #:use-module (gnu packages llvm)
   #:use-module (gnu packages lua)
   #:use-module (gnu packages pdf)
+  #:use-module (gnu packages perl)
   #:use-module (gnu packages photo)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages pulseaudio)
   #:use-module (gnu packages python)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages video)
+  #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xorg))
 
 (define-public efl
   (package
     (name "efl")
-    (version "1.19.1")
+    (version "1.20.7")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -66,7 +70,9 @@
                     version ".tar.xz"))
               (sha256
                (base32
-                "0fndwraca9rg0bz3al4isdprvyw56szr88qiyvglb4j8ygsylscc"))))
+                "1zkn5ix81xck3n84dxvkjh4alwc6zj8x989d0zqi5c6ppijvgadh"))))
+    (outputs '("out"       ; 49 MB
+               "include")) ; 17 MB
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -101,11 +107,11 @@
        ("libxscrnsaver" ,libxscrnsaver)
        ("libxtst" ,libxtst)
        ("lz4" ,lz4)
-       ("mesa" ,mesa)
        ("openjpeg" ,openjpeg-1)
        ("poppler" ,poppler)
        ("printproto" ,printproto)
        ("scrnsaverproto" ,scrnsaverproto)
+       ("wayland-protocols" ,wayland-protocols)
        ("xextproto" ,xextproto)
        ("xinput" ,xinput)
        ("xpr" ,xpr)
@@ -122,11 +128,15 @@
        ("glib" ,glib) ; ecore.pc, ecore-cxx.pc
        ("harfbuzz" ,harfbuzz) ; evas.pc, evas-cxx.pc
        ("luajit" ,luajit) ; elua.pc, evas.pc, evas-cxx.pc
+       ("libinput" ,libinput-minimal) ; elput.pc
        ("libpng" ,libpng) ; evas.pc, evas-cxx.pc
        ("libsndfile" ,libsndfile) ; ecore-audio.pc, ecore-audio-cxx.pc
+       ("libxkbcommon" ,libxkbcommon) ; ecore-wl2.pc, elementary.pc, elput.pc
+       ("mesa" ,mesa) ; ecore-drm2.pc
        ("openssl" ,openssl) ; ecore-con.pc, eet.pc, eet-cxx.pc, emile.pc
        ("pulseaudio" ,pulseaudio) ; ecore-audio.pc, ecore-audio-cxx.pc
        ("util-linux" ,util-linux) ; mount: eeze.pc
+       ("wayland" ,wayland) ; ecore-wl2.pc, elementary.pc
        ("zlib" ,zlib))) ; eet.pc, eet-cxx.pc, emile.pc
     (arguments
      `(#:configure-flags '("--disable-silent-rules"
@@ -137,9 +147,23 @@
                            "--enable-multisense"
                            "--with-opengl=es"
                            "--enable-egl"
-                           "--enable-harfbuzz")
+                           "--enable-harfbuzz"
+                           ;; for wayland
+                           "--enable-wayland"
+                           "--enable-elput"
+                           "--enable-drm")
        #:phases
        (modify-phases %standard-phases
+         ;; If we don't hardcode the location of libcurl.so then we
+         ;; have to wrap the outputs of efl's dependencies in curl.
+         (add-after 'unpack 'hardcode-libcurl-location
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let* ((curl (assoc-ref inputs "curl"))
+                    (lib  (string-append curl "/lib/")))
+               (substitute* "src/lib/ecore_con/ecore_con_url_curl.c"
+                 (("libcurl.so.?" libcurl) ; libcurl.so.[45]
+                  (string-append lib libcurl)))
+               #t)))
          (add-after 'unpack 'set-home-directory
            ;; FATAL: Cannot create run dir '/homeless-shelter/.run' - errno=2
            (lambda _ (setenv "HOME" "/tmp") #t)))))
@@ -156,7 +180,7 @@ removable devices or support for multimedia.")
 (define-public terminology
   (package
     (name "terminology")
-    (version "1.0.0")
+    (version "1.2.0")
     (source (origin
               (method url-fetch)
               (uri
@@ -164,8 +188,17 @@ removable devices or support for multimedia.")
                               "terminology/terminology-" version ".tar.xz"))
               (sha256
                (base32
-                "1x4j2q4qqj10ckbka0zaq2r2zm66ff1x791kp8slv1ff7fw45vdz"))))
-    (build-system gnu-build-system)
+                "0kw34l5lahn1qaks3ah6x8k41d6hfywpqfak2p7qq1z87zj506mx"))
+              (modules '((guix build utils)))
+              ;; Remove the bundled fonts.
+              ;; TODO: Remove bundled lz4.
+              (snippet
+               '(begin
+                  (delete-file-recursively "data/fonts")
+                  (substitute* "data/meson.build"
+                    (("subdir\\('fonts'\\)") ""))
+                  #t))))
+    (build-system meson-build-system)
     (arguments
      '(#:phases
        (modify-phases %standard-phases
@@ -173,7 +206,9 @@ removable devices or support for multimedia.")
            ;; FATAL: Cannot create run dir '/homeless-shelter/.run' - errno=2
            (lambda _ (setenv "HOME" "/tmp") #t)))))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
+     `(("gettext" ,gettext-minimal)
+       ("perl" ,perl)
+       ("pkg-config" ,pkg-config)))
     (inputs
      `(("efl" ,efl)))
     (home-page "https://www.enlightenment.org/about-terminology")
@@ -188,7 +223,7 @@ contents and more.")
 (define-public rage
   (package
     (name "rage")
-    (version "0.2.1")
+    (version "0.3.0")
     (source (origin
               (method url-fetch)
               (uri
@@ -197,8 +232,8 @@ contents and more.")
                 version ".tar.xz"))
               (sha256
                (base32
-                "06kbgcnbhl9clhdl7k983m4d0n6ggsl4qvizzi1nrp8c7np87fix"))))
-    (build-system gnu-build-system)
+                "0gfzdd4jg78bkmj61yg49w7bzspl5m1nh6agqgs8k7qrq9q26xqy"))))
+    (build-system meson-build-system)
     (arguments
      '(#:phases
        (modify-phases %standard-phases
@@ -219,7 +254,7 @@ Libraries with some extra bells and whistles.")
 (define-public enlightenment
   (package
     (name "enlightenment")
-    (version "0.21.8")
+    (version "0.22.3")
     (source (origin
               (method url-fetch)
               (uri
@@ -227,7 +262,7 @@ Libraries with some extra bells and whistles.")
                               name "/" name "-" version ".tar.xz"))
               (sha256
                (base32
-                "0cjjiip12hd8bfjl9ccl3vzl81pxh1wpymxk2yvrzf6ap5girhps"))))
+                "16zydv7z94aw3rywmb9gr8ya85k7b75h22wng95lfx1x0y1yb0ad"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags '("--enable-mount-eeze")
@@ -247,9 +282,10 @@ Libraries with some extra bells and whistles.")
                  (("/bin/mount") (string-append utils "/bin/mount"))
                  (("/bin/umount") (string-append utils "/bin/umount"))
                  (("/usr/bin/eject") (string-append utils "/bin/eject"))
-                 ; TODO: Replace suspend and hibernate also.
-                 (("/sbin/shutdown -h now") "/run/current-system/profile/sbin/halt")
-                 (("/sbin/shutdown -r now") "/run/current-system/profile/sbin/reboot"))
+                 (("/etc/acpi/sleep.sh force") "/run/current-system/profile/bin/loginctl suspend")
+                 (("/etc/acpi/hibernate.sh force") "/run/current-system/profile/bin/loginctl hibernate")
+                 (("/sbin/shutdown -h now") "/run/current-system/profile/bin/loginctl poweroff now")
+                 (("/sbin/shutdown -r now") "/run/current-system/profile/bin/loginctl reboot now"))
                #t))))))
     (native-inputs
      `(("gettext" ,gettext-minimal)
@@ -277,14 +313,17 @@ embedded systems.")
 (define-public python-efl
   (package
     (name "python-efl")
-    (version "1.19.0")
+    (version "1.20.0")
     (source
       (origin
         (method url-fetch)
-        (uri (pypi-uri "python-efl" version))
+        (uri (list
+               (pypi-uri "python-efl" version)
+               (string-append "http://download.enlightenment.org/rel/bindings/"
+                              "python/python-efl-" version ".tar.gz")))
         (sha256
          (base32
-          "0l0f9bv1134qh5376p5asycncidrhp8hdb6qwd8ybr1a61q9zq67"))))
+          "1680pgpf501nhbc9arm0nfj6rpcw17aryh0pgmmmszxlgpifpdzy"))))
     (build-system python-build-system)
     (arguments
      '(#:phases
@@ -303,11 +342,7 @@ embedded systems.")
           (lambda _
             ;; Some tests require write access to HOME.
             (setenv "HOME" "/tmp")
-            #t)))
-       ;; FIXME: Some tests require a running D-Bus server or a network
-       ;; connection and should be disabled. Other test failures looks
-       ;; legitimate. Disabled for now, needs work!
-       #:tests? #f))
+            #t)))))
     (native-inputs
      `(("pkg-config" ,pkg-config)
        ("python-cython" ,python-cython)))
@@ -327,15 +362,15 @@ Libraries stack (eo, evas, ecore, edje, emotion, ethumb and elementary).")
 (define-public edi
   (package
     (name "edi")
-    (version "0.5.1")
+    (version "0.6.0")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "https://github.com/ajwillia-ms/edi/releases/"
-                            "download/v" version "/edi-" version ".tar.bz2"))
+        (uri (string-append "https://download.enlightenment.org/rel/apps/edi/"
+                            name "-" version ".tar.xz"))
         (sha256
          (base32
-          "0k0ymi9ilhkypqb9pniv365kh3jgbl2g2k0ylvsmisn2jhbqk49a"))))
+          "0iqkah327ms5m7k054hcik2l9v68i4mg9yy52brprfqpd5jk7pw8"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
@@ -343,11 +378,9 @@ Libraries stack (eo, evas, ecore, edje, emotion, ethumb and elementary).")
          (add-after 'unpack 'set-home-directory
            ;; FATAL: Cannot create run dir '/homeless-shelter/.run' - errno=2
            (lambda _ (setenv "HOME" "/tmp") #t)))
-       #:configure-flags '("--with-tests=coverage")))
+       #:tests? #f)) ; tests require running dbus service
     (native-inputs
-     `(("check" ,check)
-       ("lcov" ,lcov)
-       ("pkg-config" ,pkg-config)))
+     `(("pkg-config" ,pkg-config)))
     (inputs
      `(("clang" ,clang)
        ("efl" ,efl)))

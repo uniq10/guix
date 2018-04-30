@@ -22,7 +22,9 @@
   #:use-module (guix licenses)
   #:use-module (guix packages)
   #:use-module (gnu packages)
-  #:use-module (gnu packages python))
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web))
 
 (define-public radicale
   (package
@@ -55,13 +57,13 @@ clients.")
 (define-public vdirsyncer
   (package
     (name "vdirsyncer")
-    (version "0.16.0")
+    (version "0.16.4")
     (source (origin
              (method url-fetch)
              (uri (pypi-uri name version))
              (sha256
               (base32
-               "0n59mhcrm24bncnphigqqnifivxgsg87pidz6gshijkkjdwzmnyg"))))
+               "03wva48bgv1ad3df6plc9b8xxh6k8bcaxrhlzwh81c9mzn5bspzv"))))
     (build-system python-build-system)
     (arguments
       `(#:phases (modify-phases %standard-phases
@@ -89,6 +91,7 @@ clients.")
        ("python-pytest" ,python-pytest)
        ("python-pytest-localserver" ,python-pytest-localserver)
        ("python-pytest-subtesthack" ,python-pytest-subtesthack)
+       ("python-urllib3" ,python-urllib3)
        ("python-wsgi-intercept" ,python-wsgi-intercept)
        ("radicale" ,radicale)))
     (propagated-inputs

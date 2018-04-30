@@ -1,5 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Dave Love <fx@gnu.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -24,13 +26,15 @@
   #:use-module (gnu packages compression)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages maths)
+  #:use-module (gnu packages mpi)
   #:use-module (gnu packages python)
-  #:use-module (gnu packages storage))
+  #:use-module (gnu packages storage)
+  #:use-module (ice-9 match))
 
 (define-public fio
   (package
     (name "fio")
-    (version "2.20")
+    (version "3.6")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -38,7 +42,7 @@
                        "fio-" version ".tar.bz2"))
               (sha256
                (base32
-                "15vgbzlcjd21bi9ahlbs8h9ca4raw5qgi711n802qmagjdjbmlxw"))))
+                "1d2jibp1b2dq97f22wj6pcjl7gbd2kmhfggj2c7q3j8v9axjqsh2"))))
     (build-system gnu-build-system)
     (arguments
      '(#:test-target "test"
@@ -63,8 +67,9 @@
              ;; The configure script doesn't understand some of the
              ;; GNU options, so we can't use #:configure-flags.
              (let ((out (assoc-ref outputs "out")))
-               (zero? (system* "./configure"
-                               (string-append "--prefix=" out))))))
+               (invoke "./configure"
+                       (string-append "--prefix=" out))
+               #t)))
          ;; The main `fio` executable is fairly small and self contained.
          ;; Moving the auxiliary python and gnuplot scripts to a separate
          ;; output saves almost 400 MiB on the closure.
@@ -103,3 +108,65 @@ is to write a job file matching the I/O load one wants to simulate.")
     ;; are covered by other licenses.
     (license (list license:gpl2 license:gpl2+ license:bsd-2
                    license:public-domain))))
+
+;; Parameterized in anticipation of m(va)pich support
+(define (imb mpi)
+  (package
+    (name (string-append "imb-" (package-name mpi)))
+    (version "2017.2")
+    (source
+     (origin
+      (method url-fetch)
+      (uri (match (string-split version #\.)
+             ((major minor)
+              (string-append
+               "https://software.intel.com/sites/default/files/managed/76/6c/IMB_"
+               major "_Update" minor ".tgz"))))
+      (sha256 (base32 "11nczxm686rsppmw9gjc2p2sxc0jniv5kv18yxm1lzp5qfh5rqyb"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("mpi" ,mpi)))
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (delete 'check)
+         (replace 'build
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((mpi-home (assoc-ref inputs "mpi")))
+               (zero?
+                ;; Not safe for parallel build
+                (system* "make" "-C" "imb/src" "-f" "make_mpich" "SHELL=sh"
+                         (string-append "MPI_HOME=" mpi-home))))))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (doc (string-append out "/share/doc/" ,name))
+                    (bin (string-append out "/bin")))
+               (with-directory-excursion "imb/src"
+                 (for-each
+                  (lambda (file)
+                    (install-file file bin))
+                  '("IMB-IO" "IMB-EXT" "IMB-MPI1" "IMB-NBC" "IMB-RMA")))
+               (mkdir-p doc)
+               (with-directory-excursion "imb"
+                 (copy-recursively "license" doc)))
+             #t)))))
+    (home-page "https://software.intel.com/en-us/articles/intel-mpi-benchmarks")
+    (synopsis "Intel MPI Benchmarks")
+    (description
+     "This package provides benchmarks for implementations of the @dfn{Message
+Passing Interface} (MPI).  It contains MPI performance measurements for
+point-to-point and global communication, and file, operations for a range of
+message sizes.  The generated benchmark data fully characterize:
+
+@itemize
+@item
+Performance of a cluster system, including node performance, network latency,
+and throughput;
+@item
+Efficiency of the MPI implementation.
+@end itemize")
+    (license license:cpl1.0)))
+
+(define-public imb-openmpi (imb openmpi))

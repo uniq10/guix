@@ -2,8 +2,8 @@
 ;;; Copyright © 2014 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2014, 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
-;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -39,7 +39,7 @@
 (define-public ntp
   (package
    (name "ntp")
-   (version "4.2.8p10")
+   (version "4.2.8p11")
    (source
      (origin
        (method url-fetch)
@@ -53,7 +53,7 @@
                     "/ntp-" version ".tar.gz")))
        (sha256
         (base32
-         "17xrk7gxrl3hgg0i73n8qm53knyh01lf0f3l1zx9x6r1cip3dlnx"))
+         "13i7rp1va29ffjdk08fvsfl6n47zzwsp147zhgb550k8agvkjjpi"))
        (modules '((guix build utils)))
        (snippet
         '(begin
@@ -98,15 +98,28 @@ computers over a network.")
 (define-public openntpd
   (package
     (name "openntpd")
-    (version "6.1p1")
+    (version "6.2p3")
     (source (origin
               (method url-fetch)
               (uri (string-append
                     "mirror://openbsd/OpenNTPD/" name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1ykx9ga76k5m54h7k5x4ds2clxsyfniss5vmf88pxnrip5bx6if8"))))
+                "0fn12i4kzsi0zkr4qp3dp9bycmirnfapajqvdfx02zhr4hanj0kv"))))
     (build-system gnu-build-system)
+    (arguments
+     '(#:configure-flags '("--with-privsep-user=ntpd"
+                           "--localstatedir=/var")
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'modify-install-locations
+           (lambda _
+             ;; Don't try to create /var/run or /var/db
+             (substitute* "src/Makefile.in"
+               (("DESTDIR\\)\\$\\(localstatedir") "TMPDIR"))
+             #t)))))
+    (inputs
+     `(("libressl" ,libressl))) ; enable TLS time constraints. See ntpd.conf(5).
     (home-page "http://www.openntpd.org/")
     (synopsis "NTP client and server by the OpenBSD Project")
     (description "OpenNTPD is the OpenBSD Project's implementation of a client
@@ -132,7 +145,18 @@ minimalist than ntpd.")
               (file-name (string-append name "-" version "-checkout"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (modify-phases %standard-phases
+     `(;; Disable seccomp when it's not supported--e.g., on aarch64.  See
+       ;; 'src/seccomp.c' for the list of supported systems.
+       #:configure-flags ,(if (any (lambda (system)
+                                     (string-contains (or
+                                                       (%current-target-system)
+                                                       (%current-system))
+                                                      system))
+                                   '("x86_64" "i686" "arm"))
+                              ''()
+                              ''("--disable-seccomp-filter"))
+
+       #:phases (modify-phases %standard-phases
                   (add-after 'unpack 'autogen
                     (lambda _
                       ;; The ancestor of 'SOURCE_DATE_EPOCH'; it contains the

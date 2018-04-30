@@ -5,7 +5,9 @@
 ;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Lukas Gradl <lgradl@openmailbox.org>
 ;;; Copyright © 2016 Francesco Frassinelli <fraph24@gmail.com>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,6 +29,7 @@
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages avahi)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages protobuf)
   #:use-module (gnu packages gnupg)
   #:use-module (gnu packages linux)
@@ -56,12 +59,12 @@
                      "0kmgr5w3b1qwzxnsnw94q6rqs0hr8nbv9clf07ca2a2fyypx9kjk"))))
     (arguments
      `(#:phases
-       (alist-cons-before
-        'configure 'pre-configure
-        (lambda _
-          (substitute* "src/applog.cpp"
-            (("^// TODO sc.*") "#include <sys/types.h>\n#include <sys/stat.h>\n")))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           (lambda _
+             (substitute* "src/applog.cpp"
+               (("^// TODO sc.*") "#include <sys/types.h>\n#include <sys/stat.h>\n"))
+             #t)))))
    (build-system gnu-build-system)
    (synopsis "(u)Common C++ framework for threaded applications")
    (description "GNU Common C++ is an portable, optimized class framework for
@@ -159,7 +162,7 @@ multiplayer games.")
    (license license:gpl2+)
    ;; (plus OpenSSL linking exception)
    ;; http://git.savannah.gnu.org/cgit/exosip.git/plain/LICENSE.OpenSSL
-    (home-page "http://savannah.nongnu.org/projects/exosip")))
+    (home-page "https://savannah.nongnu.org/projects/exosip")))
 
 (define-public sipwitch
   (package
@@ -207,17 +210,17 @@ internet.")
 (define-public libsrtp
   (package
     (name "libsrtp")
-    (version "1.5.4")
+    (version "1.6.0")
     (source (origin
-             (method url-fetch)
-             (uri (string-append "https://github.com/cisco/libsrtp/archive/v"
+              (method url-fetch)
+              (uri (string-append "https://github.com/cisco/libsrtp/archive/v"
                                   version ".tar.gz"))
-             (file-name (string-append name "-" version ".tar.gz"))
-             (sha256
-              (base32
-               "1w2g623qkd7gdyydglx2hr4s2y237lg0nszjmy7z8d2iq8hvb9sn"))))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1ppdqsrx5ni54vmd4kdzzmvgmf5ixb04w0jw7idy8mad6l27jghs"))))
     (native-inputs
-     `(("psmisc" ,psmisc)                        ;some tests require 'killall'
+     `(("psmisc" ,psmisc)               ;some tests require 'killall'
        ("procps" ,procps)))
     (build-system gnu-build-system)
     (arguments
@@ -232,7 +235,7 @@ internet.")
                (("mips\\)") "mips_est)"))
              #t))
          (add-after 'unpack 'patch-dictionary-location
-           ;; With the above changes, the rtpw_test.sh test finally runs, and fails
+           ;; With the above changes, the rtpw_test.sh test finally runs, and fails.
            (lambda _
              (substitute* "test/rtpw.c"
                (("/usr/share/dict/words")
@@ -241,11 +244,58 @@ internet.")
                (("words.txt") "FAQ"))
              #t)))))
     (synopsis "Secure RTP (SRTP) Reference Implementation")
-    (description "This package provides an implementation of the Secure
-Real-time Transport Protocol (SRTP), the Universal Security Transform (UST),
-and a supporting cryptographic kernel.")
+    (description
+     "This package provides an implementation of the Secure Real-time Transport
+Protocol (@dfn{SRTP}), the Universal Security Transform (@dfn{UST}), and a
+supporting cryptographic kernel.")
     (home-page "https://github.com/cisco/libsrtp")
     (license license:bsd-3)))
+
+(define-public bctoolbox
+  (package
+    (name "bctoolbox")
+    (version "0.2.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://savannah/linphone/bctoolbox/bctoolbox-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "14ivv6bh6qywys6yyb34scy9w78d636xl1f7cyxm3gwx2qv71lx5"))))
+    (build-system gnu-build-system)
+    (arguments '(#:make-flags '("CFLAGS=-fPIC")))
+    (native-inputs
+     `(("cunit" ,cunit)))
+    (inputs
+     `(("mbedtls" ,mbedtls-apache)))
+    (home-page "https://www.linphone.org")
+    (synopsis "Utilities library for linphone software")
+    (description "BCtoolbox is a utilities library used by Belledonne
+Communications softwares like linphone.")
+    (license license:gpl2+)))
+
+(define-public ortp
+  (package
+    (name "ortp")
+    (version "0.27.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://download.savannah.nongnu.org/"
+                                  "releases/linphone/ortp/sources/ortp-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "1by0dqdqrj5avzcvjws30g8v5sa61wj12x00sxw0kn1smcrshqgb"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("bctoolbox" ,bctoolbox)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (home-page "https://linphone.org/")
+    (synopsis "Implementation of the Real-time transport protocol")
+    (description "oRTP is a library implementing the Real-time transport
+protocol (RFC 3550).")
+    (license license:lgpl2.1+)))
 
 (define-public libiax2
   (let ((commit "0e5980f1d78ce462e2d1ed6bc39ff35c8341f201"))
@@ -272,7 +322,7 @@ and a supporting cryptographic kernel.")
          ("libtool" ,libtool)))
       (arguments
        `(#:phases (modify-phases %standard-phases
-                    (add-before 'configure 'autoconf
+                    (add-after 'unpack 'autoconf
                       (lambda _
                         (zero? (system* "autoreconf" "-vfi")))))))
       (home-page "https://gitlab.savoirfairelinux.com/sflphone/libiax2")

@@ -4,6 +4,11 @@
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Andy Wingo <wingo@igalia.com>
+;;; Copyright © 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017, 2018 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,12 +27,14 @@
 
 (define-module (gnu packages libreoffice)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system trivial)
   #:use-module (guix download)
   #:use-module ((guix licenses)
                 #:select (gpl2+ lgpl2.1+ lgpl3+ mpl1.1 mpl2.0
                           non-copyleft x11-style))
   #:use-module (guix packages)
   #:use-module (guix utils)
+  #:use-module (ice-9 match)
   #:use-module (gnu packages)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages base)
@@ -47,6 +54,7 @@
   #:use-module (gnu packages glib)
   #:use-module (gnu packages gnome)
   #:use-module (gnu packages gperf)
+  #:use-module (gnu packages gnupg)
   #:use-module (gnu packages gnuzilla)
   #:use-module (gnu packages gstreamer)
   #:use-module (gnu packages gtk)
@@ -124,14 +132,14 @@ CSV, CSS and XML.")
 (define-public librevenge
   (package
     (name "librevenge")
-    (version "0.0.2")
+    (version "0.0.4")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "mirror://sourceforge/libwpd/" name "/" name "-"
                           version "/" name "-" version ".tar.xz"))
       (sha256 (base32
-               "03ygxyb0vfjv8raif5q62sl33b54wkr5rzgadb8slijm6k281wpn"))))
+               "1cj76cz4mqcy2mgv9l5xlc95bypyk8zbq0ls9cswqrs2y0lhfgwk"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("cppunit" ,cppunit)
@@ -156,14 +164,14 @@ spreadsheets and presentations.")
 (define-public libwpd
   (package
     (name "libwpd")
-    (version "0.10.0")
+    (version "0.10.2")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "mirror://sourceforge/" name "/" name "/"
                           name "-" version "/" name "-" version ".tar.xz"))
       (sha256 (base32
-               "0b6krzr6kxzm89g6bapn805kdayq70hn16n5b5wfs2lwrf0ag2wx"))))
+               "0436gnidx45a9vx114hhh216jrh57mqb9zyssyjfadagmyz6hgrj"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -182,7 +190,7 @@ into other word processors.")
 (define-public libe-book
   (package
     (name "libe-book")
-    (version "0.1.2")
+    (version "0.1.3")
     (source
       (origin
         (method url-fetch)
@@ -190,7 +198,7 @@ into other word processors.")
                             version "/libe-book-" version ".tar.xz"))
         (sha256
           (base32
-            "1v48pd32r2pfysr3a3igc4ivcf6vvb26jq4pdkcnq75p70alp2bz"))))
+            "1yg1vws1wggzhjw672bpgh2x541g5i9wryf67g51m0r79zrqz3by"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("cppunit" ,cppunit)
@@ -198,6 +206,7 @@ into other word processors.")
        ("pkg-config" ,pkg-config)))
     (propagated-inputs ; in Requires or Requires.private field of .pkg
      `(("icu4c" ,icu4c)
+       ("liblangtag" ,liblangtag)
        ("librevenge" ,librevenge)
        ("libxml2" ,libxml2)))
     (inputs
@@ -218,14 +227,14 @@ ZVR (simple compressed text format).")
 (define-public libwpg
   (package
     (name "libwpg")
-    (version "0.3.0")
+    (version "0.3.2")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "mirror://sourceforge/" name "/" name "/"
                           name "-" version "/" name "-" version ".tar.xz"))
       (sha256 (base32
-               "097jx8a638fwwfrzf6v29r1yhc34rq9526py7wf0ck2z4fcr2w3g"))))
+               "0cwc5zkp210c661l0bvk6q21jg9ak5g8gmy578w5fgfnjymz3yjp"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -287,14 +296,14 @@ as Alfresco or Nuxeo.")
 (define-public libabw
   (package
     (name "libabw")
-    (version "0.1.1")
+    (version "0.1.2")
     (source
      (origin
       (method url-fetch)
-      (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
+      (uri (string-append "https://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "0zi1zj4fpxgpglbbb5n1kg3dmhqq5rpf46lli89r5daavp19iing"))))
+               "11949iscdb99f2jplxjd39282jxcrf2fw0sqbh5dl7gqb96r8whb"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -318,17 +327,18 @@ AbiWord documents.")
 (define-public libcdr
   (package
     (name "libcdr")
-    (version "0.1.1")
+    (version "0.1.4")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "07yzb1yr5kzv0binzj5swz3zzay2gw3xb0fbkc2zwdssgrkf19nh"))))
+               "0vd6likgk51j46llybkx4wq3674xzrhp0k82220pkx9x1aqfi9z7"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(("doxygen" ,doxygen)
+     `(("cppunit" ,cppunit)
+       ("doxygen" ,doxygen)
        ("pkg-config" ,pkg-config)))
     (propagated-inputs ; in Requires or Requires.private field of .pkg
      `(("icu4c" ,icu4c)
@@ -349,21 +359,17 @@ CorelDRAW documents of all versions.")
 (define-public libetonyek
   (package
     (name "libetonyek")
-    (version "0.1.6")
+    (version "0.1.8")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "0y60vi1plyq69fqbcjnc0v8mvcjqjsl1ry6rmb3bq3q7j8a2fm6z"))
-      (patches (search-patches "libetonyek-build-with-mdds-1.2.patch"))))
+               "0bfq9rwm040xhh7b3v0gsdavwvnrz4hkwnhpggarxk70mr3j7jcx"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:configure-flags '("--with-mdds=1.2")
-       #:phases (modify-phases %standard-phases
-                  (add-before 'configure 'autoreconf
-                              (lambda _ (system* "autoreconf"))))))
+     `(#:configure-flags '("--with-mdds=1.2")))
     (native-inputs
      `(("cppunit" ,cppunit)
        ("doxygen" ,doxygen)
@@ -371,9 +377,7 @@ CorelDRAW documents of all versions.")
        ("gperf" ,gperf)
        ("liblangtag" ,liblangtag)
        ("mdds" ,mdds)
-       ("pkg-config" ,pkg-config)
-       ("autoconf" ,autoconf) ; due to patch
-       ("automake" ,automake)))
+       ("pkg-config" ,pkg-config)))
     (propagated-inputs ; in Requires or Requires.private field of .pkg
      `(("librevenge" ,librevenge)
        ("libxml2" ,libxml2)))
@@ -388,7 +392,7 @@ Apple Keynote documents.  It currently supports Keynote versions 2 to 5.")
 (define-public liblangtag
   (package
     (name "liblangtag")
-    (version "0.5.8")
+    (version "0.6.2")
     (source
       (origin
         (method url-fetch)
@@ -396,14 +400,15 @@ Apple Keynote documents.  It currently supports Keynote versions 2 to 5.")
                             name "-" version ".tar.bz2"))
         (sha256
          (base32
-          "1akf0d7yp29pv3j2pw2riii4n5kyjr9szc0y77khnx9zzr5zdqh8"))))
+          "0bnm4hllr8cfrybm8rw7b8n0nlhzhnv73bkg1bxk452g6a82f96n"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("libtool" ,libtool)
        ("pkg-config" ,pkg-config)))
     (inputs
      `(("libxml2" ,libxml2)))
-    (home-page "http://tagoh.bitbucket.org/liblangtag/")
+    ;; As of December 2017, tagoh.bitbucket.org redirects to a hosting advert.
+    (home-page "https://bitbucket.org/tagoh/liblangtag")
     (synopsis "Library to access tags for identifying languages")
     (description "Liblangtag implements an interface to work with tags
 for identifying languages as described in RFC 5646.  It supports the
@@ -415,16 +420,16 @@ standard 21.0.2.")
 (define-public libexttextcat
   (package
     (name "libexttextcat")
-    (version "3.4.4")
+    (version "3.4.5")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "14v2hkygnmf1zgahfm1fha47cr67iikrz2ymiqi28d2jydn0hk7j"))))
+               "1j6sjwkyhqvsgyw938bxxfwkzzi1mahk66g5342lv6j89jfvrz8k"))))
     (build-system gnu-build-system)
-    (home-page "http://www.freedesktop.org/wiki/Software/libexttextcat/")
+    (home-page "https://www.freedesktop.org/wiki/Software/libexttextcat/")
     (synopsis "Text Categorization library")
     (description "Libexttextcat is an N-Gram-Based Text Categorization
 library primarily intended for language guessing.")
@@ -434,20 +439,24 @@ library primarily intended for language guessing.")
 (define-public libfreehand
   (package
     (name "libfreehand")
-    (version "0.1.0")
+    (version "0.1.2")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "01j7mxi4lmf72w1mv2r098p8l0csdd94w2gq0ncp93djn34al6ai"))))
+               "1b1lvqh68rwij1yvmxy02hsmh7i74ma5767mk8mg5nx6chajshhf"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(("doxygen" ,doxygen)
+     `(("cppunit" ,cppunit)
+       ("doxygen" ,doxygen)
        ("gperf" ,gperf)
        ("perl" ,perl)
        ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("icu4c" ,icu4c)
+       ("lcms" ,lcms)))
     (propagated-inputs ; in Requires or Requires.private field of .pkg
      `(("librevenge" ,librevenge)
        ("zlib" ,zlib)))
@@ -460,14 +469,14 @@ Aldus/Macromedia/Adobe FreeHand documents.")
 (define-public libmspub
   (package
     (name "libmspub")
-    (version "0.1.2")
+    (version "0.1.4")
     (source
      (origin
       (method url-fetch)
-      (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
+      (uri (string-append "https://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "03sn6lxpr49sdq6j8q7fw7yjybyfahhs03z80388mh105pwapfmh"))))
+               "1fhkn013gzg59f4z7rldpbi0nj7lgdqzxanspsqa6axvmahw2dpg"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -487,14 +496,14 @@ Microsoft Publisher documents of all versions.")
 (define-public libpagemaker
   (package
     (name "libpagemaker")
-    (version "0.0.2")
+    (version "0.0.4")
     (source
      (origin
       (method url-fetch)
-      (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
+      (uri (string-append "https://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "05zgj5ngg9z4b7dnrfs59nm0macm99lzyxv4mg53jcvp0mkgigfd"))))
+               "17ai8ajffr0ixxmmcv3k5vgjlcsix38ldb4fw2arild70pbsrbb6"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -504,9 +513,6 @@ Microsoft Publisher documents of all versions.")
     (inputs
      `(("boost" ,boost)
        ("zlib" ,zlib)))
-    (arguments
-     ;; avoid triggering a build failure due to warnings
-     `(#:configure-flags '("--disable-werror")))
     (home-page "https://wiki.documentfoundation.org/DLP/Libraries/libpagemaker")
     (synopsis "Library for parsing the PageMaker format")
     (description "Libpagemaker is a library that parses the file format of
@@ -517,15 +523,14 @@ created by PageMaker version 6.x and 7.")
 (define-public libvisio
   (package
     (name "libvisio")
-    ;; FIXME: The newer version 0.1.1 fails its tests.
-    (version "0.1.0")
+    (version "0.1.6")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/" name "/"
                           name "-" version ".tar.xz"))
       (sha256 (base32
-               "0vvd2wyp4rw6s9xnj1dc9vgdpfvm45gnb5b9hhzif0fdnx4iskqf"))))
+               "1yahpfl13qk6178irv8jn5ppxdn7isafqisyqsdw0lqxcz9h447y"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("cppunit" ,cppunit)
@@ -539,10 +544,6 @@ created by PageMaker version 6.x and 7.")
        ("libxml2" ,libxml2)))
     (inputs
      `(("boost" ,boost)))
-    ;; FIXME: Not needed any more for newer version 0.1.1.
-    (arguments
-     ;; avoid triggering a build failure due to warnings
-     `(#:configure-flags '("--disable-werror")))
     (home-page "https://wiki.documentfoundation.org/DLP/Libraries/libvisio")
     (synopsis "Library for parsing the Microsoft Visio format")
     (description "Libvisio is a library that parses the file format of
@@ -552,14 +553,14 @@ Microsoft Visio documents of all versions.")
 (define-public libodfgen
   (package
     (name "libodfgen")
-    (version "0.1.3")
+    (version "0.1.6")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/"
                           name "-" version ".tar.bz2"))
       (sha256 (base32
-               "074qsav86ixwi9zm1f77g9vxdf1ihm6n930vxjg8q3lwzd8g7lb6"))))
+               "1hn91bm6dni7n3frh7lpbj3mjqmdrpn12ipq8rswd9445y4j2yrc"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -583,15 +584,14 @@ text documents, vector drawings, presentations and spreadsheets.")
 (define-public libmwaw
   (package
     (name "libmwaw")
-    (version "0.3.11")
+    (version "0.3.12")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "mirror://sourceforge/" name "/" name "/" name "-"
                           version "/" name "-" version ".tar.xz"))
-      (patches (search-patches "libmwaw-CVE-2017-9433.patch"))
       (sha256 (base32
-               "16i9s9p4sjpdpbm3gq6jkc9r3nyfy47ggkdlgh7vr0mydccklj2b"))))
+               "1ryi1v38lgy5kv84fzjqkawidrg30y4hlqrz1v262792wzkad4bn"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -601,9 +601,6 @@ text documents, vector drawings, presentations and spreadsheets.")
     (inputs
      `(("boost" ,boost)
        ("zlib" ,zlib)))
-    (arguments
-     ;; avoid triggering configure errors by simple inclusion of boost headers
-     `(#:configure-flags '("--disable-werror")))
     (home-page "https://sourceforge.net/p/libmwaw/wiki/Home/")
     (synopsis "Import library for some old Macintosh text documents")
     (description "Libmwaw contains some import filters for old Macintosh
@@ -614,14 +611,14 @@ spreadsheet documents.")
 (define-public libstaroffice
   (package
     (name "libstaroffice")
-    (version "0.0.4")
+    (version "0.0.6")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://github.com/fosnola/libstaroffice/releases/download/"
                            version "/libstaroffice-" version ".tar.xz"))
        (sha256 (base32
-                "0flh0hs31fsq1dmkhf2502lxskiy7fbj5q8gn4b4f502s228fwkf"))))
+                "1i0ykl0c94lc1qzb5mbyf9jr7qw8p38ja424whmhgrllh7ny203b"))))
     (build-system gnu-build-system)
     (inputs
      `(("librevenge" ,librevenge)
@@ -637,14 +634,14 @@ from the old StarOffice (.sdc, .sdw, ...).")
 (define-public libwps
   (package
     (name "libwps")
-    (version "0.4.0")
+    (version "0.4.7")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "mirror://sourceforge/" name "/" name "/"
                           name "-" version "/" name "-" version ".tar.xz"))
       (sha256 (base32
-               "0nlrdk7di015l0sk0ivjdqs86zdcvf73p9z9s9ry5glyhrknzxjk"))))
+               "05xjb35y5ha9grgjqs3viaglq7ydsry1hzdvkm7y5b6f1disnb1g"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("doxygen" ,doxygen)
@@ -654,9 +651,6 @@ from the old StarOffice (.sdc, .sdw, ...).")
     (inputs
      `(("boost" ,boost)
        ("zlib" ,zlib)))
-    (arguments
-     ;; avoid triggering configure errors by simple inclusion of boost headers
-     `(#:configure-flags '("--disable-werror")))
     (home-page "http://libwps.sourceforge.net/")
     (synopsis "Import library for Microsoft Works text documents")
     (description "Libwps is a library for importing files in the Microsoft
@@ -666,14 +660,14 @@ Works word processor file format.")
 (define-public libzmf
   (package
    (name "libzmf")
-   (version "0.0.1")
+   (version "0.0.2")
    (source
     (origin
       (method url-fetch)
       (uri (string-append "http://dev-www.libreoffice.org/src/libzmf/libzmf-"
                           version ".tar.xz"))
       (sha256 (base32
-               "0yp5l1b90xim506zmr3ljkn3qkvbc7qk3dnwq1snxdpr57m37xga"))))
+               "08mg5kmkjrmqrd8j5rkzw9vdqlvibhb1ynp6bmfxnzq5rcq1l197"))))
    (build-system gnu-build-system)
    (inputs
     `(("boost" ,boost)
@@ -695,25 +689,110 @@ Zoner Draw version 4 and 5.")
 (define-public hunspell
   (package
     (name "hunspell")
-    (version "1.5.4")
+    (version "1.6.2")
     (source
      (origin
       (method url-fetch)
       (uri (string-append "https://github.com/hunspell/hunspell/archive/v"
                           version ".tar.gz"))
       (sha256 (base32
-               "0ngwk18dwd8p5a5f20h2jlgrz9wbc1k189mmmprb2zmqwfi02b45"))
+               "1i7lsv2cm0713ia3j5wjkcrhpfp3lqpjpwp4d3v18n7ycaqcxn9w"))
       (file-name (string-append name "-" version ".tar.gz"))))
     (build-system gnu-build-system)
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)))
     (inputs
      `(("perl" ,perl)))
-    (home-page "http://hunspell.sourceforge.net/")
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (invoke "autoreconf" "-vfi") #t)))))
+    (native-search-paths (list (search-path-specification
+                                (variable "DICPATH")
+                                (files '("share/hunspell")))))
+    (home-page "https://hunspell.github.io/")
     (synopsis "Spell checker")
     (description "Hunspell is a spell checker and morphological analyzer
 library and program designed for languages with rich morphology and complex
 word compounding or character encoding.")
     ;; Triple license, including "mpl1.1 or later".
     (license (list mpl1.1 gpl2+ lgpl2.1+))))
+
+(define (dicollecte-french-dictionary variant synopsis)
+  ;; Return a French dictionary package from dicollecte.org, for the given
+  ;; VARIANT.
+  (package
+    (name (match variant
+            ("classique" "hunspell-dict-fr")
+            (_ (string-append "hunspell-dict-fr-" variant))))
+    (version "6.1")
+    (source (origin
+              (uri (string-append
+                    "http://www.dicollecte.org/download/fr/hunspell-french-dictionaries-v"
+                    version ".zip"))
+              (method url-fetch)
+              (sha256
+               (base32
+                "0w2hzh36wj3lsj2yd4mh7z7547dg452sywj79vnzx27csclwqshc"))))
+    (build-system trivial-build-system)
+    (native-inputs `(("unzip" ,unzip)))
+    (arguments
+     `(#:modules ((guix build utils))
+       #:builder (begin
+                   (use-modules (guix build utils)
+                                (srfi srfi-26))
+
+                   (let* ((out      (assoc-ref %outputs "out"))
+                          (hunspell (string-append out "/share/hunspell"))
+                          (myspell  (string-append out "/share/myspell"))
+                          (doc      (string-append out "/share/doc/"
+                                                   ,name))
+                          (unzip    (assoc-ref %build-inputs "unzip")))
+                     (system* (string-append unzip "/bin/unzip")
+                              (assoc-ref %build-inputs "source"))
+                     (for-each (cut install-file <> hunspell)
+                               (find-files "."
+                                           ,(string-append variant
+                                                           "\\.(dic|aff)$")))
+                     (mkdir-p myspell)
+                     (symlink hunspell (string-append myspell "/dicts"))
+                     (for-each (cut install-file <> doc)
+                               (find-files "." "\\.(txt|org|md)$"))
+                     #t))))
+    (synopsis synopsis)
+    (description
+     "This package provides a dictionary for the Hunspell spell-checking
+library.")
+    (home-page "https://www.dicollecte.org/home.php?prj=fr")
+    (license mpl2.0)))
+
+(define-syntax define-french-dictionary
+  (syntax-rules (synopsis)
+    ((_ name variant (synopsis text))
+     (define-public name
+       (dicollecte-french-dictionary variant text)))))
+
+(define-french-dictionary hunspell-dict-fr-classique
+  "classique"
+  ;; TRANSLATORS: In French, this is "Français classique".
+  (synopsis "Hunspell dictionary for ``classic'' French (recommended)"))
+
+(define-french-dictionary hunspell-dict-fr-moderne
+  "moderne"
+  ;; TRANSLATORS: In French, this is "Français moderne".
+  (synopsis "Hunspell dictionary for ``modern'' French"))
+
+(define-french-dictionary hunspell-dict-fr-réforme-1990
+  "reforme1990"
+  (synopsis "Hunspell dictionary for the post @dfn{1990 réforme} French"))
+
+(define-french-dictionary hunspell-dict-fr-toutes-variantes
+  "toutesvariantes"
+  (synopsis "Hunspell dictionary for all variants of French"))
 
 (define-public hyphen
   (package
@@ -762,40 +841,24 @@ and to return information on pronunciations, meanings and synonyms.")
     (license (non-copyleft "file://COPYING"
                            "See COPYING in the distribution."))))
 
-;; LibreOffice requires an xmlsec source tarball; it does not even check
-;; for the presence of an externally compiled library.
-(define xmlsec-src-libreoffice
-  (origin
-    (method url-fetch)
-    (uri
-      (string-append
-       "http://dev-www.libreoffice.org/src/"
-       "86b1daaa438f5a7bea9a52d7b9799ac0-xmlsec1-1.2.23.tar.gz"))
-    (sha256 (base32
-             "17qfw5crkqn4v6xbkjxrjvcccfc00dy053892wrwv54qdk8n7m21"))))
-
 (define-public libreoffice
   (package
     (name "libreoffice")
-    (version "5.3.2.2")
+    (version "5.4.6.2")
     (source
      (origin
       (method url-fetch)
       (uri
         (string-append
-          "http://download.documentfoundation.org/libreoffice/src/"
+          "https://download.documentfoundation.org/libreoffice/src/"
           (version-prefix version 3) "/libreoffice-" version ".tar.xz"))
-      (sha256 (base32
-               "1bcy1wx2cixawpd6cpivakwcwv8ryyy25kdw0fbci319p5gaj4c8"))))
+      (sha256
+       (base32
+        "0icd8h221gp2dsbn6d35flwhqhcfpx66cjc5dg8yifhhvrfam74i"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(;; autoreconf is run by the LibreOffice build system, since after
-       ;; unpacking the external xmlsec tarball, it applies a series of
-       ;; patches to Makefile.am, configure.in, config.guess and config.sub.
-       ("autoconf" ,autoconf)
-       ("automake" ,automake)
-       ("bison" ,bison)
-       ("cppunit" ,cppunit)
+     `(("bison" ,bison)
+       ("cppunit" ,cppunit-1.14)
        ("flex" ,flex)
        ("pkg-config" ,pkg-config)
        ("python" ,python-wrapper)
@@ -811,20 +874,24 @@ and to return information on pronunciations, meanings and synonyms.")
        ("glew" ,glew)
        ("glm" ,glm)
        ("gperf" ,gperf)
+       ("gpgme" ,gpgme)
        ("graphite2" ,graphite2)
        ("gst-plugins-base" ,gst-plugins-base)
-       ("gtk+" ,gtk+-2)
+       ("gtk+" ,gtk+)
        ("harfbuzz" ,harfbuzz)
        ("hunspell" ,hunspell)
        ("hyphen" ,hyphen)
        ("libabw" ,libabw)
        ("libcdr" ,libcdr)
        ("libcmis" ,libcmis)
-       ("libjpeg" ,libjpeg)
+       ("libjpeg-turbo" ,libjpeg-turbo)
        ("libe-book" ,libe-book)
        ("libetonyek" ,libetonyek)
        ("libexttextcat" ,libexttextcat)
        ("libfreehand" ,libfreehand)
+       ("liblangtag" ,liblangtag)
+       ;; XXX: Perhaps this should be propagated from xmlsec.
+       ("libltdl" ,libltdl)
        ("libmspub" ,libmspub)
        ("libmwaw" ,libmwaw)
        ("libodfgen" ,libodfgen)
@@ -848,7 +915,7 @@ and to return information on pronunciations, meanings and synonyms.")
        ("openssl" ,openssl)
        ("orcus" ,orcus)
        ("perl" ,perl)
-       ("perl-zip" ,perl-zip)
+       ("perl-archive-zip" ,perl-archive-zip)
        ("poppler" ,poppler)
        ("postgresql" ,postgresql)
        ("python" ,python)
@@ -857,7 +924,7 @@ and to return information on pronunciations, meanings and synonyms.")
        ("unixodbc" ,unixodbc)
        ("unzip" ,unzip)
        ("vigra" ,vigra)
-       ("xmlsec-src" ,xmlsec-src-libreoffice)
+       ("xmlsec" ,xmlsec-nss)
        ("zip" ,zip)))
     (arguments
      `(#:tests? #f ; Building the tests already fails.
@@ -866,44 +933,88 @@ and to return information on pronunciations, meanings and synonyms.")
          (modify-phases %standard-phases
            (add-before 'configure 'prepare-src
              (lambda* (#:key inputs #:allow-other-keys)
-               (let ((xmlsec (assoc-ref inputs "xmlsec-src")))
+               (let ((gpgme (assoc-ref inputs "gpgme")))
+                 (substitute*
+                   "sdext/source/pdfimport/xpdfwrapper/pdfioutdev_gpl.cxx"
+                   ;; This header was renamed in Poppler 0.62.0.
+                   (("UTF8.h") "UnicodeMapFuncs.h")
+                   ;; And mapUCS2() was renamed to mapUTF16().
+                   (("UCS2") "UTF16"))
                  (substitute*
                    (list "sysui/CustomTarget_share.mk"
                          "solenv/gbuild/gbuild.mk"
                          "solenv/gbuild/platform/unxgcc.mk")
-                   (("/bin/sh") (which "bash")))
-                 (mkdir "external/tarballs")
-                 (symlink
-                   xmlsec
-                   (string-append "external/tarballs/"
-                                  "86b1daaa438f5a7bea9a52d7b9799ac0-"
-                                  "xmlsec1-1.2.23.tar.gz"))
-                 ;; The following is required for building xmlsec from the
-                 ;; unpatched external tarball; since "configure" starts with
-                 ;; "/bin/sh", it needs to be executed by a command invoking
-                 ;; the shell.
-                 (setenv "SHELL" (which "bash"))
-                 (setenv "CONFIG_SHELL" (which "bash"))
-                 (substitute* "external/libxmlsec/ExternalProject_xmlsec.mk"
-                   (("./configure") "$(CONFIG_SHELL) ./configure" ))
+                   (("/bin/sh") (which "sh")))
+
+                 ;; GPGME++ headers are installed in a gpgme++ subdirectory,
+                 ;; but files in "xmlsecurity/source/gpg/" expect to find them
+                 ;; on the include path without a prefix.
+                 (substitute* "xmlsecurity/Library_xsec_xmlsec.mk"
+                   (("\\$\\$\\(INCLUDE\\)")
+                    (string-append "$$(INCLUDE) -I" gpgme "/include/gpgme++")))
+
+                 ;; XXX: When GTK2 is disabled, one header file is not included.
+                 ;; This is likely fixed in later versions.  See also
+                 ;; <https://bugs.gentoo.org/641812>.
+                 (substitute* "vcl/unx/gtk3/gtk3gtkframe.cxx"
+                   (("#include <unx/gtk/gtkgdi.hxx>")
+                    "#include <unx/gtk/gtkgdi.hxx>\n#include <unx/gtk/gtksalmenu.hxx>"))
+
                  #t)))
-           (add-after 'install 'bin-install
+           (add-after 'install 'bin-and-desktop-install
              ;; Create 'soffice' and 'libreoffice' symlinks to the executable
              ;; script.
              (lambda* (#:key outputs #:allow-other-keys)
-               (let* ((out (assoc-ref outputs "out"))
-                      (bin (string-append out "/bin"))
-                      (soffice (string-append
-                                out "/lib/libreoffice/program/soffice")))
-                 (mkdir bin)
-                 (symlink soffice (string-append bin "/soffice"))
-                 (symlink soffice (string-append bin "/libreoffice")))
+               (let ((out (assoc-ref outputs "out")))
+                 (define (symlink-output src dst)
+                   (mkdir-p (dirname (string-append out dst)))
+                   (symlink (string-append out src) (string-append out dst)))
+                 (define (install src dst)
+                   (let ((dst (string-append out dst)))
+                     (mkdir-p (dirname dst))
+                     (copy-file src dst)))
+                 (define (install-desktop-file app)
+                   (let ((src (string-append "/lib/libreoffice/share/xdg/"
+                                             app ".desktop"))
+                         (dst (string-append "/share/applications/libreoffice-"
+                                             app ".desktop")))
+                     (substitute* (string-append out src)
+                       (("Exec=libreoffice[0-9]+\\.[0-9]+ ")
+                        (string-append "Exec=" out "/bin/libreoffice "))
+                       (("Icon=libreoffice.*")
+                        (string-append "Icon=" app "\n"))
+                       (("LibreOffice [0-9]+\\.[0-9]+")
+                        "LibreOffice"))
+                     (symlink-output src dst)))
+                 (define (install-appdata app)
+                   (install-file (string-append
+                                    "sysui/desktop/appstream-appdata/"
+                                    "libreoffice-" app ".appdata.xml")
+                                   (string-append out "/share/appdata")))
+                 (symlink-output "/lib/libreoffice/program/soffice"
+                                 "/bin/soffice")
+                 (symlink-output "/lib/libreoffice/program/soffice"
+                                 "/bin/libreoffice")
+                 (install "workdir/CustomTarget/sysui/share/libreoffice/openoffice.keys"
+                          "/share/mime-info/libreoffice.keys")
+                 (install "workdir/CustomTarget/sysui/share/libreoffice/openoffice.mime"
+                          "/share/mime-info/libreoffice.mime")
+                 (install
+                  "workdir/CustomTarget/sysui/share/libreoffice/openoffice.org.xml"
+                  "/share/mime/packages/libreoffice.xml")
+                 (for-each install-desktop-file
+                           '("base" "calc" "draw" "impress" "writer"
+                             "math" "startcenter"))
+                 (for-each install-appdata
+                           '("base" "calc" "draw" "impress" "writer"))
+                 (mkdir-p (string-append out "/share/icons/hicolor"))
+                 (copy-recursively "sysui/desktop/icons/hicolor"
+                                   (string-append out "/share/icons/hicolor")))
                #t)))
        #:configure-flags
         (list
           "--enable-release-build"
           "--enable-verbose"
-          "--without-parallelism" ; otherwise the build fails
           "--disable-fetch-external" ; disable downloads
           "--with-system-libs" ; enable all --with-system-* flags
           (string-append "--with-boost-libdir="
@@ -922,9 +1033,12 @@ and to return information on pronunciations, meanings and synonyms.")
           "--disable-coinmp"
           "--disable-firebird-sdbc" ; embedded firebird
           "--disable-gltf"
-          "--without-doxygen"
-          "--disable-gtk3"
-          "--disable-liblangtag")))
+          ;; XXX: PDFium support requires fetching an external tarball and
+          ;; patching the build scripts to work with GCC5.  Try enabling this
+          ;; when our default compiler is >=GCC 6.
+          "--disable-pdfium"
+          "--disable-gtk" ; disable use of GTK+ 2
+          "--without-doxygen")))
     (home-page "https://www.libreoffice.org/")
     (synopsis "Office suite")
     (description "LibreOffice is a comprehensive office suite.  It contains

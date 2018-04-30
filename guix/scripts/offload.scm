@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -118,7 +119,7 @@ determined."
   (catch #t
     (lambda ()
       ;; Avoid ABI incompatibility with the <build-machine> record.
-      (set! %fresh-auto-compile #t)
+      ;; (set! %fresh-auto-compile #t)
 
       (save-module-excursion
        (lambda ()
@@ -357,25 +358,18 @@ MACHINE."
     (parameterize ((current-build-output-port (build-log-port)))
       (build-derivations store (list drv))))
 
-  (retrieve-files* outputs store)
+  (retrieve-files* outputs store
+
+                   ;; We cannot use the 'import-paths' RPC here because we
+                   ;; already hold the locks for FILES.
+                   #:import
+                   (lambda (port)
+                     (restore-file-set port
+                                       #:log-port (current-error-port)
+                                       #:lock? #f)))
+
   (format (current-error-port) "done with offloaded '~a'~%"
           (derivation-file-name drv)))
-
-(define (retrieve-files* files remote)
-  "Retrieve FILES from REMOTE and import them using 'restore-file-set'."
-  (let-values (((port count)
-                (file-retrieval-port files remote)))
-    (format #t (N_ "retrieving ~a store item from '~a'...~%"
-                   "retrieving ~a store items from '~a'...~%" count)
-            count (remote-store-host remote))
-
-    ;; We cannot use the 'import-paths' RPC here because we already
-    ;; hold the locks for FILES.
-    (let ((result (restore-file-set port
-                                    #:log-port (current-error-port)
-                                    #:lock? #f)))
-      (close-port port)
-      result)))
 
 
 ;;;
@@ -400,12 +394,13 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
                                      "cat" "/proc/loadavg"))
             (line (read-line pipe)))
        (close-port pipe)
+       (disconnect! session)
 
        (if (eof-object? line)
            +inf.0 ;MACHINE does not respond, so assume it is infinitely loaded
            (match (string-tokenize line)
              ((one five fifteen . x)
-              (let* ((raw        (string->number five))
+              (let* ((raw        (string->number one))
                      (jobs       (build-machine-parallel-builds machine))
                      (normalized (/ raw jobs)))
                 (format (current-error-port) "load on machine '~a' is ~s\
@@ -427,13 +422,26 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
   "Return the name of the file used as a lock when choosing a build machine."
   (string-append %state-directory "/offload/machine-choice.lock"))
 
+(define (random-seed)
+  (logxor (getpid) (car (gettimeofday))))
 
-(define %slots
-  ;; List of acquired build slots (open ports).
-  '())
+(define shuffle
+  (let ((state (seed->random-state (random-seed))))
+    (lambda (lst)
+      "Return LST shuffled (using the Fisher-Yates algorithm.)"
+      (define vec (list->vector lst))
+      (let loop ((result '())
+                 (i (vector-length vec)))
+        (if (zero? i)
+            result
+            (let* ((j (random i state))
+                   (val (vector-ref vec j)))
+              (vector-set! vec j (vector-ref vec (- i 1)))
+              (loop (cons val result) (- i 1))))))))
 
 (define (choose-build-machine machines)
-  "Return the best machine among MACHINES, or #f."
+  "Return two values: the best machine among MACHINES and its build
+slot (which must later be released with 'release-build-slot'), or #f and #f."
 
   ;; Proceed like this:
   ;;   1. Acquire the global machine-choice lock.
@@ -444,50 +452,47 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
   ;;   5. Release the global machine-choice lock.
 
   (with-file-lock (machine-choice-lock-file)
-    (define machines+slots+loads
+    (define machines+slots
       (filter-map (lambda (machine)
-                    ;; Call 'machine-load' from here to make sure it is called
-                    ;; only once per machine (it is expensive).
                     (let ((slot (acquire-build-slot machine)))
-                      (and slot
-                           (list machine slot (machine-load machine)))))
-                  machines))
+                      (and slot (list machine slot))))
+                  (shuffle machines)))
 
     (define (undecorate pred)
       (lambda (a b)
         (match a
-          ((machine1 slot1 load1)
+          ((machine1 slot1)
            (match b
-             ((machine2 slot2 load2)
-              (pred machine1 load1 machine2 load2)))))))
+             ((machine2 slot2)
+              (pred machine1 machine2)))))))
 
-    (define (machine-less-loaded-or-faster? m1 l1 m2 l2)
-      ;; Return #t if M1 is either less loaded or faster than M2, with L1
-      ;; being the load of M1 and L2 the load of M2.  (This relation defines a
-      ;; total order on machines.)
-      (> (/ (build-machine-speed m1) (+ 1 l1))
-         (/ (build-machine-speed m2) (+ 1 l2))))
+    (define (machine-faster? m1 m2)
+      ;; Return #t if M1 is faster than M2.
+      (> (build-machine-speed m1)
+         (build-machine-speed m2)))
 
-    (let loop ((machines+slots+loads
-                (sort machines+slots+loads
-                      (undecorate machine-less-loaded-or-faster?))))
-      (match machines+slots+loads
-        (((best slot load) others ...)
+    (let loop ((machines+slots
+                (sort machines+slots (undecorate machine-faster?))))
+      (match machines+slots
+        (((best slot) others ...)
          ;; Return the best machine unless it's already overloaded.
-         (if (< load 2.)
+         ;; Note: We call 'machine-load' only as a last resort because it is
+         ;; too costly to call it once for every machine.
+         (if (< (machine-load best) 2.)
              (match others
-               (((machines slots loads) ...)
+               (((machines slots) ...)
                 ;; Release slots from the uninteresting machines.
                 (for-each release-build-slot slots)
 
-                ;; Prevent SLOT from being GC'd.
-                (set! %slots (cons slot %slots))
-                best))
+                ;; The caller must keep SLOT to protect it from GC and to
+                ;; eventually release it.
+                (values best slot)))
              (begin
                ;; BEST is overloaded, so try the next one.
                (release-build-slot slot)
                (loop others))))
-        (() #f)))))
+        (()
+         (values #f #f))))))
 
 (define* (process-request wants-local? system drv features
                           #:key
@@ -505,19 +510,25 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
        ;; We'll never be able to match REQS.
        (display "# decline\n"))
       ((x ...)
-       (let ((machine (choose-build-machine candidates)))
+       (let-values (((machine slot)
+                     (choose-build-machine candidates)))
          (if machine
-             (begin
-               ;; Offload DRV to MACHINE.
-               (display "# accept\n")
-               (let ((inputs  (string-tokenize (read-line)))
-                     (outputs (string-tokenize (read-line))))
-                 (transfer-and-offload drv machine
-                                       #:inputs inputs
-                                       #:outputs outputs
-                                       #:max-silent-time max-silent-time
-                                       #:build-timeout build-timeout
-                                       #:print-build-trace? print-build-trace?)))
+             (dynamic-wind
+               (const #f)
+               (lambda ()
+                 ;; Offload DRV to MACHINE.
+                 (display "# accept\n")
+                 (let ((inputs  (string-tokenize (read-line)))
+                       (outputs (string-tokenize (read-line))))
+                   (transfer-and-offload drv machine
+                                         #:inputs inputs
+                                         #:outputs outputs
+                                         #:max-silent-time max-silent-time
+                                         #:build-timeout build-timeout
+                                         #:print-build-trace?
+                                         print-build-trace?)))
+               (lambda ()
+                 (release-build-slot slot)))
 
              ;; Not now, all the machines are busy.
              (display "# postpone\n")))))))
@@ -531,8 +542,7 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
   "Bail out if NODE is not running Guile."
   (match (node-guile-version node)
     (#f
-     (leave (G_ "Guile could not be started on '~a'~%")
-            name))
+     (report-guile-error name))
     ((? string? version)
      ;; Note: The version string already contains the word "Guile".
      (info (G_ "'~a' is running ~a~%")
@@ -540,18 +550,34 @@ allowed on MACHINE.  Return +∞ if MACHINE is unreachable."
 
 (define (assert-node-has-guix node name)
   "Bail out if NODE lacks the (guix) module, or if its daemon is not running."
-  (match (node-eval node
-                    '(begin
-                       (use-modules (guix))
-                       (with-store store
-                         (add-text-to-store store "test"
-                                            "Hello, build machine!"))))
-    ((? string? str)
-     (info (G_ "Guix is usable on '~a' (test returned ~s)~%")
-           name str))
-    (x
-     (leave (G_ "failed to use Guix module on '~a' (test returned ~s)~%")
-            name x))))
+  (catch 'node-repl-error
+    (lambda ()
+      (match (node-eval node
+                        '(begin
+                           (use-modules (guix))
+                           (and add-text-to-store 'alright)))
+        ('alright #t)
+        (_ (report-module-error name))))
+    (lambda (key . args)
+      (report-module-error name)))
+
+  (catch 'node-repl-error
+    (lambda ()
+      (match (node-eval node
+                        '(begin
+                           (use-modules (guix))
+                           (with-store store
+                             (add-text-to-store store "test"
+                                                "Hello, build machine!"))))
+        ((? string? str)
+         (info (G_ "Guix is usable on '~a' (test returned ~s)~%")
+               name str))
+        (x
+         (leave (G_ "failed to talk to guix-daemon on '~a' (test returned ~s)~%")
+                name x))))
+    (lambda (key . args)
+      (leave (G_ "remove evaluation on '~a' failed:~{ ~s~}~%")
+             args))))
 
 (define %random-state
   (delay
@@ -611,6 +637,32 @@ machine."
       (for-each assert-node-has-guix nodes names)
       (for-each assert-node-can-import nodes names sockets)
       (for-each assert-node-can-export nodes names sockets))))
+
+(define (check-machine-status machine-file pred)
+  "Print the load of each machine matching PRED in MACHINE-FILE."
+  (define (build-machine=? m1 m2)
+    (and (string=? (build-machine-name m1) (build-machine-name m2))
+         (= (build-machine-port m1) (build-machine-port m2))))
+
+  ;; A given build machine may appear several times (e.g., once for
+  ;; "x86_64-linux" and a second time for "i686-linux"); test them only once.
+  (let ((machines (filter pred
+                          (delete-duplicates (build-machines machine-file)
+                                             build-machine=?))))
+    (info (G_ "getting status of ~a build machines defined in '~a'...~%")
+          (length machines) machine-file)
+    (for-each (lambda (machine)
+                (let* ((node (make-node (open-ssh-session machine)))
+                       (uts (node-eval node '(uname))))
+                  (format #t "~a~%  kernel: ~a ~a~%  architecture: ~a~%\
+  host name: ~a~%  normalized load: ~a~%"
+                          (build-machine-name machine)
+                          (utsname:sysname uts) (utsname:release uts)
+                          (utsname:machine uts)
+                          (utsname:nodename uts)
+                          (parameterize ((current-error-port (%make-void-port "rw+")))
+                                        (machine-load machine)))))
+              machines)))
 
 
 ;;;
@@ -674,6 +726,18 @@ machine."
                        (()     (values %machine-file (const #t)))
                        (x      (leave (G_ "wrong number of arguments~%"))))))
          (check-machine-availability (or file %machine-file) pred))))
+    (("status" rest ...)
+     (with-error-handling
+       (let-values (((file pred)
+                     (match rest
+                       ((file regexp)
+                        (values file
+                                (compose (cut string-match regexp <>)
+                                         build-machine-name)))
+                       ((file) (values file (const #t)))
+                       (()     (values %machine-file (const #t)))
+                       (x      (leave (G_ "wrong number of arguments~%"))))))
+         (check-machine-status (or file %machine-file) pred))))
     (("--version")
      (show-version-and-exit "guix offload"))
     (("--help")

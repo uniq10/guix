@@ -1,5 +1,5 @@
 # GNU Guix --- Functional package management for GNU
-# Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+# Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 # Copyright © 2013 Nikita Karetnikov <nikita@karetnikov.org>
 #
 # This file is part of GNU Guix.
@@ -60,6 +60,14 @@ test -L "$profile" && test -L "$profile-1-link"
 ! test -f "$profile-2-link"
 test -f "$profile/bin/guile"
 
+# Collisions are properly flagged (in this case, 'python-wrapper' propagates
+# python@3, which conflicts with python@2.)
+if guix package --bootstrap -n -p "$profile" -i python@2 python-wrapper
+then false; else true; fi
+
+guix package --bootstrap -n -p "$profile" -i python@2 python-wrapper \
+     --allow-collisions
+
 # No search path env. var. here.
 guix package -p "$profile" --search-paths
 guix package -p "$profile" --search-paths | grep '^export PATH='
@@ -117,6 +125,22 @@ grep -v '^name: pcb' "$tmpfile" > /dev/null
 grep '^name: gnubg' "$tmpfile"
 
 rm -f "$tmpfile"
+
+# Make sure deprecated packages don't show up: <https://bugs.gnu.org/30566>.
+mkdir "$module_dir"
+cat > "$module_dir/foo.scm"<<EOF
+(define-module (foo)
+  #:use-module (guix packages)
+  #:use-module (gnu packages base))
+
+(define-public deprecated
+  (deprecated-package "fileutils" coreutils))
+EOF
+
+guix build -L "$module_dir" -e '(@ (foo) deprecated)' -n
+test "`guix package -L "$module_dir" -s ^fileutils$ | grep ^name:`" = ""
+
+rm -rf "$module_dir"
 
 # Make sure `--search' can display all the packages.
 guix package --search="" > /dev/null
@@ -337,6 +361,6 @@ if guix package --bootstrap -n -m "$module_dir/manifest.scm" \
 then false
 else
     cat "$module_dir/stderr"
-    grep "manifest.scm:[1-3]:.*[Uu]nbound variable.*wonderful-package" \
+    grep "manifest.scm:[1-3]:.*wonderful-package.*: unbound variable" \
 	 "$module_dir/stderr"
 fi

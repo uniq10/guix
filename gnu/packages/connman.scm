@@ -3,6 +3,7 @@
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,7 +43,7 @@
 (define-public connman
   (package
     (name "connman")
-    (version "1.34")
+    (version "1.35")
     (source
       (origin
         (method url-fetch)
@@ -50,7 +51,7 @@
                             name "-" version ".tar.xz"))
     (sha256
      (base32
-      "07n71wcy1c4cc01ca4dl9k1jpdqr5nsyr33dqf7k87wwfa681859"))))
+      "1apj5j25kj7v1bsfv3nh54aiq873nfrsjfbj85p5qm3ihfwxxmv6"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags
@@ -69,7 +70,7 @@
              (string-append
               "--with-dbusdatadir=" (assoc-ref %outputs "out") "/share"))))
     (native-inputs
-     `(("pkg-config", pkg-config)
+     `(("pkg-config" ,pkg-config)
        ("python" ,python-2)))
     (inputs
      `(("dbus" ,dbus)
@@ -83,7 +84,7 @@
        ;; TODO: add neard, ofono
        ("openconnect" ,openconnect)
        ("openvpn" ,openvpn)
-       ("ppp", ppp)
+       ("ppp" ,ppp)
        ("vpnc" ,vpnc)
        ("wpa-supplicant" ,wpa-supplicant)))
     (home-page "https://01.org/connman")
@@ -139,15 +140,15 @@ sharing) to clients via USB, ethernet, WiFi, cellular and Bluetooth.")
 (define-public cmst
   (package
     (name "cmst")
-    (version "2017.03.18")
+    (version "2017.09.19")
     (source
      (origin
        (method url-fetch)
        (uri (string-append
              "https://github.com/andrew-bibb/cmst/releases/download/cmst-"
-             version "/cmst-" version ".tar.gz"))
+             version "/cmst-" version ".tar.xz"))
        (sha256
-        (base32 "16g9byxr1rkmrnzi6sjplpmkr8h6pqj7418jz30czqviw5qlkqwl"))))
+        (base32 "0dh4639n3l8a19svaagib41hdq5q7x70bnc28dmnwy4jflf38yrm"))))
     (inputs
      `(("qtbase" ,qtbase)))
     (native-inputs

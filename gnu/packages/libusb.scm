@@ -4,8 +4,9 @@
 ;;; Copyright © 2015 Andy Wingo <wingo@igalia.com>
 ;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2016 Theodoros Foradis <theodoros@foradis.org>
 ;;; Copyright © 2017 Jonathan Brielmaier <jonathan.brielmaier@web.de>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -47,7 +48,7 @@
 (define-public libusb
   (package
     (name "libusb")
-    (version "1.0.21")
+    (version "1.0.22")
     (source
      (origin
       (method url-fetch)
@@ -55,7 +56,7 @@
                           "libusb-" version "/libusb-" version ".tar.bz2"))
       (sha256
        (base32
-        "0jw2n5kdnrqvp7zh792fd6mypzzfap6jp4gfcmq4n6c1kb79rkkx"))))
+        "0mw1a5ss4alg37m6bd4k44v35xwrcwp5qm4s686q1nsgkbavkbkm"))))
     (build-system gnu-build-system)
 
     ;; XXX: Enabling udev is now recommended, but eudev indirectly depends on
@@ -89,7 +90,7 @@ devices on various operating systems.")
      `(("pkg-config" ,pkg-config)))
     (inputs
      `(("libusb" ,libusb)))
-    (home-page "http://www.libusb.org")
+    (home-page "http://libusb.info")
     (synopsis "Compatibility shim for libusb")
     (description
      "Libusb-compat provides a shim allowing applications based on older
@@ -123,6 +124,7 @@ version of libusb to run with newer libusb.")
                 (uri (git-reference
                       (url "https://github.com/usb4java/libusb4java.git")
                       (commit commit)))
+                (file-name (git-file-name name version))
                 (sha256
                  (base32
                   "0wqgapalhfh9v38ycbl6i2f5lh1wpr6fzwn5dwd0rdacypkd1gml"))))
@@ -131,6 +133,13 @@ version of libusb to run with newer libusb.")
        `(#:tests? #f                    ; there are no tests
          #:phases
          (modify-phases %standard-phases
+           ;; FIXME: libusb 1.0.22 deprecated libusb_set_debug, so the build
+           ;; fails because libusb4java uses a deprecated procedure.
+           (add-after 'unpack 'disable-Werror
+             (lambda _
+               (substitute* "CMakeLists.txt"
+                 (("-Werror") ""))
+               #t))
            (add-before 'configure 'set-JAVA_HOME
              (lambda* (#:key inputs #:allow-other-keys)
                (setenv "JAVA_HOME" (assoc-ref inputs "jdk"))
@@ -250,14 +259,14 @@ implementing @code{javax.usb} (JSR-80).")
 (define-public libmtp
   (package
     (name "libmtp")
-    (version "1.1.13")
+    (version "1.1.15")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://sourceforge/libmtp/libmtp/" version
                                  "/libmtp-" version ".tar.gz"))
              (sha256
               (base32
-               "0h3dv9py5mmvxhfxmkr8ky4s80hgq3d66cmrfnnnlcdwpwpy0kj9"))))
+               "089h79nkz7wcr3lbqi7025l8p75hbp0aigxk3wdk2zkm8q5r0h6h"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -286,14 +295,14 @@ proposed for standardization.")
 (define-public gmtp
   (package
     (name "gmtp")
-    (version "1.3.10")
+    (version "1.3.11")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/gmtp/gMTP-" version
                                   "/gmtp-" version ".tar.gz"))
               (sha256
                (base32
-                "0fyi3pdl2g57vr0p46ip2wwzyap3l0by7iqaqygv0yxfcs79l6xj"))))
+                "04q6byyq002fhzkc2rkkahwh5b6272xakaj4m3vwm8la8jf0r0ss"))))
     (build-system glib-or-gtk-build-system)
     (arguments
      '(#:configure-flags
@@ -332,7 +341,7 @@ devices.")
     (arguments
      '(#:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'bootstrap
+         (add-after 'unpack 'bootstrap
            (lambda _
              (zero? (system* "autoreconf" "-vfi")))))))
     (inputs
@@ -352,3 +361,64 @@ HID-Class devices.")
     (license (list gpl3
                    bsd-3
                    (non-copyleft "file://LICENSE-orig.txt")))))
+
+(define-public python-hidapi
+  (package
+    (name "python-hidapi")
+    (version "0.7.99.post21")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "hidapi" version))
+       (sha256
+        (base32
+         "15ws59zdrxahf3k7z5rcrwc4jgv1307anif8ixm2cyb9ask1mgp0"))
+       (modules '((guix build utils)))
+       (snippet
+        ;; Remove bundled libraries.
+        '(begin
+           (delete-file-recursively "hidapi")
+           #t))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-configuration
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "setup.py"
+               (("'/usr/include/libusb-1.0'")
+                (string-append "'" (assoc-ref inputs "libusb")
+                               "/include/libusb-1.0'"))
+               (("'/usr/include/hidapi'")
+                (string-append "'" (assoc-ref inputs "hidapi")
+                               "/include/hidapi'")))
+             #t))
+         ;; XXX Necessary because python-build-system drops the arguments.
+         (replace 'build
+           (lambda _
+             (invoke "python" "setup.py" "build" "--with-system-hidapi")))
+         (replace 'check
+           (lambda _
+             (invoke "python" "setup.py" "test" "--with-system-hidapi")))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (invoke "python" "setup.py" "install" "--with-system-hidapi"
+                     (string-append "--prefix=" (assoc-ref outputs "out"))
+                     "--single-version-externally-managed" "--root=/"))))))
+    (inputs
+     `(("hidapi" ,hidapi)
+       ("libusb" ,libusb)
+       ("eudev" ,eudev)))
+    (native-inputs
+     `(("python-cython" ,python-cython)))
+    (home-page "https://github.com/trezor/cython-hidapi")
+    (synopsis "Cython interface to hidapi")
+    (description "This package provides a Cython interface to @code{hidapi}.")
+    ;; The library can be used under either of these licenses.
+    (license (list gpl3 bsd-3
+                   (non-copyleft
+                    "https://github.com/trezor/cython-hidapi/blob/master/LICENSE-orig.txt"
+                    "You are free to use cython-hidapi code for any purpose.")))))
+
+(define-public python2-hidapi
+  (package-with-python2 python-hidapi))

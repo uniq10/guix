@@ -6,6 +6,7 @@
 ;;; Copyright © 2016 Mathieu Lirzin <mthl@gnu.org>
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,12 +29,13 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:use-module (srfi srfi-26)
+  #:use-module (srfi srfi-35)
   #:use-module (srfi srfi-39)
   #:use-module (ice-9 binary-ports)
   #:autoload   (rnrs io ports) (make-custom-binary-input-port)
   #:use-module ((rnrs bytevectors) #:select (bytevector-u8-set!))
   #:use-module (guix memoization)
-  #:use-module ((guix build utils) #:select (dump-port))
+  #:use-module ((guix build utils) #:select (dump-port mkdir-p))
   #:use-module ((guix build syscalls) #:select (mkdtemp! fdatasync))
   #:use-module (ice-9 format)
   #:autoload   (ice-9 popen)  (open-pipe*)
@@ -60,17 +62,27 @@
             source-properties->location
             location->source-properties
 
+            &error-location
+            error-location?
+            error-location
+
+            &fix-hint
+            fix-hint?
+            condition-fix-hint
+
             nix-system->gnu-triplet
             gnu-triplet->nix-system
             %current-system
             %current-target-system
             package-name->name+version
             target-mingw?
+            target-arm32?
             version-compare
             version>?
             version>=?
             version-prefix
             version-major+minor
+            version-major
             guile-version>?
             string-replace-substring
             arguments-from-environment-variable
@@ -81,7 +93,10 @@
             call-with-temporary-output-file
             call-with-temporary-directory
             with-atomic-file-output
+
+            config-directory
             cache-directory
+
             readlink*
             edit-expression
 
@@ -143,9 +158,11 @@ buffered data is lost."
                   (close-port in)
                   (dump-port input out))
                 (lambda ()
+                  (close-port input)
                   (false-if-exception (close out))
                   (primitive-_exit 0))))
              (child
+              (close-port input)
               (close-port out)
               (loop in (cons child pids)))))))))
 
@@ -453,6 +470,9 @@ a character other than '@'."
   (and target
        (string-suffix? "-mingw32" target)))
 
+(define (target-arm32?)
+  (string-prefix? "arm" (or (%current-target-system) (%current-system))))
+
 (define version-compare
   (let ((strverscmp
          (let ((sym (or (dynamic-func "strverscmp" (dynamic-link))
@@ -477,6 +497,10 @@ For example, (version-prefix \"2.1.47.4.23\" 3) returns \"2.1.47\""
   "Return \"<major>.<minor>\", where major and minor are the major and
 minor version numbers from version-string."
   (version-prefix version-string 2))
+
+(define (version-major version-string)
+  "Return the major version number as string from the version-string."
+  (version-prefix version-string 1))
 
 (define (version>? a b)
   "Return #t when A denotes a version strictly newer than B."
@@ -598,13 +622,26 @@ output port, and PROC's result is returned."
         (false-if-exception (delete-file template))
         (close-port out)))))
 
-(define (cache-directory)
-  "Return the cache directory for Guix, by default ~/.cache/guix."
-  (string-append (or (getenv "XDG_CACHE_HOME")
-                     (and=> (or (getenv "HOME")
-                                (passwd:dir (getpwuid (getuid))))
-                            (cut string-append <> "/.cache")))
-                 "/guix"))
+(define* (xdg-directory variable suffix #:key (ensure? #t))
+  "Return the name of the XDG directory that matches VARIABLE and SUFFIX,
+after making sure that it exists if ENSURE? is true.  VARIABLE is an
+environment variable name like \"XDG_CONFIG_HOME\"; SUFFIX is a suffix like
+\"/.config\".  Honor the XDG specs,
+<http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>."
+  (let ((dir (and=> (or (getenv variable)
+                        (and=> (or (getenv "HOME")
+                                   (passwd:dir (getpwuid (getuid))))
+                               (cut string-append <> suffix)))
+                    (cut string-append <> "/guix"))))
+    (when ensure?
+      (mkdir-p dir))
+    dir))
+
+(define config-directory
+  (cut xdg-directory "XDG_CONFIG_HOME" "/.config" <...>))
+
+(define cache-directory
+  (cut xdg-directory "XDG_CACHE_HOME" "/.cache" <...>))
 
 (define (readlink* file)
   "Call 'readlink' until the result is not a symlink."
@@ -684,7 +721,7 @@ failure."
 be determined."
     (syntax-case s ()
       ((_)
-       (match (assq 'filename (syntax-source s))
+       (match (assq 'filename (or (syntax-source s) '()))
          (('filename . (? string? file-name))
           ;; If %FILE-PORT-NAME-CANONICALIZATION is 'relative, then FILE-NAME
           ;; can be relative.  In that case, we try to find out at run time
@@ -697,7 +734,7 @@ be determined."
                  (dirname file-name))
                 (else
                  #`(absolute-dirname #,file-name))))
-         (_
+         (#f
           #f))))))
 
 ;; A source location.
@@ -731,3 +768,15 @@ a location object."
   `((line     . ,(and=> (location-line loc) 1-))
     (column   . ,(location-column loc))
     (filename . ,(location-file loc))))
+
+(define-condition-type &error-location &error
+  error-location?
+  (location  error-location))                     ;<location>
+
+(define-condition-type &fix-hint &condition
+  fix-hint?
+  (hint condition-fix-hint))                      ;string
+
+;;; Local Variables:
+;;; eval: (put 'call-with-progress-reporter 'scheme-indent-function 1)
+;;; End:

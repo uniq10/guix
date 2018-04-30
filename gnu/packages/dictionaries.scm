@@ -1,7 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Sou Bunnbu <iyzsong@gmail.com>
+;;; Copyright © 2017, 2018 Nicolas Goaziou <mail@nicolasgoaziou.fr>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,7 +25,9 @@
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
   #:use-module (guix build-system trivial)
+  #:use-module (gnu packages)
   #:use-module (gnu packages base)
   #:use-module (gnu packages curl)
   #:use-module (gnu packages emacs)
@@ -89,14 +93,14 @@ acronyms distributed as an info document.")
 (define-public gcide
   (package
     (name "gcide")
-    (version "0.51")
+    (version "0.52")
     (source (origin
               (method url-fetch)
               (uri (string-append
                     "mirror://gnu/gcide/gcide-" version ".tar.xz"))
               (sha256
                (base32
-                "1wm0s51ygc6480dq8gwahzr35ls8jgpf34yiwl5yqcaa0i19fdv7"))))
+                "1n3bp91sik66z3ca7mjqbr9nck3hg5ck0c8g84xc0qnfpx5vznh2"))))
     (build-system trivial-build-system)
     (arguments
      '(#:builder (begin
@@ -149,14 +153,14 @@ work, such as sentence length and other readability measures.")
 (define-public ding
   (package
     (name "ding")
-    (version "1.8")
+    (version "1.8.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://ftp.tu-chemnitz.de/pub/Local/urz/" name
                                   "/" name "-" version ".tar.gz"))
               (sha256
                (base32
-                "00z97ndwmzsgig9q6y98y8nbxy76pyi9qyj5qfpbbck24gakpz5l"))))
+                "0chjqs3z9zs1w3l7b5lsaj682rgnkf9kibcbzhggqqcn1pbvl5sq"))))
     (build-system gnu-build-system)
     (inputs `(("tk" ,tk)))
     (arguments
@@ -206,10 +210,37 @@ It comes with a German-English dictionary with approximately 270,000 entries.")
     (home-page  "http://www-user.tu-chemnitz.de/~fri/ding/")
     (license gpl2+)))
 
+(define-public grammalecte
+  (package
+    (name "grammalecte")
+    (version "0.6.4")
+    (source
+     (origin
+       (method url-fetch/zipbomb)
+       (uri (string-append "https://www.dicollecte.org/grammalecte/zip/"
+                           "Grammalecte-fr-v" version ".zip"))
+       (sha256
+        (base32
+         "13var1gi3gb2bwi7k21bn2pla0rs17cd7kc3mc5a2nsyqgsrzxfw"))))
+    (build-system python-build-system)
+    (home-page "https://www.dicollecte.org")
+    (synopsis  "French spelling and grammar checker")
+    (description "Grammalecte is a grammar checker dedicated to the French
+language, derived from Lightproof.
+
+Grammalecte aims at helping to write a proper French without distracting users
+with false positives.  This grammar checker follows the principle: the less
+false positives, the better; if it cannot know with a good chance if
+a dubious expression is wrong, it will keep silent.
+
+The package provides the command line interface, along with a server
+and a Python library.")
+    (license gpl3+)))
+
 (define-public translate-shell
   (package
     (name "translate-shell")
-    (version "0.9.6.4")
+    (version "0.9.6.7")
     (source
       (origin
         (method url-fetch)
@@ -217,7 +248,8 @@ It comes with a German-English dictionary with approximately 270,000 entries.")
                             version ".tar.gz"))
         (sha256
          (base32
-          "1fg6nf1plvgimc57fsdr9rcjbf7jvmk5jrlj5ya509vpdcdgvj2s"))
+          "0inv6r3qbihn2ff1sgcly89r04k4vgcbvvyl50ln0mxlapbhpy95"))
+        (patches (search-patches "translate-shell-fix-curl-tests.patch"))
         (file-name (string-append name "-" version ".tar.gz"))))
     (build-system gnu-build-system)
     (arguments
@@ -231,7 +263,8 @@ It comes with a German-English dictionary with approximately 270,000 entries.")
                     (emacs (string-append (assoc-ref inputs "emacs") "/bin/emacs")))
                (install-file "google-translate-mode.el" dest)
                (emacs-generate-autoloads ,name dest)))))
-       #:make-flags (list (string-append "PREFIX=" %output))
+       #:make-flags (list (string-append "PREFIX=" %output)
+                          "NETWORK_ACCESS=no test")
        #:imported-modules (,@%gnu-build-system-modules (guix build emacs-utils))
        #:modules ((guix build gnu-build-system)
                   (guix build emacs-utils)
@@ -244,7 +277,7 @@ It comes with a German-English dictionary with approximately 270,000 entries.")
     (native-inputs
      `(("emacs" ,emacs-minimal)
        ("util-linux" ,util-linux))) ; hexdump, for the test
-    (home-page "https://www.soimort.org/translate-shell")
+    (home-page "https://www.soimort.org/translate-shell/")
     (synopsis "Translations from the command line")
     (description
      "Translate Shell (formerly Google Translate CLI) is a command-line

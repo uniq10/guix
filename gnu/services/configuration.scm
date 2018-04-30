@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Andy Wingo <wingo@igalia.com>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
+;;; Copyright © 2017, 2018 Clément Lassieur <clement@lassieur.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -73,11 +74,12 @@
   (documentation configuration-field-documentation))
 
 (define (serialize-configuration config fields)
-  (for-each (lambda (field)
-              ((configuration-field-serializer field)
-               (configuration-field-name field)
-               ((configuration-field-getter field) config)))
-            fields))
+  #~(string-append
+     #$@(map (lambda (field)
+               ((configuration-field-serializer field)
+                (configuration-field-name field)
+                ((configuration-field-getter field) config)))
+             fields)))
 
 (define (validate-configuration config fields)
   (for-each (lambda (field)
@@ -104,7 +106,7 @@
              (define (maybe-stem? val)
                (or (eq? val 'disabled) (stem? val)))
              (define (serialize-maybe-stem field-name val)
-               (when (stem? val) (serialize-stem field-name val)))))))))
+               (if (stem? val) (serialize-stem field-name val) ""))))))))
 
 (define-syntax define-configuration
   (lambda (stx)
@@ -146,7 +148,7 @@
                    conf))))))))
 
 (define (serialize-package field-name val)
-  #f)
+  "")
 
 ;; A little helper to make it easier to document all those fields.
 (define (generate-documentation documentation documentation-name)
@@ -165,7 +167,7 @@
                                (configuration-field-default-value-thunk f)
                                (lambda _ '%invalid))))
                 (define (show-default? val)
-                  (or (string? default) (number? default) (boolean? default)
+                  (or (string? val) (number? val) (boolean? val)
                       (and (symbol? val) (not (eq? val '%invalid)))
                       (and (list? val) (and-map show-default? val))))
                 `(deftypevr (% (category

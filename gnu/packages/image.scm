@@ -7,15 +7,16 @@
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015 Amirouche Boubekki <amirouche@hypermove.net>
 ;;; Copyright © 2014, 2017 John Darrington <jmd@gnu.org>
-;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2016 Eric Bavier <bavier@member.fsf.org>
-;;; Copyright © 2016 Arun Isaac <arunisaac@systemreboot.net>
-;;; Copyright © 2016, 2017 Kei Kebreau <kei@openmailbox.org>
-;;; Copyright © 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2016, 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Hartmut Goebel <h.goebel@crazy-compilers.com>
+;;; Copyright © 2017 Julien Lepiller <julien@lepiller.eu>
+;;; Copyright © 2018 Joshua Sierles, Nextjournal <joshua@nextjournal.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -38,6 +39,7 @@
   #:use-module (gnu packages assembly)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages documentation)
   #:use-module (gnu packages fontutils)
@@ -48,25 +50,32 @@
   #:use-module (gnu packages gl)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages graphics)
+  #:use-module (gnu packages gtk)
+  #:use-module (gnu packages lua)
   #:use-module (gnu packages maths)
   #:use-module (gnu packages mcrypt)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages photo)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg)
+  #:use-module (gnu packages qt)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system cmake)
+  #:use-module (guix build-system python)
+  #:use-module (guix build-system r)
+  #:use-module (guix build-system scons)
   #:use-module (srfi srfi-1))
 
 (define-public libpng
   (package
    (name "libpng")
-   (version "1.6.28")
+   (version "1.6.34")
    (source (origin
             (method url-fetch)
             (uri (list (string-append "mirror://sourceforge/libpng/libpng16/"
@@ -78,7 +87,8 @@
                         "ftp://ftp.simplesystems.org/pub/libpng/png/src/history"
                         "/libpng16/libpng-" version ".tar.xz")))
             (sha256
-             (base32 "0ylgyx93hnk38haqrh8prd3ax5ngzwvjqw5cxw7p9nxmwsfyrlyq"))))
+             (base32
+              "1xjr0v34fyjgnhvaa1zixcpx5yvxcg4zwvfh0fyklfyfj86rc7ig"))))
    (build-system gnu-build-system)
 
    ;; libpng.la says "-lz", so propagate it.
@@ -91,13 +101,32 @@ library.  It supports almost all PNG features and is extensible.")
    (license license:zlib)
    (home-page "http://www.libpng.org/pub/png/libpng.html")))
 
+;; libpng-apng should be updated when the APNG patch is released:
+;; <https://bugs.gnu.org/27556>
 (define-public libpng-apng
   (package
-    (inherit libpng)
     (name "libpng-apng")
-    (version (package-version libpng))
+    (version "1.6.28")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (list (string-append "mirror://sourceforge/libpng/libpng16/"
+                                 version "/libpng-" version ".tar.xz")
+                  (string-append
+                   "ftp://ftp.simplesystems.org/pub/libpng/png/src"
+                   "/libpng16/libpng-" version ".tar.xz")
+                  (string-append
+                   "ftp://ftp.simplesystems.org/pub/libpng/png/src/history"
+                   "/libpng16/libpng-" version ".tar.xz")))
+       (sha256
+        (base32
+         "0ylgyx93hnk38haqrh8prd3ax5ngzwvjqw5cxw7p9nxmwsfyrlyq"))))
+    (build-system gnu-build-system)
     (arguments
-     `(#:phases
+     `(#:modules ((guix build gnu-build-system)
+                  (guix build utils)
+                  (srfi srfi-1))
+       #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'patch-apng
            (lambda* (#:key inputs #:allow-other-keys)
@@ -107,11 +136,10 @@ library.  It supports almost all PNG features and is extensible.")
              (let ((apng.gz (assoc-ref inputs "apng")))
                (format #t "Applying APNG patch '~a'...~%"
                        apng.gz)
-               (system (string-append "gunzip < " apng.gz " > the-patch"))
-               (and (apply-patch "the-patch")
-                    (for-each apply-patch
-                              (find-files "\\.patch"))))
-           #t))
+               (and
+                 (zero?
+                   (system (string-append "gunzip < " apng.gz " > the-patch")))
+                 (apply-patch "the-patch")))))
          (add-before 'configure 'no-checks
            (lambda _
              (substitute* "Makefile.in"
@@ -126,20 +154,24 @@ library.  It supports almost all PNG features and is extensible.")
                                   version "/libpng-" version "-apng.patch.gz"))
                   (sha256
                    (base32
-                    "026r0gbkf6d6v54wca02cdxln8sj4m2c1yk62sj2aasv2ki2ffh5"))))))
+                    "0m5nv70n9903x3xzxw9qqc6sgf2rp106ha0x6gix0xf8wcrljaab"))))))
     (native-inputs
      `(("libtool" ,libtool)))
+    ;; libpng.la says "-lz", so propagate it.
+    (propagated-inputs
+     `(("zlib" ,zlib)))
     (synopsis "APNG patch for libpng")
     (description
      "APNG (Animated Portable Network Graphics) is an unofficial
 extension of the APNG (Portable Network Graphics) format.
 APNG patch provides APNG support to libpng.")
-    (home-page "https://sourceforge.net/projects/libpng-apng/")))
+    (home-page "https://sourceforge.net/projects/libpng-apng/")
+    (license license:zlib)))
 
 (define-public libpng-1.2
   (package
     (inherit libpng)
-    (version "1.2.57")
+    (version "1.2.59")
     (source
      (origin
        (method url-fetch)
@@ -152,27 +184,50 @@ APNG patch provides APNG support to libpng.")
                    "ftp://ftp.simplesystems.org/pub/libpng/png/src/history"
                    "/libpng12/libpng-" version ".tar.xz")))
        (sha256
-        (base32 "1n2lrzjkm5jhfg2bs10q398lkwbbx742fi27zgdgx0x23zhj0ihg"))))))
+        (base32
+         "1izw9ybm27llk8531w6h4jp4rk2rxy2s9vil16nwik5dp0amyqxl"))))))
 
-(define-public pngcrunch
+(define-public r-png
   (package
-   (name "pngcrunch")
-   (version "1.8.11")
+    (name "r-png")
+    (version "0.1-7")
+    (source (origin
+              (method url-fetch)
+              (uri (cran-uri "png" version))
+              (sha256
+               (base32
+                "0g2mcp55lvvpx4kd3mn225mpbxqcq73wy5qx8b4lyf04iybgysg2"))))
+    (build-system r-build-system)
+    (inputs
+     `(("libpng" ,libpng)
+       ("zlib" ,zlib)))
+    (home-page "http://www.rforge.net/png/")
+    (synopsis "Read and write PNG images")
+    (description
+     "This package provides an easy and simple way to read, write and display
+bitmap images stored in the PNG format.  It can read and write both files and
+in-memory raw vectors.")
+    ;; Any of these GPL versions.
+    (license (list license:gpl2 license:gpl3))))
+
+(define-public pngcrush
+  (package
+   (name "pngcrush")
+   (version "1.8.13")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://sourceforge/pmt/pngcrush/"
-                                version "/pngcrush-" version ".tar.xz"))
+                                version "/pngcrush-" version "-nolib.tar.xz"))
             (sha256 (base32
-                     "1c7m316i91jp3h1dj1ppppdv6zilm2njk1wrpqy2zj0fcll06lwd"))))
+                     "0l43c59d6v9l0g07z3q3ywhb8xb3vz74llv3mna0izk9bj6aqkiv"))))
    (build-system gnu-build-system)
    (arguments
-    '(#:make-flags '("-f" "Makefile-nolib")
-      #:tests? #f ; no check target
+    '(#:tests? #f ; no check target
       #:phases
       (modify-phases %standard-phases
         (replace 'configure
           (lambda* (#:key inputs outputs #:allow-other-keys)
-            (substitute* "Makefile-nolib"
+            (substitute* "Makefile"
               (("^(PNG(INC|LIB) = )/usr/local/" line vardef)
                (string-append vardef (assoc-ref inputs "libpng") "/"))
               (("^(Z(INC|LIB) = )/usr/local/" line vardef)
@@ -183,11 +238,15 @@ APNG patch provides APNG support to libpng.")
    (inputs
     `(("libpng" ,libpng)
       ("zlib" , zlib)))
-   (home-page "https://pmt.sourceforge.net/pngcrush")
+   (home-page "https://pmt.sourceforge.io/pngcrush")
    (synopsis "Utility to compress PNG files")
    (description "pngcrusqh is an optimizer for PNG (Portable Network Graphics)
 files.  It can compress them as much as 40% losslessly.")
    (license license:zlib)))
+
+(define-public pngcrunch
+  ;; This package used to be wrongfully name "pngcrunch".
+  (deprecated-package "pngcrunch" pngcrush))
 
 (define-public libjpeg
   (package
@@ -279,13 +338,13 @@ official designation is ISO/IEC 29199-2). This library is an implementation of t
 (define-public jpegoptim
   (package
    (name "jpegoptim")
-   (version "1.4.4")
+   (version "1.4.5")
    (source (origin
             (method url-fetch)
             (uri (string-append "http://www.kokkonen.net/tjko/src/jpegoptim-"
                                 version ".tar.gz"))
             (sha256 (base32
-                     "1cn1i0g1xjdwa12w0ifbnzgb1vqbpr8ji6h05vxksj79vyi3x849"))))
+                     "1mngi8c4mhzwa7i4wqrqq6i80cqj4adbacblfvk6dy573wywyxmi"))))
    (build-system gnu-build-system)
    (inputs `(("libjpeg" ,libjpeg)))
    (arguments
@@ -297,7 +356,7 @@ official designation is ISO/IEC 29199-2). This library is an implementation of t
 the Huffman tables) and \"lossy\" optimization based on setting
 maximum quality factor.")
    (license license:gpl2+)
-   (home-page "http://www.kokkonen.net/tjko/projects.html#jpegoptim")))
+   (home-page "https://www.kokkonen.net/tjko/projects.html#jpegoptim")))
 
 (define-public libicns
   (package
@@ -333,31 +392,16 @@ extracting icontainer icon files.")
 (define-public libtiff
   (package
    (name "libtiff")
-   (replacement libtiff-4.0.8)
-   (version "4.0.7")
-   (source (origin
-            (method url-fetch)
-            (uri (string-append "ftp://download.osgeo.org/libtiff/tiff-"
-                                version ".tar.gz"))
-            (patches (search-patches "libtiff-heap-overflow-tiffcp.patch"
-                                     "libtiff-null-dereference.patch"
-                                     "libtiff-heap-overflow-tif-dirread.patch"
-                                     "libtiff-heap-overflow-pixarlog-luv.patch"
-                                     "libtiff-divide-by-zero.patch"
-                                     "libtiff-divide-by-zero-ojpeg.patch"
-                                     "libtiff-tiffcp-underflow.patch"
-                                     "libtiff-invalid-read.patch"
-                                     "libtiff-CVE-2016-10092.patch"
-                                     "libtiff-heap-overflow-tiffcrop.patch"
-                                     "libtiff-divide-by-zero-tiffcrop.patch"
-                                     "libtiff-CVE-2016-10093.patch"
-                                     "libtiff-divide-by-zero-tiffcp.patch"
-                                     "libtiff-assertion-failure.patch"
-                                     "libtiff-CVE-2016-10094.patch"
-                                     "libtiff-CVE-2017-5225.patch"))
-            (sha256
-             (base32
-              "06ghqhr4db1ssq0acyyz49gr8k41gzw6pqb6mbn5r7jqp77s4hwz"))))
+   (version "4.0.9")
+   (replacement libtiff/fixed)
+   (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://download.osgeo.org/libtiff/tiff-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1kfg4q01r4mqn7dj63ifhi6pmqzbf4xax6ni6kkk81ri5kndwyvf"))))
    (build-system gnu-build-system)
    (outputs '("out"
               "doc"))                           ;1.3 MiB of HTML documentation
@@ -367,9 +411,6 @@ extracting icontainer icon files.")
                                              (assoc-ref %outputs "doc")
                                              "/share/doc/"
                                              ,name "-" ,version))))
-   ;; Build with a patched GCC to work around <http://bugs.gnu.org/24703>.
-   (native-inputs
-    `(("gcc@5" ,gcc-5)))
    (inputs `(("zlib" ,zlib)
              ("libjpeg" ,libjpeg)))
    (synopsis "Library for handling TIFF files")
@@ -382,23 +423,16 @@ collection of tools for doing simple manipulations of TIFF images.")
                                   "See COPYRIGHT in the distribution."))
    (home-page "http://www.simplesystems.org/libtiff/")))
 
-(define libtiff-4.0.8
+(define libtiff/fixed
   (package
     (inherit libtiff)
-    (version "4.0.8")
     (source
-     (origin
-       (method url-fetch)
-       (uri (string-append "ftp://download.osgeo.org/libtiff/tiff-"
-                           version ".tar.gz"))
-       (patches (search-patches "libtiff-tiffgetfield-bugs.patch"
-                                "libtiff-CVE-2016-10688.patch"
-                                "libtiff-CVE-2017-9936.patch"
-                                "libtiff-tiffycbcrtorgb-integer-overflow.patch"
-                                "libtiff-tiffycbcrtorgbinit-integer-overflow.patch"))
-       (sha256
-        (base32
-         "0419mh6kkhz5fkyl77gv0in8x4d2jpdpfs147y8mj86rrjlabmsr"))))))
+      (origin
+        (inherit (package-source libtiff))
+        (patches
+          (append (origin-patches (package-source libtiff))
+                  (search-patches "libtiff-CVE-2017-9935.patch"
+                                  "libtiff-CVE-2017-18013.patch")))))))
 
 (define-public leptonica
   (package
@@ -457,20 +491,15 @@ arithmetic ops.")
 (define-public jbig2dec
   (package
     (name "jbig2dec")
-    (version "0.13")
+    (version "0.14")
     (source
       (origin
         (method url-fetch)
         (uri (string-append "http://downloads.ghostscript.com/public/" name "/"
                             name "-" version ".tar.gz"))
         (sha256
-          (base32 "04akiwab8iy5iy34razcvh9mcja9wy737civ3sbjxk4j143s1b2s"))
-        (patches (search-patches "jbig2dec-ignore-testtest.patch"
-                                 "jbig2dec-CVE-2016-9601.patch"
-                                 "jbig2dec-CVE-2017-7885.patch"
-                                 "jbig2dec-CVE-2017-7975.patch"
-                                 "jbig2dec-CVE-2017-7976.patch"))))
-
+          (base32 "0k01hp0q4275fj4rbr1gy64svfraw5w7wvwl08yjhvsnpb1rid11"))
+        (patches (search-patches "jbig2dec-ignore-testtest.patch"))))
     (build-system gnu-build-system)
     (synopsis "Decoder of the JBIG2 image compression format")
     (description
@@ -489,7 +518,7 @@ work.")
 (define-public openjpeg
   (package
     (name "openjpeg")
-    (version "2.1.2")
+    (version "2.3.0")
     (source
       (origin
         (method url-fetch)
@@ -499,9 +528,7 @@ work.")
         (file-name (string-append name "-" version ".tar.gz"))
         (sha256
          (base32
-          "19yz4g0c45sm8y1z01j9djsrl1mkz3pmw7fykc6hkvrqymp7prsc"))
-        (patches (search-patches "openjpeg-CVE-2016-9850-CVE-2016-9851.patch"
-                                 "openjpeg-CVE-2016-9572-CVE-2016-9573.patch"))))
+          "06npqzkg20avnygdwaqpap91r7qpdqgrn39adj2bl8v0pg0qgirx"))))
     (build-system cmake-build-system)
     (arguments
       ;; Trying to run `$ make check' results in a no rule fault.
@@ -548,7 +575,9 @@ error-resilience, a Java-viewer for j2k-images, ...")
                                   version ".tar.bz2"))
               (sha256
                (base32
-                "1md83dip8rf29y40cm5r7nn19705f54iraz6545zhwa6y8zyq9yz"))))
+                "1md83dip8rf29y40cm5r7nn19705f54iraz6545zhwa6y8zyq9yz"))
+              (patches (search-patches
+                        "giflib-make-reallocarray-private.patch"))))
     (build-system gnu-build-system)
     (outputs '("bin"                    ; utility programs
                "out"))                  ; library
@@ -608,7 +637,7 @@ compose, and analyze GIF images.")
 (define-public imlib2
   (package
     (name "imlib2")
-    (version "1.4.10")
+    (version "1.5.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -616,7 +645,7 @@ compose, and analyze GIF images.")
                     "/imlib2-" version ".tar.bz2"))
               (sha256
                (base32
-                "0wm2q2xlkbm71k7mw2jyzbxgzylrkcj5yh6nq58w5gybhp98qs9z"))))
+                "1bms2iwmvnvpz5jqq3r52glarqkafif47zbh1ykz8hw85d2mfkps"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkgconfig" ,pkg-config)))
@@ -689,26 +718,65 @@ supplies a generic doubly-linked list and some string functions.")
             (sha256
              (base32
               "12bz57asdcfsz3zr9i9nska0fb6h3z2aizy412qjqkixkginbz7v"))
-            (patches (search-patches "freeimage-CVE-2015-0852.patch"
+            (modules '((guix build utils)))
+            (snippet
+             '(begin
+                (for-each
+                  (lambda (dir)
+                    (delete-file-recursively (string-append "Source/" dir)))
+                  '("LibJPEG" "LibOpenJPEG" "LibPNG" "LibRawLite"
+                    ;; "LibJXR"
+                    "LibWebP" "OpenEXR" "ZLib"))))
+            (patches (search-patches "freeimage-unbundle.patch"
+                                     "freeimage-CVE-2015-0852.patch"
                                      "freeimage-CVE-2016-5684.patch"
                                      "freeimage-fix-build-with-gcc-5.patch"))))
    (build-system gnu-build-system)
    (arguments
     '(#:phases
       (modify-phases %standard-phases
-        (delete 'configure)
+        ;; According to Fedora these files depend on private headers, but their
+        ;; presence is required for building, so we replace them with empty files.
+        (add-after 'unpack 'delete-unbuildable-files
+          (lambda _
+            (for-each (lambda (file)
+                        (delete-file file)
+                        (close (open file O_CREAT)))
+                      '("Source/FreeImage/PluginG3.cpp"
+                        "Source/FreeImageToolkit/JPEGTransform.cpp"))
+            #t))
+        ;; These scripts generate the Makefiles.
+        (replace 'configure
+          (lambda _
+            (invoke "sh" "gensrclist.sh")
+            (invoke "sh" "genfipsrclist.sh")))
         (add-before 'build 'patch-makefile
           (lambda* (#:key outputs #:allow-other-keys)
             (substitute* "Makefile.gnu"
               (("/usr") (assoc-ref outputs "out"))
               (("-o root -g root") ""))
             #t)))
-      #:make-flags '("CC=gcc")
+      #:make-flags
+      (list "CC=gcc"
+            ;; We need '-fpermissive' for Source/FreeImage.h.
+            ;; libjxr doesn't have a pkg-config file.
+            (string-append "CFLAGS+=-O2 -fPIC -fvisibility=hidden -fpermissive "
+                           ;"-I" (assoc-ref %build-inputs "libjxr") "/include/jxrlib"
+                           ))
       #:tests? #f)) ; no check target
    (native-inputs
-    `(("unzip" ,unzip)))
-   ;; Fails to build on MIPS due to assembly code in the source.
-   (supported-systems (delete "mips64el-linux" %supported-systems))
+    `(("pkg-config" ,pkg-config)
+      ("unzip" ,unzip)))
+   (inputs
+    `(("libjpeg" ,libjpeg)
+      ;("libjxr" ,libjxr)
+      ("libpng" ,libpng)
+      ("libraw" ,libraw)
+      ("libtiff" ,libtiff)
+      ("libwebp" ,libwebp)
+      ("openexr" ,openexr)
+      ("openjpeg" ,openjpeg)
+      ("zlib" ,zlib)))
    (synopsis "Library for handling popular graphics image formats")
    (description
     "FreeImage is a library for developers who would like to support popular
@@ -719,15 +787,15 @@ graphics image formats like PNG, BMP, JPEG, TIFF and others.")
 (define-public vigra
   (package
    (name "vigra")
-   (version "1.11.0")
+   (version "1.11.1")
    (source
     (origin
       (method url-fetch)
       (uri (string-append "https://github.com/ukoethe/vigra/releases/download/"
-                          "Version-1-11-0/vigra-"
-                          version "-src.tar.gz"))
+                          "Version-" (string-join (string-split version #\.) "-")
+                          "/vigra-" version "-src.tar.gz"))
       (sha256 (base32
-                "1jzm79kqiiilvys3b8mlzy9cvmiirrcwsrlg19qd9rza8zipsqb8"))))
+                "1bqs8vx5i1bzamvv563i24gx2xxdidqyxh9iaj46mbznhc84wmm5"))))
    (build-system cmake-build-system)
    (inputs
     `(("boost" ,boost)
@@ -773,21 +841,23 @@ processing and analysis library that puts its main emphasis on customizable
 algorithms and data structures.  It is particularly strong for
 multi-dimensional image processing.")
    (license license:expat)
-   (home-page "https://hci.iwr.uni-heidelberg.de/vigra")))
+   (home-page "https://ukoethe.github.io/vigra/")))
 
 (define-public libwebp
   (package
     (name "libwebp")
-    (version "0.6.0")
+    (version "1.0.0")
     (source
      (origin
-       (method url-fetch)
-       (uri (string-append
-             "http://downloads.webmproject.org/releases/webp/libwebp-" version
-             ".tar.gz"))
+       ;; No tarballs are provided for >0.6.1.
+       (method git-fetch)
+       (uri (git-reference
+             (url "https://chromium.googlesource.com/webm/libwebp")
+             (commit (string-append "v" version))))
+       (file-name (git-file-name name version))
        (sha256
         (base32
-         "0h1brwkyxc7lb8lc53aacdks5vc1y9hzngqi41gg7y6l56912a69"))))
+         "1w8jzdbr1s4238ygyrlxryycss3f2z6d9amxdq8m82nl3l6skar4"))))
     (build-system gnu-build-system)
     (inputs
      `(("freeglut" ,freeglut)
@@ -795,10 +865,18 @@ multi-dimensional image processing.")
        ("libjpeg" ,libjpeg)
        ("libpng" ,libpng)
        ("libtiff" ,libtiff)))
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)))
     (arguments
      '(#:configure-flags '("--enable-libwebpmux"
                            "--enable-libwebpdemux"
-                           "--enable-libwebpdecoder")))
+                           "--enable-libwebpdecoder")
+       #:phases (modify-phases %standard-phases
+                  (add-after 'unpack 'bootstrap
+                    (lambda _
+                      (invoke "autoreconf" "-vif"))))))
     (home-page "https://developers.google.com/speed/webp/")
     (synopsis "Lossless and lossy image compression")
     (description
@@ -847,9 +925,11 @@ channels.")
                                        version ".tar.gz")
                         (string-append "https://fossies.org/linux/misc/exiv2-"
                                        version ".tar.gz")))
+             (patches (search-patches "exiv2-CVE-2017-14860.patch"
+                                      "exiv2-CVE-2017-14859-14862-14864.patch"))
              (sha256
               (base32
-               "1hsdzlzgkipprqh93yj81mrckl2l7c2mn2i84691pallnjz5qqhc"))))
+               "1yza317qxd8yshvqnay164imm0ks7cvij8y8j86p1gqi1153qpn7"))))
     (build-system gnu-build-system)
     (arguments '(#:tests? #f))                    ; no `check' target
     (propagated-inputs
@@ -910,7 +990,7 @@ convert, manipulate, filter and display a wide variety of image formats.")
 (define-public jasper
   (package
     (name "jasper")
-    (version "2.0.13")
+    (version "2.0.14")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/mdadams/jasper/archive/"
@@ -918,7 +998,7 @@ convert, manipulate, filter and display a wide variety of image formats.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "090cyqcvqp4y12nc57gvcbrk3ap1rnnixd4qj90sx0pw3fs1615m"))))
+                "0yx9y5y0g6jv142vnqp50j3k8k5yqznz3smrblv192wgfbm6w9l5"))))
     (build-system cmake-build-system)
     (inputs `(("libjpeg" ,libjpeg)))
     (synopsis "JPEG-2000 library")
@@ -1016,14 +1096,22 @@ differences in file encoding, image quality, and other small variations.")
        ("libjpeg" ,libjpeg)
        ("zlib" ,zlib)))
     (arguments
-     `(#:make-flags '("CXXFLAGS=-fpermissive"))) ;required for MHashPP.cc
+     `(#:make-flags '("CXXFLAGS=-fpermissive")    ;required for MHashPP.cc
+
+       #:phases (modify-phases %standard-phases
+                  (add-before 'configure 'set-perl-search-path
+                    (lambda _
+                      ;; Work around "dotless @INC" build failure.
+                      (setenv "PERL5LIB"
+                              (string-append (getcwd) "/tests:"
+                                             (getenv "PERL5LIB")))
+                      #t)))))
     (home-page "http://steghide.sourceforge.net")
     (synopsis "Image and audio steganography")
     (description
-     "Steghide is a steganography program that is able to hide data in various
-kinds of image- and audio-files.  The color- respectivly sample-frequencies
-are not changed thus making the embedding resistant against first-order
-statistical tests.")
+     "Steghide is a program to hide data in various kinds of image and audio
+files (known as @dfn{steganography}).  Neither color nor sample frequencies are
+changed, making the embedding resistant against first-order statistical tests.")
     (license license:gpl2+)))
 
 (define-public stb-image-for-extempore
@@ -1056,7 +1144,7 @@ installed as @code{stb_image}.")
 (define-public optipng
   (package
     (name "optipng")
-    (version "0.7.6")
+    (version "0.7.7")
     (source
      (origin
        (method url-fetch)
@@ -1064,20 +1152,20 @@ installed as @code{stb_image}.")
                            version ".tar.gz"))
        (sha256
         (base32
-         "105yk5qykvhiahzag67gm36s2kplxf6qn5hay02md0nkrcgn6w28"))))
+         "0lj4clb851fzpaq446wgj0sfy922zs5l5misbpwv6w7qrqrz4cjg"))))
     (build-system gnu-build-system)
     (inputs
      `(("zlib" ,zlib)))
     (arguments
      '(#:phases
        (modify-phases %standard-phases
-         ;; configure script does not accept arguments CONFIG_SHELL and SHELL
          (replace 'configure
            (lambda* (#:key outputs #:allow-other-keys)
-             (zero? (system* "sh" "configure"
-                             (string-append "--prefix=" (assoc-ref outputs "out")))))))))
-    (synopsis "Optimizer that recompresses PNG image files to a
-smaller size")
+             ;; configure script doesn't accept arguments CONFIG_SHELL and SHELL
+             (invoke "sh" "configure"
+                     (string-append "--prefix=" (assoc-ref outputs "out")))
+             #t)))))
+    (synopsis "Optimizer that recompresses PNG image files to a smaller size")
     (description "OptiPNG is a PNG optimizer that recompresses image
 files to a smaller size, without losing any information.  This program
 also converts external formats (BMP, GIF, PNM and TIFF) to optimized
@@ -1088,19 +1176,20 @@ PNG, and performs PNG integrity checks and corrections.")
 (define-public libjpeg-turbo
   (package
     (name "libjpeg-turbo")
-    (version "1.5.2")
+    (version "1.5.3")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/" name "/" version "/"
                                   name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0a5m0psfp5952y5vrcs0nbdz1y9wqzg2ms0xwrx752034wxr964h"))))
+                "08r5b5mywwrxv4axvq80dm31cklz81grczlzlxr2xqa6pgi90j5j"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("nasm" ,nasm)))
     (arguments
-     '(#:test-target "test"))
+     '(#:test-target "test"
+       #:configure-flags (list "--with-build-date=1970-01-01")))
     (home-page "http://www.libjpeg-turbo.org/")
     (synopsis "SIMD-accelerated JPEG image handling library")
     (description "libjpeg-turbo is a JPEG image codec that accelerates baseline
@@ -1158,3 +1247,122 @@ medical image data, e.g. magnetic resonance image (MRI) and functional MRI
 (fMRI) brain images.")
     (home-page "http://niftilib.sourceforge.net")
     (license license:public-domain)))
+
+(define-public gpick
+  (package
+    (name "gpick")
+    (version "0.2.5")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/thezbyg/gpick/archive/"
+                                  name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0mxvxk15xhk2i5vfavjhnkk4j3bnii0gpf8di14rlbpq070hd5rs"))))
+    (build-system scons-build-system)
+    (native-inputs
+     `(("boost" ,boost)
+       ("gettext" ,gnu-gettext)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("expat" ,expat)
+       ("gtk2" ,gtk+-2)
+       ("lua" ,lua-5.2)))
+    (arguments
+     `(#:tests? #f
+       #:scons ,scons-python2
+       #:scons-flags (list (string-append "DESTDIR=" %output))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'fix-lua-reference
+           (lambda _
+             (substitute* "SConscript"
+               (("lua5.2") "lua-5.2"))
+             #t)))))
+    (home-page "http://www.gpick.org/")
+    (synopsis "Color picker")
+    (description "Gpick is an advanced color picker and palette editing tool.")
+    (license license:bsd-3)))
+
+(define-public libiptcdata
+  (package
+    (name "libiptcdata")
+    (version "1.0.4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://sourceforge/" name "/" name "/"
+                                  version "/" name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "03pfvkmmx762iydq0q207x2028d275pbdysfsgpmrr0ywy63pxkr"))))
+    (build-system gnu-build-system)
+    (home-page "http://libiptcdata.sourceforge.net/")
+    (synopsis "IPTC metadata manipulation library")
+    (description "Libiptcdata is a C library for manipulating the International
+Press Telecommunications Council (IPTC) metadata stored within multimedia files
+such as images.  This metadata can include captions and keywords, often used by
+popular photo management applications.  The library provides routines for
+parsing, viewing, modifying, and saving this metadata.")
+    (license license:lgpl2.0+)))
+
+(define-public flameshot
+  (package
+    (name "flameshot")
+    (version "0.5.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/lupoDharkael/flameshot/archive/"
+                           "v" version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0kp451bqgssvg8n3sg60s3fifplm9l5kxiij0yxkl864p2mhw8im"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("qttools" ,qttools)))
+    (inputs
+     `(("qtbase" ,qtbase)))
+    (arguments
+     `(#:tests? #f ; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (invoke "qmake"
+                     "CONFIG+=packaging"
+                     (string-append "BASEDIR=" (assoc-ref outputs "out"))
+                     "PREFIX=/"))))))
+    (home-page "https://github.com/lupoDharkael/flameshot")
+    (synopsis "Powerful yet simple to use screenshot software")
+    (description "Flameshot is a screenshot program.
+Features:
+
+@itemize
+@item Customizable appearance.
+@item Easy to use.
+@item In-app screenshot edition.
+@item DBus interface.
+@item Upload to Imgur.
+@end itemize\n")
+    (license license:gpl3+)))
+
+(define-public r-jpeg
+  (package
+   (name "r-jpeg")
+   (version "0.1-8")
+   (source
+     (origin
+       (method url-fetch)
+       (uri (cran-uri "jpeg" version))
+       (sha256
+        (base32
+         "05hawv5qcb82ljc1l2nchx1wah8mq2k2kfkhpzyww554ngzbwcnh"))))
+   (build-system r-build-system)
+   (inputs `(("libjpeg" ,libjpeg)))
+   (home-page "http://www.rforge.net/jpeg/")
+   (synopsis "Read and write JPEG images with R")
+   (description "This package provides a way to read, write and display bitmap
+images stored in the JPEG format with R.  It can read and write both files and
+in-memory raw vectors.")
+   (license license:gpl2+)))

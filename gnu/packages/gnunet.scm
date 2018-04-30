@@ -1,11 +1,12 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013, 2014, 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2014 Sree Harsha Totakura <sreeharsha@totakura.in>
-;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2015 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016, 2017 ng0 <ng0@no-reply.infotropique.org>
+;;; Copyright © 2016, 2017, 2018 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -66,14 +67,14 @@
 (define-public libextractor
   (package
    (name "libextractor")
-   (version "1.4")
+   (version "1.6")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/libextractor/libextractor-"
                                 version ".tar.gz"))
             (sha256
              (base32
-              "0v7ns5jhsyp1wzvbaydfgxnva5zd63gkzm9djhckmam9liq824l4"))))
+              "17gnpgspdhfgcr27j8sn9105vb4lw22yqdrhic62l79q5v5avm16"))))
    (build-system gnu-build-system)
    ;; WARNING: Checks require /dev/shm to be in the build chroot, especially
    ;; not to be a symbolic link to /run/shm.
@@ -87,7 +88,7 @@
     `(("exiv2" ,exiv2)
       ("bzip2" ,bzip2)
       ("flac" ,flac)
-      ("ffmpeg" ,ffmpeg)
+      ("ffmpeg" ,ffmpeg-3.4)
       ("file" ,file)                           ;libmagic, for the MIME plug-in
       ("glib" ,glib)
       ("gstreamer" ,gstreamer)
@@ -144,72 +145,71 @@ tool to extract metadata from a file and print the results.")
 (define-public libmicrohttpd
   (package
    (name "libmicrohttpd")
-   (version "0.9.52")
+   (version "0.9.59")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/libmicrohttpd/libmicrohttpd-"
                                 version ".tar.gz"))
             (sha256
              (base32
-              "1smgxw6jv81yybg86bzr4c2sn7a31apf8q4zz0kpch9xfrp7yyal"))))
+              "0g4jgnv43yddr9yxrqg11632rip0lg5c53gmy5wy3c0i1dywv74v"))))
    (build-system gnu-build-system)
    (inputs
     `(("curl" ,curl)
-      ("gnutls" ,gnutls)
+      ("gnutls" ,gnutls/dane)
       ("libgcrypt" ,libgcrypt)
       ("openssl" ,openssl)
       ("zlib" ,zlib)))
    (arguments
-    `(#:parallel-tests? #f))
+    `(#:parallel-tests? #f
+      #:phases (modify-phases %standard-phases
+                 (add-before 'check 'add-missing-LDFLAGS
+                   (lambda _
+                     ;; The two test_upgrade* programs depend on GnuTLS
+                     ;; directly but lack -lgnutls; add it.
+                     (substitute* "src/microhttpd/Makefile"
+                       (("^test_upgrade(.*)LDFLAGS = (.*)$" _ first rest)
+                        (string-append "test_upgrade" first
+                                       "LDFLAGS = -lgnutls " rest)))
+                     #t)))))
    (synopsis "C library implementing an HTTP 1.1 server")
    (description
     "GNU libmicrohttpd is a small, embeddable HTTP server implemented as a
 C library.  It makes it easy to run an HTTP server as part of another
 application.  The library is fully HTTP 1.1 compliant.  It can listen on
 multiple ports, supports four different threading models, and supports
-IPv6.  It
-also features security features such as basic and digest authentication
-and support for SSL3 and TLS.")
+IPv6.  It also features security features such as basic and digest
+authentication and support for SSL3 and TLS.")
    (license license:lgpl2.1+)
    (home-page "https://www.gnu.org/software/libmicrohttpd/")))
 
 (define-public gnurl
   (package
    (name "gnurl")
-   (version "7.54.1")
+   (version "7.59.0")
    (source (origin
             (method url-fetch)
-            (uri (string-append "https://gnunet.org/sites/default/files/"
-                                name "-" version ".tar.bz2"))
+            (uri (list (string-append "mirror://gnu/gnunet/" name "-" version ".tar.xz")
+                       ;; TODO: Remove once gnurl-7.59.0 release has synced to ftp.gnu.org
+                       (string-append "https://ftp.n0.is/pub/releases/gnurl/"
+                                       name "-" version ".tar.xz")))
             (sha256
              (base32
-              "0szbj352h95sgc9kbx9wzkgjksmg3g5k6cvlc7hz3wrbdh5gb0a4"))))
+              "0fdwqxs4crzj1nbq3lz0xbqjiiqpq16vpll09gryyq4c1y6lbyib"))))
    (build-system gnu-build-system)
    (outputs '("out"
               "doc"))                             ; 1.5 MiB of man3 pages
-   (inputs `(("gnutls" ,gnutls)
+   (inputs `(("gnutls" ,gnutls/dane)
              ("libidn" ,libidn)
              ("zlib" ,zlib)))
    (native-inputs
-    `(("autoconf" ,autoconf)
-      ("automake" ,automake)
-      ("libtool" ,libtool)
+    `(("libtool" ,libtool)
       ("groff" ,groff)
       ("perl" ,perl)
       ("pkg-config" ,pkg-config)
       ("python" ,python-2)))
    (arguments
-    `(#:configure-flags '("--enable-ipv6" "--with-gnutls" "--without-libssh2"
-                          "--without-libmetalink" "--without-winidn"
-                          "--without-librtmp" "--without-nghttp2"
-                          "--without-nss" "--without-cyassl"
-                          "--without-polarssl" "--without-ssl"
-                          "--without-winssl" "--without-darwinssl"
-                          "--disable-sspi" "--disable-ntlm-wb"
-                          "--disable-ldap" "--disable-rtsp" "--disable-dict"
-                          "--disable-telnet" "--disable-tftp" "--disable-pop3"
-                          "--disable-imap" "--disable-smtp" "--disable-gopher"
-                          "--disable-file" "--disable-ftp" "--disable-smb")
+    `(#:configure-flags (list "--disable-ntlm-wb")
       #:test-target "test"
       #:parallel-tests? #f
       #:phases
@@ -224,22 +224,13 @@ and support for SSL3 and TLS.")
               (rename-file (string-append out "/share/man/man3")
                            (string-append doc "/share/man/man3"))
               #t)))
-        (add-before 'configure 'autoconf
-          ;; Clear artifacts left (shebangs) from release preparation.
-          (lambda _
-            (zero? (system* "./buildconf"))))
         (replace 'check
           (lambda _
-            ;; It is unclear why test1026 fails, however the content of it
-            ;; suggests that it is not vital for gnurl.
-            (delete-file "tests/data/test1026")
-
             (substitute* "tests/runtests.pl"
               (("/bin/sh") (which "sh")))
 
             ;; Make test output more verbose.
-            (zero? (system* "make" "-C" "tests" "test"))
-            #t)))))
+            (invoke "make" "-C" "tests" "test"))))))
    (synopsis "Microfork of cURL with support for the HTTP/HTTPS/GnuTLS subset of cURL")
    (description
     "Gnurl is a microfork of cURL, a command line tool for transferring data
@@ -267,7 +258,7 @@ supports HTTP, HTTPS and GnuTLS.")
       ("gnurl" ,gnurl)
       ("gstreamer" ,gstreamer)
       ("gst-plugins-base" ,gst-plugins-base)
-      ("gnutls" ,gnutls)
+      ("gnutls" ,gnutls/dane)
       ("libextractor" ,libextractor)
       ("libgcrypt" ,libgcrypt)
       ("libidn" ,libidn)
@@ -326,7 +317,7 @@ kinds of basic applications for the foundation of a GNU internet.")
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
-                      (url "git://git.sv.gnu.org/guix/gnunet.git")
+                      (url "https://git.savannah.gnu.org/git/guix/gnunet.git/")
                       (commit commit)))
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
@@ -335,11 +326,11 @@ kinds of basic applications for the foundation of a GNU internet.")
       (build-system gnu-build-system)
       (arguments
        '(#:phases (modify-phases %standard-phases
-                    (add-before 'configure 'bootstrap
+                    (add-after 'unpack 'bootstrap
                       (lambda _
-                        (zero? (system* "autoreconf" "-vfi")))))))
+                        (invoke "autoreconf" "-vfi"))))))
       (native-inputs `(("pkg-config" ,pkg-config)
-                       ("autoconf" ,(autoconf-wrapper))
+                       ("autoconf" ,autoconf-wrapper)
                        ("automake" ,automake)))
       (inputs `(("guile" ,guile-2.0)
                 ("gnunet" ,gnunet)))

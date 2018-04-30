@@ -1,11 +1,13 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013, 2014 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Pjotr Prins <pjotr.guix@thebird.nl>
 ;;; Copyright © 2016 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2016 Ben Woodcroft <donttrustben@gmail.com>
+;;; Copyright © 2017, 2018 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -45,7 +47,7 @@
 (define-public parallel
   (package
     (name "parallel")
-    (version "20170722")
+    (version "20180422")
     (source
      (origin
       (method url-fetch)
@@ -53,7 +55,7 @@
                           version ".tar.bz2"))
       (sha256
        (base32
-        "117g50bx1kcbrqix0f1539z5rzhvgsni2wddjv939wcxkrdb1idx"))))
+        "0xsfpbxwgd4197gra981iv0nmjfk58c0d88dxx6dh6yrqz523klx"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -74,10 +76,10 @@
              #t))
          (add-after 'install 'post-install-test
            (lambda* (#:key outputs #:allow-other-keys)
-             (zero? (system* (string-append
-                              (assoc-ref outputs "out") "/bin/parallel")
-                             "echo"
-                             ":::" "1" "2" "3")))))))
+             (invoke (string-append
+                      (assoc-ref outputs "out") "/bin/parallel")
+                     "echo"
+                     ":::" "1" "2" "3"))))))
     (inputs
      `(("perl" ,perl)
        ("procps" ,procps)))
@@ -92,21 +94,20 @@ and they are executed on lists of files, hosts, users or other items.")
 (define-public slurm
   (package
    (name "slurm")
-   (version "16.05.9.1")
+   (version "17.11.3")
    (source (origin
             (method url-fetch)
             (uri (string-append
-                  "https://github.com/SchedMD/slurm/archive/slurm-"
-                  (string-join (string-split version #\.) "-") ".tar.gz"))
-            (file-name (string-append name "-" version ".tar.gz"))
+                  "https://download.schedmd.com/slurm/slurm-"
+                  version ".tar.bz2"))
             (sha256
              (base32
-              "1zx5y2lyjknnca4aw7cbawn00mjhsqzy3h35w7s757cykfjqr8gv"))
-            (patches (search-patches
-                      "slurm-configure-remove-nonfree-contribs.patch"))
+              "1x3i6z03d9m46fvj1cslrapm1drvgyqch9pn4xf23kvbz4gkhaps"))
             (modules '((guix build utils)))
             (snippet
              '(begin
+                (substitute* "configure.ac"
+                  (("^[[:space:]]+contribs/.*$") ""))
                 (delete-file-recursively "contribs")
                 #t))))
    ;; FIXME: More optional inputs could be added,
@@ -136,10 +137,9 @@ and they are executed on lists of files, hosts, users or other items.")
             (string-append "--with-ssl=" (assoc-ref %build-inputs "openssl")))
       #:phases
       (modify-phases %standard-phases
-       (add-before
-        'configure 'autogen
-        (lambda _ (zero? (system* "autoconf"))))))) ; configure.ac was patched
-   (home-page "http://slurm.schedmd.com/")
+        (add-after 'unpack 'autoconf
+          (lambda _ (invoke "autoconf")))))) ; configure.ac was patched
+   (home-page "https://slurm.schedmd.com/")
    (synopsis "Workload manager for cluster computing")
    (description
     "SLURM is a fault-tolerant and highly scalable cluster management and job
@@ -148,7 +148,12 @@ resources (computer nodes) to users for some duration of time, provides a
 framework for starting, executing, and monitoring work (typically a parallel
 job) on a set of allocated nodes, and arbitrates contention for resources
 by managing a queue of pending work.")
-   (license license:gpl2+)))
+   (license (list license:bsd-2       ; src/common/log.[ch], src/common/uthash
+                  license:expat       ; slurm/pmi.h
+                  license:isc         ; src/common/strlcpy.c
+                  license:lgpl2.1+    ; hilbert.[ch], src/common/slurm_time.h
+                  license:zlib        ; src/common/strnatcmp.c
+                  license:gpl2+))))   ; the rest, often with OpenSSL exception
 
 (define-public slurm-drmaa
   (package

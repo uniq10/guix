@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Chris Marusich <cmmarusich@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -23,6 +23,8 @@
   #:use-module (guix store)
   #:use-module (guix records)
   #:use-module (guix profiles)
+  #:use-module (guix discovery)
+  #:use-module (guix combinators)
   #:use-module (guix sets)
   #:use-module (guix ui)
   #:use-module ((guix utils) #:select (source-properties->location))
@@ -49,6 +51,12 @@
             service-type-compose
             service-type-extend
             service-type-default-value
+            service-type-description
+            service-type-location
+
+            %service-type-path
+            fold-service-types
+            lookup-service-types
 
             service
             service?
@@ -59,6 +67,7 @@
             simple-service
             modify-services
             service-back-edges
+            instantiate-missing-services
             fold-services
 
             service-error?
@@ -89,9 +98,7 @@
 
             %boot-service
             %activation-service
-            etc-service
-
-            file-union))                      ;XXX: for lack of a better place
+            etc-service))
 
 ;;; Comment:
 ;;;
@@ -145,7 +152,15 @@
 
   ;; Optional default value for instances of this type.
   (default-value service-type-default-value       ;Any
-                 (default &no-default-value)))
+                 (default &no-default-value))
+
+  ;; Meta-data.
+  (description  service-type-description          ;string
+                (default #f))
+  (location     service-type-location             ;<location>
+                (default (and=> (current-source-location)
+                                source-properties->location))
+                (innate)))
 
 (define (write-service-type type port)
   (format port "#<service-type ~a ~a>"
@@ -153,6 +168,43 @@
           (number->string (object-address type) 16)))
 
 (set-record-type-printer! <service-type> write-service-type)
+
+(define %distro-root-directory
+  ;; Absolute file name of the module hierarchy.
+  (dirname (search-path %load-path "guix.scm")))
+
+(define %service-type-path
+  ;; Search path for service types.
+  (make-parameter `((,%distro-root-directory . "gnu/services")
+                    (,%distro-root-directory . "gnu/system"))))
+
+(define (all-service-modules)
+  "Return the default set of service modules."
+  (cons (resolve-interface '(gnu services))
+        (all-modules (%service-type-path)
+                     #:warn warn-about-load-error)))
+
+(define* (fold-service-types proc seed
+                             #:optional
+                             (modules (all-service-modules)))
+  "For each service type exported by one of MODULES, call (PROC RESULT).  SEED
+is used as the initial value of RESULT."
+  (fold-module-public-variables (lambda (object result)
+                                  (if (service-type? object)
+                                      (proc object result)
+                                      result))
+                                seed
+                                modules))
+
+(define lookup-service-types
+  (let ((table
+         (delay (fold-service-types (lambda (type result)
+                                      (vhash-consq (service-type-name type)
+                                                   type result))
+                                    vlist-null))))
+    (lambda (name)
+      "Return the list of services with the given NAME (a symbol)."
+      (vhash-foldq* cons '() name (force table)))))
 
 ;; Services of a given type.
 (define-record-type <service>
@@ -301,7 +353,7 @@ directory."
                 (extensions
                  (list (service-extension system-service-type
                                           boot-script-entry)))
-                (compose append)
+                (compose identity)
                 (extend compute-boot-script)))
 
 (define %boot-service
@@ -332,12 +384,19 @@ boot."
                                                 #t))))
                     ;; Ignore I/O errors so the system can boot.
                     (fail-safe
+                     ;; Remove stale Shadow lock files as they would lead to
+                     ;; failures of 'useradd' & co.
+                     (delete-file "/etc/group.lock")
+                     (delete-file "/etc/passwd.lock")
+                     (delete-file "/etc/.pwd.lock") ;from 'lckpwdf'
+
                      (delete-file-recursively "/tmp")
                      (delete-file-recursively "/var/run")
                      (mkdir "/tmp")
                      (chmod "/tmp" #o1777)
                      (mkdir "/var/run")
-                     (chmod "/var/run" #o755))))))))
+                     (chmod "/var/run" #o755)
+                     (delete-file-recursively "/run/udev/watch.old"))))))))
 
 (define cleanup-service-type
   ;; Service that cleans things up in /tmp and similar.
@@ -345,38 +404,6 @@ boot."
                 (extensions
                  (list (service-extension boot-service-type
                                           cleanup-gexp)))))
-
-(define* (file-union name files)                  ;FIXME: Factorize.
-  "Return a <computed-file> that builds a directory containing all of FILES.
-Each item in FILES must be a list where the first element is the file name to
-use in the new directory, and the second element is a gexp denoting the target
-file."
-  (computed-file name
-                 #~(begin
-                     (mkdir #$output)
-                     (chdir #$output)
-                     #$@(map (match-lambda
-                               ((target source)
-                                #~(begin
-                                    ;; Stat the source to abort early if it
-                                    ;; does not exist.
-                                    (stat #$source)
-
-                                    (symlink #$source #$target))))
-                             files))))
-
-(define (directory-union name things)
-  "Return a directory that is the union of THINGS."
-  (match things
-    ((one)
-     ;; Only one thing; return it.
-     one)
-    (_
-     (computed-file name
-                    (with-imported-modules '((guix build union))
-                      #~(begin
-                          (use-modules (guix build union))
-                          (union-build #$output '#$things)))))))
 
 (define* (activation-service->script service)
   "Return as a monadic value the activation script for SERVICE, a service of
@@ -431,7 +458,7 @@ ACTIVATION-SCRIPT-TYPE."
                 (extensions
                  (list (service-extension boot-service-type
                                           gexps->activation-gexp)))
-                (compose append)
+                (compose identity)
                 (extend second-argument)))
 
 (define %activation-service
@@ -606,6 +633,18 @@ kernel."
   (service      ambiguous-target-service-error-service)
   (target-type  ambiguous-target-service-error-target-type))
 
+(define (missing-target-error service target-type)
+  (raise
+   (condition (&missing-target-service-error
+               (service service)
+               (target-type target-type))
+              (&message
+               (message
+                (format #f (G_ "no target of type '~a' for service '~a'")
+                        (service-type-name target-type)
+                        (service-type-name
+                         (service-kind service))))))))
+
 (define (service-back-edges services)
   "Return a procedure that, when passed a <service>, returns the list of
 <service> objects that depend on it."
@@ -618,16 +657,7 @@ kernel."
           ((target)
            (vhash-consq target service edges))
           (()
-           (raise
-            (condition (&missing-target-service-error
-                        (service service)
-                        (target-type target-type))
-                       (&message
-                        (message
-                         (format #f (G_ "no target of type '~a' for service '~a'")
-                                 (service-type-name target-type)
-                                 (service-type-name
-                                  (service-kind service))))))))
+           (missing-target-error service target-type))
           (x
            (raise
             (condition (&ambiguous-target-service-error
@@ -644,6 +674,38 @@ kernel."
   (let ((edges (fold add-edges vlist-null services)))
     (lambda (node)
       (reverse (vhash-foldq* cons '() node edges)))))
+
+(define (instantiate-missing-services services)
+  "Return SERVICES, a list, augmented with any services targeted by extensions
+and missing from SERVICES.  Only service types with a default value can be
+instantiated; other missing services lead to a
+'&missing-target-service-error'."
+  (define (adjust-service-list svc result instances)
+    (fold2 (lambda (extension result instances)
+             (define target-type
+               (service-extension-target extension))
+
+             (match (vhash-assq target-type instances)
+               (#f
+                (let ((default (service-type-default-value target-type)))
+                  (if (eq? &no-default-value default)
+                      (missing-target-error svc target-type)
+                      (let ((new (service target-type)))
+                        (values (cons new result)
+                                (vhash-consq target-type new instances))))))
+               (_
+                (values result instances))))
+           result
+           instances
+           (service-type-extensions (service-kind svc))))
+
+  (let ((instances (fold (lambda (service result)
+                           (vhash-consq (service-kind service) service
+                                        result))
+                         vlist-null services)))
+    (fold2 adjust-service-list
+           services instances
+           services)))
 
 (define* (fold-services services
                         #:key (target-type system-service-type))

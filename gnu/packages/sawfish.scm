@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Sou Bunnbu <iyzsong@gmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -37,14 +38,14 @@
 (define-public librep
   (package
     (name "librep")
-    (version "0.92.6")
+    (version "0.92.7")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://download.tuxfamily.org/" name "/"
                                   name "_" version ".tar.xz"))
               (sha256
                (base32
-                "1k6c0hmyzxh8459r790slh9vv9vwy9d7w3nlmrqypbx9mk855hgy"))))
+                "1bmcjl1x1rdh514q9z3hzyjmjmwwwkziipjpjsl301bwmiwrd8a8"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases (modify-phases %standard-phases
@@ -57,7 +58,7 @@
      `(("makeinfo"   ,texinfo)
        ("pkg-config" ,pkg-config)
 
-       ("autoconf" ,(autoconf-wrapper))
+       ("autoconf" ,autoconf-wrapper)
        ("automake" ,automake)
        ("libtool"  ,libtool)))
     (inputs
@@ -138,31 +139,31 @@ backend of Sawfish.")
     (arguments
      '(#:tests? #f ; no tests
        #:phases
-       (alist-cons-before
-        'configure 'patch-exec-rep
-        (lambda _
-          (substitute* '("lisp/sawfish/cfg/main.jl.in"
-                         "scripts/sawfish-about.jl.in"
-                         "scripts/sawfish-client.jl"
-                         "scripts/sawfish-menu.jl")
-            (("exec rep") (string-append "exec " (which "rep")))))
-        (alist-cons-after
-         'install 'wrap-scripts
-         ;; Wrap scripts with REP_DL_LOAD_PATH for finding rep-gtk
-         ;; and sawfish.client.
-         (lambda* (#:key outputs #:allow-other-keys)
-           (define (wrap-script script)
-             (let ((out (assoc-ref outputs "out")))
-               (wrap-program (string-append out script)
-                             `("REP_DL_LOAD_PATH" =
-                               ,(list (getenv "REP_DL_LOAD_PATH")
-                                      (string-append out "/lib/rep"))))))
-           (for-each wrap-script
-                     (list "/bin/sawfish-about"
-                           "/bin/sawfish-client"
-                           "/bin/sawfish-config"
-                           "/lib/sawfish/sawfish-menu")))
-         %standard-phases))))
+       (modify-phases %standard-phases
+         (add-before 'configure 'patch-exec-rep
+           (lambda _
+             (substitute* '("lisp/sawfish/cfg/main.jl.in"
+                            "scripts/sawfish-about.jl.in"
+                            "scripts/sawfish-client.jl"
+                            "scripts/sawfish-menu.jl")
+               (("exec rep") (string-append "exec " (which "rep"))))
+             #t))
+         (add-after 'install 'wrap-scripts
+           ;; Wrap scripts with REP_DL_LOAD_PATH for finding rep-gtk
+           ;; and sawfish.client.
+           (lambda* (#:key outputs #:allow-other-keys)
+             (define (wrap-script script)
+               (let ((out (assoc-ref outputs "out")))
+                 (wrap-program (string-append out script)
+                   `("REP_DL_LOAD_PATH" =
+                     ,(list (getenv "REP_DL_LOAD_PATH")
+                            (string-append out "/lib/rep"))))))
+             (for-each wrap-script
+                       (list "/bin/sawfish-about"
+                             "/bin/sawfish-client"
+                             "/bin/sawfish-config"
+                             "/lib/sawfish/sawfish-menu"))
+             #t)))))
     (native-inputs
      `(("gettext"     ,gettext-minimal)
        ("makeinfo"    ,texinfo)

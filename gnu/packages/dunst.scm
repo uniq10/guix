@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2015 Alex Kost <alezost@gmail.com>
+;;; Copyright © 2015, 2017, 2018 Alex Kost <alezost@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -32,20 +32,25 @@
 (define-public dunst
   (package
     (name "dunst")
-    (version "1.1.0")
+    (version "1.3.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
-                    "http://knopwob.org/public/dunst-release/dunst-"
-                    version ".tar.bz2"))
+                    "https://github.com/dunst-project/dunst/archive/v"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0w3hilzwanwsp4q6dxbdj6l0mvpg4fq02wf8isll8kmbx9kz2ay7"))))
+                "1mkdp1vqc376z8clwm5s9070jq1g92j8hv2rr231jr2468fnwaga"))))
     (build-system gnu-build-system)
     (arguments
      '(#:tests? #f                      ; no check target
        #:make-flags (list "CC=gcc"
-                          (string-append "PREFIX=" %output))
+                          (string-append "PREFIX=" %output)
+                          ;; Otherwise it tries to install service file
+                          ;; to "dbus" store directory.
+                          (string-append "SERVICEDIR_DBUS=" %output
+                                         "/share/dbus-1/services"))
        #:phases (modify-phases %standard-phases
                   (delete 'configure))))
     (native-inputs
@@ -54,16 +59,16 @@
        ("which" ,which)))
     (inputs
      `(("dbus" ,dbus)
+       ("gdk-pixbuf" ,gdk-pixbuf)
        ("glib" ,glib)
        ("cairo" ,cairo)
        ("pango" ,pango)
        ("libx11" ,libx11)
-       ("libxext" ,libxext)
-       ("libxft" ,libxft)
        ("libxscrnsaver" ,libxscrnsaver)
        ("libxinerama" ,libxinerama)
+       ("libxrandr" ,libxrandr)
        ("libxdg-basedir" ,libxdg-basedir)))
-    (home-page "http://knopwob.org/dunst")
+    (home-page "https://dunst-project.org/")
     (synopsis "Customizable and lightweight notification daemon")
     (description
      "Dunst is a highly configurable and minimalistic notification daemon.

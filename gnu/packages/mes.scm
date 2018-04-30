@@ -1,5 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2017 Jan Nieuwenhuizen <janneke@gnu.org>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,14 +36,15 @@
 (define-public nyacc
   (package
     (name "nyacc")
-    (version "0.80.3")
+    (version "0.83.3")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://savannah/nyacc/"
                                   name "-" version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0sdvkahnz6k9i4kf1i1ljl20220n3wk3gy6zmz0ggbbdgg4mfka0"))))
+                "0120n0mdb6r58c4jc024dhwqy5s8a20waknijfhqjc59a884lrd6"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("guile" ,guile-2.2)))
@@ -57,16 +60,15 @@ extensive examples, including parsers for the Javascript and C99 languages.")
   (let ((triplet "i686-unknown-linux-gnu"))
     (package
       (name "mes")
-      (version "0.8")
+      (version "0.13")
       (source (origin
                 (method url-fetch)
                 (uri (string-append "https://gitlab.com/janneke/mes"
-                                    "/repository/archive.tar.gz?ref=v"
-                                    version))
-                (file-name (string-append name "-" version ".tar.gz"))
+                                    "/-/archive/v" version
+                                    "/mes-" version ".tar.gz"))
                 (sha256
                  (base32
-                  "1igmrks20ci6l5c0jx2bn4swf0w8jy5inhg61cwld9d7hwanmdnj"))))
+                  "0db4f32rak839ff3n7ywkkng9672457pd2pvvgvcsyndqmmdsqw0"))))
       (build-system gnu-build-system)
       (supported-systems '("i686-linux" "x86_64-linux"))
       (propagated-inputs
@@ -74,8 +76,8 @@ extensive examples, including parsers for the Javascript and C99 languages.")
          ("nyacc" ,nyacc)))
       (native-inputs
        `(("guile" ,guile-2.2)
-         ,@(if (string-prefix? "x86_64-linux" (or (%current-target-system)
-                                                  (%current-system)))
+         ,@(if (not (string-prefix? "i686-linux" (or (%current-target-system)
+                                                     (%current-system))))
                ;; Use cross-compiler rather than #:system "i686-linux" to get
                ;; MesCC 64 bit .go files installed ready for use with Guile.
                `(("i686-linux-binutils" ,(cross-binutils triplet))
@@ -91,31 +93,32 @@ extensive examples, including parsers for the Javascript and C99 languages.")
                  (lambda ()
                    (display "Please run
     build-aux/gitlog-to-changelog --srcdir=<git-checkout> > ChangeLog\n")))
-               #t)))))
-      (synopsis "Maxwell Equations of Software")
+               #t))
+           (delete 'strip)))) ; binutil's strip b0rkes MesCC/M1/hex2 binaries
+      (synopsis "Scheme interpreter and C compiler for full source bootstrapping")
       (description
-       "Mes aims to create full source bootstrapping for GuixSD.  It
-consists of a mutual self-hosting [close to Guile-] Scheme interpreter
-prototype in C and a Nyacc-based C compiler in [Guile] Scheme.")
+       "Mes [Maxwell Equations of Software] aims to create full source
+bootstrapping for GuixSD.  It consists of a mutual self-hosting [close to
+Guile-] Scheme interpreter prototype in C and a Nyacc-based C compiler in
+[Guile] Scheme.")
       (home-page "https://gitlab.com/janneke/mes")
       (license gpl3+))))
 
 (define-public mescc-tools
   (package
     (name "mescc-tools")
-    (version "0.1")
+    (version "0.3")
     (source (origin
               (method url-fetch)
               (uri (string-append
-                    "https://github.com/oriansj/MESCC_Tools/archive/Release_"
+                    "https://github.com/oriansj/mescc-tools/archive/Release_"
                     version
                     ".tar.gz"))
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1lzi9sqv41269isn7in70q2hhh087n4v97zr5i2qzz69j2lkr3xb"))))
+                "04lvyyp7isamgddrnfpi92lgqdflzdzx5kc2x8fxmgsjisy0dgr4"))))
     (build-system gnu-build-system)
-    (supported-systems '("i686-linux" "x86_64-linux"))
     (arguments
      `(#:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:test-target "test"
@@ -124,7 +127,7 @@ prototype in C and a Nyacc-based C compiler in [Guile] Scheme.")
     (synopsis "Tools for the full source bootstrapping process")
     (description
      "Mescc-tools is a collection of tools for use in a full source
-bootstrapping process.  Currently consists of the M0 macro assembler and the
+bootstrapping process.  Currently consists of the M1 macro assembler and the
 hex2 linker.")
-    (home-page "https://github.com/oriansj/MESCC_Tools")
+    (home-page "https://github.com/oriansj/mescc-tools")
     (license gpl3+)))

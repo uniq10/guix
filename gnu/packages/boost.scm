@@ -5,6 +5,8 @@
 ;;; Copyright © 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Maxim Cournoyer <maxim.cournoyer@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,17 +27,21 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix git-download)
+  #:use-module (guix build utils)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system trivial)
   #:use-module (gnu packages)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages icu4c)
+  #:use-module (gnu packages perl)
   #:use-module (gnu packages python)
-  #:use-module (gnu packages shells)
-  #:use-module (gnu packages perl))
+  #:use-module (gnu packages shells))
 
 (define-public boost
   (package
     (name "boost")
-    (version "1.63.0")
+    (version "1.64.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -44,9 +50,10 @@
                     ".tar.bz2"))
               (sha256
                (base32
-                "1c5kzhcqahnic55dxcnw7r80qvwx5sfa2sa97yzv7xjrywljbbmy"))))
+                "0cikd35xfkpg9nnl76yqqnqxnf3hyfjjww8xjd4akflprsm5rk3v"))))
     (build-system gnu-build-system)
-    (inputs `(("zlib" ,zlib)))
+    (inputs `(("icu4c" ,icu4c)
+              ("zlib" ,zlib)))
     (native-inputs
      `(("perl" ,perl)
        ("python" ,python-2)
@@ -107,17 +114,63 @@ across a broad spectrum of applications.")
     (license (license:x11-style "http://www.boost.org/LICENSE_1_0.txt"
                                 "Some components have other similar licences."))))
 
+(define-public boost-1.66
+  (package
+    (inherit boost)
+    (version "1.66.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "mirror://sourceforge/boost/boost/" version "/boost_"
+                    (string-map (lambda (x) (if (eq? x #\.) #\_ x)) version)
+                    ".tar.bz2"))
+              (sha256
+               (base32
+                "1aaw48cmimsskzgiclwn0iifp62a5iw9cbqrhfari876af1828ap"))))))
+
+(define-public boost-sync
+  (let ((commit "c72891d9b90e2ceb466ec859f640cd012b2d8709")
+        (version "1.55")
+        (revision "1"))
+    (package
+      (name "boost-sync")
+      (version (git-version version revision commit))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/boostorg/sync.git")
+                      (commit commit)))
+                (file-name (git-file-name name version))
+                (sha256
+                 (base32
+                  "197mp5z048vz5kv1m4v3jm447l2gqsyv0rbfz11dz0ns343ihbyx"))))
+      (build-system trivial-build-system)
+      (arguments
+       `(#:modules ((guix build utils))
+         #:builder
+         (begin
+           (use-modules (guix build utils))
+           (let ((source (assoc-ref %build-inputs "source")))
+             (copy-recursively (string-append source "/include")
+                               (string-append %output "/include"))))))
+      (home-page "https://github.com/boostorg/sync")
+      (synopsis "Boost.Sync library")
+      (description "The Boost.Sync library provides mutexes, semaphores, locks
+and events and other thread related facilities.  Boost.Sync originated from
+Boost.Thread.")
+      (license (license:x11-style "http://www.boost.org/LICENSE_1_0.txt")))))
+
 (define-public mdds
   (package
     (name "mdds")
-    (version "1.2.2")
+    (version "1.3.1")
     (source (origin
              (method url-fetch)
              (uri (string-append
                    "http://kohei.us/files/mdds/src/mdds-" version ".tar.bz2"))
              (sha256
               (base32
-               "17fcjhsq3bzqm7ba9sgp6my3y4226jnwai6q5jq3810i745p67hl"))))
+               "18g511z1lgfxrga2ld9yr95phmyfbd3ymbv4q5g5lyjn4ljcvf6w"))))
     (build-system gnu-build-system)
     (propagated-inputs
       `(("boost" ,boost))) ; inclusion of header files

@@ -1,9 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Christopher Allan Webber <cwebber@dustycloud.org>
-;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Chris Marusich <cmmarusich@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,6 +23,7 @@
 
 (define-module (gnu system vm)
   #:use-module (guix config)
+  #:use-module (guix docker)
   #:use-module (guix store)
   #:use-module (guix gexp)
   #:use-module (guix derivations)
@@ -29,13 +31,19 @@
   #:use-module (guix monads)
   #:use-module (guix records)
   #:use-module (guix modules)
+  #:use-module (guix scripts pack)
+  #:use-module (guix utils)
+  #:use-module (guix hash)
+  #:use-module (guix base32)
 
   #:use-module ((gnu build vm)
                 #:select (qemu-command))
   #:use-module (gnu packages base)
   #:use-module (gnu packages bootloaders)
   #:use-module (gnu packages cdrom)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages guile)
+  #:autoload   (gnu packages gnupg) (libgcrypt)
   #:use-module (gnu packages gawk)
   #:use-module (gnu packages bash)
   #:use-module (gnu packages less)
@@ -49,6 +57,7 @@
   #:use-module (gnu packages admin)
 
   #:use-module (gnu bootloader)
+  #:use-module (gnu bootloader grub)
   #:use-module (gnu system shadow)
   #:use-module (gnu system pam)
   #:use-module (gnu system linux-initrd)
@@ -56,9 +65,11 @@
   #:use-module (gnu system file-systems)
   #:use-module (gnu system)
   #:use-module (gnu services)
+  #:use-module (gnu system uuid)
 
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
+  #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
 
   #:export (expression->derivation-in-linux-vm
@@ -69,6 +80,7 @@
             system-qemu-image/shared-store
             system-qemu-image/shared-store-script
             system-disk-image
+            system-docker-image
 
             virtual-machine
             virtual-machine?))
@@ -81,8 +93,8 @@
 ;;; Code:
 
 (define %linux-vm-file-systems
-  ;; File systems mounted for 'derivation-in-linux-vm'.  The store and /xchg
-  ;; directory are shared with the host over 9p.
+  ;; File systems mounted for 'derivation-in-linux-vm'.  These are shared with
+  ;; the host over 9p.
   (list (file-system
           (mount-point (%store-prefix))
           (device "store")
@@ -93,6 +105,13 @@
         (file-system
           (mount-point "/xchg")
           (device "xchg")
+          (type "9p")
+          (needed-for-boot? #t)
+          (options "trans=virtio")
+          (check? #f))
+        (file-system
+          (mount-point "/tmp")
+          (device "tmp")
           (type "9p")
           (needed-for-boot? #t)
           (options "trans=virtio")
@@ -138,8 +157,9 @@ made available under the /xchg CIFS share."
        (initrd       (if initrd                   ; use the default initrd?
                          (return initrd)
                          (base-initrd %linux-vm-file-systems
+                                      #:on-error 'backtrace
                                       #:linux linux
-                                      #:virtio? #t
+                                      #:linux-modules %base-initrd-modules
                                       #:qemu-networking? #t))))
 
     (define builder
@@ -171,6 +191,10 @@ made available under the /xchg CIFS share."
                                 #:memory-size #$memory-size
                                 #:make-disk-image? #$make-disk-image?
                                 #:single-file-output? #$single-file-output?
+                                ;; FIXME: ‘target-arm32?’ may not operate on
+                                ;; the right system/target values.  Rewrite
+                                ;; using ‘let-system’ when available.
+                                #:target-arm32? #$(target-arm32?)
                                 #:disk-image-format #$disk-image-format
                                 #:disk-image-size size
                                 #:references-graphs graphs)))))
@@ -191,6 +215,7 @@ made available under the /xchg CIFS share."
                         os-drv
                         bootcfg-drv
                         bootloader
+                        register-closures?
                         (inputs '()))
   "Return a bootable, stand-alone iso9660 image.
 
@@ -206,8 +231,13 @@ INPUTS is a list of inputs (as for packages)."
          (let ((inputs
                 '#$(append (list qemu parted e2fsprogs dosfstools xorriso)
                            (map canonical-package
-                                (list sed grep coreutils findutils gawk))))
+                                (list sed grep coreutils findutils gawk))
+                           (if register-closures? (list guix) '())))
 
+
+               (graphs     '#$(match inputs
+                                   (((names . _) ...)
+                                    names)))
                ;; This variable is unused but allows us to add INPUTS-TO-COPY
                ;; as inputs.
                (to-register
@@ -221,8 +251,11 @@ INPUTS is a list of inputs (as for packages)."
                                #$bootcfg-drv
                                #$os-drv
                                "/xchg/guixsd.iso"
+                               #:register-closures? #$register-closures?
+                               #:closures graphs
                                #:volume-id #$file-system-label
-                               #:volume-uuid #$file-system-uuid)
+                               #:volume-uuid #$(and=> file-system-uuid
+                                                      uuid-bytevector))
            (reboot))))
    #:system system
    #:make-disk-image? #f
@@ -237,6 +270,7 @@ INPUTS is a list of inputs (as for packages)."
                      (disk-image-format "qcow2")
                      (file-system-type "ext4")
                      file-system-label
+                     file-system-uuid
                      os-drv
                      bootcfg-drv
                      bootloader
@@ -246,7 +280,10 @@ INPUTS is a list of inputs (as for packages)."
   "Return a bootable, stand-alone QEMU image of type DISK-IMAGE-FORMAT (e.g.,
 'qcow2' or 'raw'), with a root partition of type FILE-SYSTEM-TYPE.
 Optionally, FILE-SYSTEM-LABEL can be specified as the volume name for the root
-partition.  The returned image is a full disk image that runs OS-DERIVATION,
+partition; likewise FILE-SYSTEM-UUID, if true, specifies the UUID of the root
+partition (a UUID object).
+
+The returned image is a full disk image that runs OS-DERIVATION,
 with a GRUB installation that uses GRUB-CONFIGURATION as its configuration
 file (GRUB-CONFIGURATION must be the name of a file in the VM.)
 
@@ -256,12 +293,15 @@ register INPUTS in the store database of the image so that Guix can be used in
 the image."
   (expression->derivation-in-linux-vm
    name
-   (with-imported-modules (source-module-closure '((gnu build vm)
+   (with-imported-modules (source-module-closure '((gnu build bootloader)
+                                                   (gnu build vm)
                                                    (guix build utils)))
      #~(begin
-         (use-modules (gnu build vm)
+         (use-modules (gnu build bootloader)
+                      (gnu build vm)
                       (guix build utils)
-                      (srfi srfi-26))
+                      (srfi srfi-26)
+                      (ice-9 binary-ports))
 
          (let ((inputs
                 '#$(append (list qemu parted e2fsprogs dosfstools)
@@ -288,29 +328,43 @@ the image."
                                #:register-closures? #$register-closures?
                                #:system-directory #$os-drv))
                   (root-size  #$(if (eq? 'guess disk-image-size)
-                                    #~(estimated-partition-size
-                                       (map (cut string-append "/xchg/" <>)
-                                            graphs))
+                                    #~(max
+                                       ;; Minimum 20 MiB root size
+                                       (* 20 (expt 2 20))
+                                       (estimated-partition-size
+                                        (map (cut string-append "/xchg/" <>)
+                                             graphs)))
                                     (- disk-image-size
                                        (* 50 (expt 2 20)))))
-                  (partitions (list (partition
-                                     (size root-size)
-                                     (label #$file-system-label)
-                                     (file-system #$file-system-type)
-                                     (flags '(boot))
-                                     (initializer initialize))
-                                    ;; Append a small EFI System Partition for
-                                    ;; use with UEFI bootloaders.
-                                    (partition
-                                     ;; The standalone grub image is about 10MiB, but
-                                     ;; leave some room for custom or multiple images.
-                                     (size (* 40 (expt 2 20)))
-                                     (label "GNU-ESP")             ;cosmetic only
-                                     ;; Use "vfat" here since this property is used
-                                     ;; when mounting. The actual FAT-ness is based
-                                     ;; on filesystem size (16 in this case).
-                                     (file-system "vfat")
-                                     (flags '(esp))))))
+                  (partitions
+                   (append
+                    (list (partition
+                           (size root-size)
+                           (label #$file-system-label)
+                           (uuid #$(and=> file-system-uuid
+                                          uuid-bytevector))
+                           (file-system #$file-system-type)
+                           (flags '(boot))
+                           (initializer initialize)))
+                    ;; Append a small EFI System Partition for use with UEFI
+                    ;; bootloaders if we are not targeting ARM because UEFI
+                    ;; support in U-Boot is experimental.
+                    ;;
+                    ;; FIXME: ‘target-arm32?’ may be not operate on the right
+                    ;; system/target values.  Rewrite using ‘let-system’ when
+                    ;; available.
+                    (if #$(target-arm32?)
+                        '()
+                        (list (partition
+                               ;; The standalone grub image is about 10MiB, but
+                               ;; leave some room for custom or multiple images.
+                               (size (* 40 (expt 2 20)))
+                               (label "GNU-ESP")             ;cosmetic only
+                               ;; Use "vfat" here since this property is used
+                               ;; when mounting. The actual FAT-ness is based
+                               ;; on file system size (16 in this case).
+                               (file-system "vfat")
+                               (flags '(esp))))))))
              (initialize-hard-disk "/dev/vda"
                                    #:partitions partitions
                                    #:grub-efi #$grub-efi
@@ -328,10 +382,139 @@ the image."
    #:disk-image-format disk-image-format
    #:references-graphs inputs))
 
+(define* (system-docker-image os
+                              #:key
+                              (name "guixsd-docker-image")
+                              register-closures?)
+  "Build a docker image.  OS is the desired <operating-system>.  NAME is the
+base name to use for the output file.  When REGISTER-CLOSURES? is not #f,
+register the closure of OS with Guix in the resulting Docker image.  This only
+makes sense when you want to build a GuixSD Docker image that has Guix
+installed inside of it.  If you don't need Guix (e.g., your GuixSD Docker
+image just contains a web server that is started by the Shepherd), then you
+should set REGISTER-CLOSURES? to #f."
+  (define not-config?
+    (match-lambda
+      (('guix 'config) #f)
+      (('guix rest ...) #t)
+      (('gnu rest ...) #t)
+      (rest #f)))
+
+  (define config
+    ;; (guix config) module for consumption by (guix gcrypt).
+    (scheme-file "gcrypt-config.scm"
+                 #~(begin
+                     (define-module (guix config)
+                       #:export (%libgcrypt))
+
+                     ;; XXX: Work around <http://bugs.gnu.org/15602>.
+                     (eval-when (expand load eval)
+                       (define %libgcrypt
+                         #+(file-append libgcrypt "/lib/libgcrypt"))))))
+  (mlet %store-monad ((os-drv (operating-system-derivation os #:container? #t))
+                      (name -> (string-append name ".tar.gz"))
+                      (graph -> "system-graph"))
+    (define build
+      (with-imported-modules `(,@(source-module-closure '((guix docker)
+                                                          (guix build utils)
+                                                          (gnu build vm))
+                                                        #:select? not-config?)
+                               (guix build store-copy)
+                               ((guix config) => ,config))
+        #~(begin
+            ;; Guile-JSON is required by (guix docker).
+            (add-to-load-path
+             (string-append #+guile-json "/share/guile/site/"
+                            (effective-version)))
+            (use-modules (guix docker)
+                         (guix build utils)
+                         (gnu build vm)
+                         (srfi srfi-19)
+                         (guix build store-copy))
+
+            (let* ((inputs '#$(append (list tar)
+                                      (if register-closures?
+                                          (list guix)
+                                          '())))
+                   ;; This initializer requires elevated privileges that are
+                   ;; not normally available in the build environment (e.g.,
+                   ;; it needs to create device nodes).  In order to obtain
+                   ;; such privileges, we run it as root in a VM.
+                   (initialize (root-partition-initializer
+                                #:closures '(#$graph)
+                                #:register-closures? #$register-closures?
+                                #:system-directory #$os-drv
+                                ;; De-duplication would fail due to
+                                ;; cross-device link errors, so don't do it.
+                                #:deduplicate? #f))
+                   ;; Even as root in a VM, the initializer would fail due to
+                   ;; lack of privileges if we use a root-directory that is on
+                   ;; a file system that is shared with the host (e.g., /tmp).
+                   (root-directory "/guixsd-system-root"))
+              (set-path-environment-variable "PATH" '("bin" "sbin") inputs)
+              (mkdir root-directory)
+              (initialize root-directory)
+              (build-docker-image
+               (string-append "/xchg/" #$name) ;; The output file.
+               (cons* root-directory
+                      (call-with-input-file (string-append "/xchg/" #$graph)
+                        read-reference-graph))
+               #$os-drv
+               #:compressor '(#+(file-append gzip "/bin/gzip") "-9n")
+               #:creation-time (make-time time-utc 0 1)
+               #:transformations `((,root-directory -> "")))))))
+    (expression->derivation-in-linux-vm
+     name
+     ;; The VM's initrd Guile doesn't support dlopen, but our "build" gexp
+     ;; needs to be run by a Guile that can dlopen libgcrypt.  The following
+     ;; hack works around that problem by putting the "build" gexp into an
+     ;; executable script (created by program-file) which, when executed, will
+     ;; run using a Guile that supports dlopen.  That way, the VM's initrd
+     ;; Guile can just execute it via invoke, without using dlopen.  See:
+     ;; https://lists.gnu.org/archive/html/guix-devel/2017-10/msg00233.html
+     (with-imported-modules `((guix build utils))
+       #~(begin
+           (use-modules (guix build utils))
+           ;; If we use execl instead of invoke here, the VM will crash with a
+           ;; kernel panic.
+           (invoke #$(program-file "build-docker-image" build))))
+     #:make-disk-image? #f
+     #:single-file-output? #t
+     #:references-graphs `((,graph ,os-drv)))))
+
 
 ;;;
 ;;; VM and disk images.
 ;;;
+
+(define* (operating-system-uuid os #:optional (type 'dce))
+  "Compute UUID object with a deterministic \"UUID\" for OS, of the given
+TYPE (one of 'iso9660 or 'dce).  Return a UUID object."
+  (if (eq? type 'iso9660)
+      (let ((pad (compose (cut string-pad <> 2 #\0)
+                          number->string))
+            (h   (hash (operating-system-services os) 3600)))
+        (bytevector->uuid
+         (string->iso9660-uuid
+          (string-append "1970-01-01-"
+                         (pad (hash (operating-system-host-name os) 24)) "-"
+                         (pad (quotient h 60)) "-"
+                         (pad (modulo h 60)) "-"
+                         (pad (hash (operating-system-file-systems os) 100))))
+         'iso9660))
+      (bytevector->uuid
+       (uint-list->bytevector
+        (list (hash file-system-type
+                    (- (expt 2 32) 1))
+              (hash (operating-system-host-name os)
+                    (- (expt 2 32) 1))
+              (hash (operating-system-services os)
+                    (- (expt 2 32) 1))
+              (hash (operating-system-file-systems os)
+                    (- (expt 2 32) 1)))
+        (endianness little)
+        4)
+       type)))
 
 (define* (system-disk-image os
                             #:key
@@ -349,11 +532,19 @@ to USB sticks meant to be read-only."
     (if (string=? "iso9660" file-system-type)
         string-upcase
         identity))
+
   (define root-label
-    ;; Volume name of the root file system.  Since we don't know which device
-    ;; will hold it, we use the volume name to find it (using the UUID would
-    ;; be even better, but somewhat less convenient.)
+    ;; Volume name of the root file system.
     (normalize-label "GuixSD_image"))
+
+  (define root-uuid
+    ;; UUID of the root file system, computed in a deterministic fashion.
+    ;; This is what we use to locate the root file system so it has to be
+    ;; different from the user's own file system UUIDs.
+    (operating-system-uuid os
+                           (if (string=? file-system-type "iso9660")
+                               'iso9660
+                               'dce)))
 
   (define file-systems-to-keep
     (remove (lambda (fs)
@@ -365,15 +556,22 @@ to USB sticks meant to be read-only."
               ;; install QEMU networking or anything like that.  Assume USB
               ;; mass storage devices (usb-storage.ko) are available.
               (initrd (lambda (file-systems . rest)
-                        (apply base-initrd file-systems
+                        (apply (operating-system-initrd os)
+                               file-systems
                                #:volatile-root? #t
                                rest)))
+
+              (bootloader (if (string=? "iso9660" file-system-type)
+                              (bootloader-configuration
+                                (inherit (operating-system-bootloader os))
+                                (bootloader grub-mkrescue-bootloader))
+                              (operating-system-bootloader os)))
 
               ;; Force our own root file system.
               (file-systems (cons (file-system
                                     (mount-point "/")
-                                    (device root-label)
-                                    (title 'label)
+                                    (device root-uuid)
+                                    (title 'uuid)
                                     (type file-system-type))
                                   file-systems-to-keep)))))
 
@@ -382,8 +580,9 @@ to USB sticks meant to be read-only."
       (if (string=? "iso9660" file-system-type)
           (iso9660-image #:name name
                          #:file-system-label root-label
-                         #:file-system-uuid #f
+                         #:file-system-uuid root-uuid
                          #:os-drv os-drv
+                         #:register-closures? #t
                          #:bootcfg-drv bootcfg
                          #:bootloader (bootloader-configuration-bootloader
                                         (operating-system-bootloader os))
@@ -396,11 +595,9 @@ to USB sticks meant to be read-only."
                                     (operating-system-bootloader os))
                       #:disk-image-size disk-image-size
                       #:disk-image-format "raw"
-                      #:file-system-type (if (string=? "iso9660"
-                                                       file-system-type)
-                                             "ext4"
-                                             file-system-type)
+                      #:file-system-type file-system-type
                       #:file-system-label root-label
+                      #:file-system-uuid root-uuid
                       #:copy-inputs? #t
                       #:register-closures? #t
                       #:inputs `(("system" ,os-drv)
@@ -422,17 +619,24 @@ of the GNU system as described by OS."
                     (string-prefix? "/dev/" source))))
             (operating-system-file-systems os)))
 
-  (let ((os (operating-system (inherit os)
-              ;; Use an initrd with the whole QEMU shebang.
-              (initrd (lambda (file-systems . rest)
-                        (apply base-initrd file-systems
-                               #:virtio? #t
-                               rest)))
+  (define root-uuid
+    ;; UUID of the root file system.
+    (operating-system-uuid os
+                           (if (string=? file-system-type "iso9660")
+                               'iso9660
+                               'dce)))
 
-              ;; Force our own root file system.
+
+  (let ((os (operating-system (inherit os)
+              ;; Assume we have an initrd with the whole QEMU shebang.
+
+              ;; Force our own root file system.  Refer to it by UUID so that
+              ;; it works regardless of how the image is used ("qemu -hda",
+              ;; Xen, etc.).
               (file-systems (cons (file-system
                                     (mount-point "/")
-                                    (device "/dev/sda1")
+                                    (device root-uuid)
+                                    (title 'uuid)
                                     (type file-system-type))
                                   file-systems-to-keep)))))
     (mlet* %store-monad
@@ -444,6 +648,7 @@ of the GNU system as described by OS."
                                  (operating-system-bootloader os))
                    #:disk-image-size disk-image-size
                    #:file-system-type file-system-type
+                   #:file-system-uuid root-uuid
                    #:inputs `(("system" ,os-drv)
                               ("bootcfg" ,bootcfg))
                    #:copy-inputs? #t))))
@@ -455,13 +660,13 @@ of the GNU system as described by OS."
 
 (define (file-system->mount-tag fs)
   "Return a 9p mount tag for host file system FS."
-  ;; QEMU mount tags cannot contain slashes and cannot start with '_'.
-  ;; Compute an identifier that corresponds to the rules.
+  ;; QEMU mount tags must be ASCII, at most 31-byte long, cannot contain
+  ;; slashes, and cannot start with '_'.  Compute an identifier that
+  ;; corresponds to the rules.
   (string-append "TAG"
-                 (string-map (match-lambda
-                              (#\/ #\_)
-                              (chr chr))
-                             fs)))
+                 (string-drop (bytevector->base32-string
+                               (sha1 (string->utf8 fs)))
+                              4)))
 
 (define (mapping->file-system mapping)
   "Return a 9p file system that realizes MAPPING."
@@ -472,7 +677,7 @@ of the GNU system as described by OS."
        (device (file-system->mount-tag source))
        (type "9p")
        (flags (if writable? '() '(read-only)))
-       (options (string-append "trans=virtio"))
+       (options "trans=virtio,cache=loose")
        (check? #f)
        (create-mount-point? #t)))))
 
@@ -489,7 +694,13 @@ environment with the store shared with the host.  MAPPINGS is a list of
                 (or (string=? target (%store-prefix))
                     (string=? target "/")
                     (and (eq? 'device (file-system-title fs))
-                         (string-prefix? "/dev/" source)))))
+                         (string-prefix? "/dev/" source))
+
+                    ;; Labels and UUIDs are necessarily invalid in the VM.
+                    (and (file-system-mount? fs)
+                         (or (eq? 'label (file-system-title fs))
+                             (eq? 'uuid (file-system-title fs))
+                             (uuid? source))))))
             (operating-system-file-systems os)))
 
   (define virtual-file-systems
@@ -502,10 +713,18 @@ environment with the store shared with the host.  MAPPINGS is a list of
                   user-file-systems)))
 
   (operating-system (inherit os)
+
+    ;; XXX: Until we run QEMU with UEFI support (with the OVMF firmware),
+    ;; force the traditional i386/BIOS method.
+    ;; See <https://bugs.gnu.org/28768>.
+    (bootloader (bootloader-configuration
+                  (bootloader grub-bootloader)
+                  (target "/dev/vda")))
+
     (initrd (lambda (file-systems . rest)
-              (apply base-initrd file-systems
+              (apply (operating-system-initrd os)
+                     file-systems
                      #:volatile-root? #t
-                     #:virtio? #t
                      rest)))
 
     ;; Disable swap.
@@ -569,6 +788,8 @@ with '-virtfs' options for the host file systems listed in SHARED-FS."
 
      "-no-reboot"
      "-net nic,model=virtio"
+     "-object" "rng-random,filename=/dev/urandom,id=guixsd-vm-rng"
+     "-device" "virtio-rng-pci,rng=guixsd-vm-rng"
 
      #$@(map virtfs-option shared-fs)
      "-vga std"
@@ -646,6 +867,8 @@ it is mostly useful when FULL-BOOT?  is true."
                     (default #f))
   (memory-size      virtual-machine-memory-size   ;integer (MiB)
                     (default 256))
+  (disk-image-size  virtual-machine-disk-image-size   ;integer (bytes)
+                    (default 'guess))
   (port-forwardings virtual-machine-port-forwardings ;list of integer pairs
                     (default '())))
 
@@ -674,12 +897,15 @@ FORWARDINGS is a list of host-port/guest-port pairs."
                                                 system target)
   ;; XXX: SYSTEM and TARGET are ignored.
   (match vm
-    (($ <virtual-machine> os qemu graphic? memory-size ())
+    (($ <virtual-machine> os qemu graphic? memory-size disk-image-size ())
      (system-qemu-image/shared-store-script os
                                             #:qemu qemu
                                             #:graphic? graphic?
-                                            #:memory-size memory-size))
-    (($ <virtual-machine> os qemu graphic? memory-size forwardings)
+                                            #:memory-size memory-size
+                                            #:disk-image-size
+                                            disk-image-size))
+    (($ <virtual-machine> os qemu graphic? memory-size disk-image-size
+                          forwardings)
      (let ((options
             `("-net" ,(string-append
                        "user,"
@@ -688,6 +914,8 @@ FORWARDINGS is a list of host-port/guest-port pairs."
                                               #:qemu qemu
                                               #:graphic? graphic?
                                               #:memory-size memory-size
+                                              #:disk-image-size
+                                              disk-image-size
                                               #:options options)))))
 
 ;;; vm.scm ends here

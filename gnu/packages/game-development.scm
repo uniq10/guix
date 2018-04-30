@@ -4,11 +4,16 @@
 ;;; Copyright © 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2015, 2016, 2017 David Thompson <davet@gnu.org>
-;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016, 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Kei Kebreau <kkebreau@posteo.net>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Julian Graham <joolean@gmail.com>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017 Julian Graham <joolean@gmail.com>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
+;;; Copyright © 2017 Peter Mikkelsen <petermikkelsen10@gmail.com>
+;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Marius Bakke <mbakke@fastmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,45 +39,52 @@
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system python)
+  #:use-module (guix build-system scons)
   #:use-module (gnu packages)
+  #:use-module (gnu packages audio)
+  #:use-module (gnu packages autotools)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages curl)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages documentation)
+  #:use-module (gnu packages fltk)
+  #:use-module (gnu packages fonts)
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages freedesktop)
   #:use-module (gnu packages fribidi)
+  #:use-module (gnu packages gl)
   #:use-module (gnu packages glib)
+  #:use-module (gnu packages gnome)
   #:use-module (gnu packages gnunet)
+  #:use-module (gnu packages graphics)
+  #:use-module (gnu packages graphviz)
+  #:use-module (gnu packages gtk)
   #:use-module (gnu packages guile)
+  #:use-module (gnu packages image)
+  #:use-module (gnu packages linux)
+  #:use-module (gnu packages lua)
+  #:use-module (gnu packages m4)
+  #:use-module (gnu packages mp3)
   #:use-module (gnu packages multiprecision)
   #:use-module (gnu packages music)
   #:use-module (gnu packages ncurses)
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages pulseaudio)
   #:use-module (gnu packages python)
   #:use-module (gnu packages qt)
-  #:use-module (gnu packages video)
-  #:use-module (gnu packages compression)
-  #:use-module (gnu packages gl)
-  #:use-module (gnu packages linux)
-  #:use-module (gnu packages xorg)
-  #:use-module (gnu packages xdisorg)
-  #:use-module (gnu packages fontutils)
-  #:use-module (gnu packages image)
-  #:use-module (gnu packages audio)
-  #:use-module (gnu packages pulseaudio)
-  #:use-module (gnu packages gnome)
-  #:use-module (gnu packages gtk)
   #:use-module (gnu packages sdl)
-  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages tls)
+  #:use-module (gnu packages video)
+  #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xiph)
-  #:use-module (gnu packages lua)
-  #:use-module (gnu packages mp3)
-  #:use-module (gnu packages xml))
+  #:use-module (gnu packages xml)
+  #:use-module (gnu packages xorg))
 
 (define-public bullet
   (package
     (name "bullet")
-    (version "2.86.1")
+    (version "2.87")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/bulletphysics/bullet3/"
@@ -80,7 +92,7 @@
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0nghzcl84p8di215p7xj0gy1hyy072hw2xk9cnmav9hv6bjb4n60"))))
+                "15azjc1jj8ak9ad7c5sbp9nv5gpqjsa0s9pc0bwy63w490f1b323"))))
     (build-system cmake-build-system)
     (arguments
      '(#:configure-flags (list (string-append
@@ -91,7 +103,7 @@
      `(("glu" ,glu)
        ("libx11" ,libx11)
        ("mesa" ,mesa)))
-    (home-page "http://bulletphysics.org/")
+    (home-page "https://pybullet.org/wordpress/")
     (synopsis "3D physics engine library")
     (description
      "Bullet is a physics engine library usable for collision detection.  It
@@ -101,39 +113,17 @@ is used in some video games and movies.")
 (define-public deutex
   (package
    (name "deutex")
-   (version "4.4.902")
+   (version "5.1.1")
    (source (origin
             (method url-fetch)
             (uri (string-append "https://github.com/Doom-Utils/" name
-                                "/archive/v" version ".tar.gz"))
-            (file-name (string-append name "-" version ".tar.gz"))
+                                "/releases/download/v" version "/"
+                                name "-" version ".tar.xz"))
             (sha256
              (base32
-              "0rwz1yzgd539x4h25kzhar4q02xyxjwfrcpz4m8ixi312a82p7cn"))))
+              "0yqzlb3imkdzy8yd7xc69xk9ajf4dhiz3a9ssphyf4c9rcr440wj"))))
    (build-system gnu-build-system)
-   (arguments
-    '(#:tests? #f ; no check target
-      #:phases
-      (modify-phases %standard-phases
-        ;; The provided configure script takes a restricted number of arguments.
-        (replace 'configure
-                 (lambda* (#:key outputs #:allow-other-keys)
-                   (zero? (system* "./configure" "--prefix"
-                                   (assoc-ref %outputs "out")))))
-        ;; "make install" is broken for this package.
-        ;; Notably, the binaries overrwrite one another upon installation as
-        ;; they are all installed to the "bin" file in the output directory,
-        ;; and the manual page fails to install because the directory for the
-        ;; manual page is not created.
-        (replace 'install
-                 (lambda* (#:key outputs #:allow-other-keys)
-                   (let* ((out (assoc-ref %outputs "out"))
-                          (bin (string-append out "/bin"))
-                          (share (string-append out "/share")))
-                     (install-file "deusf" bin)
-                     (install-file "deutex" bin)
-                     (install-file "deutex.6" (string-append share "/man/man6")))
-                   #t)))))
+   (native-inputs `(("asciidoc" ,asciidoc)))
    (home-page "https://github.com/Doom-Utils/deutex")
    (synopsis "WAD file composer for Doom and related games")
    (description
@@ -206,29 +196,43 @@ necessary.
     ;; The MD5 implementation contained in GRFID is under the zlib license.
     (license (list license:gpl2 license:gpl2+ license:zlib))))
 
+(define-public catcodec
+  (package
+    (name "catcodec")
+    (version "1.0.5")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://binaries.openttd.org/extra/catcodec/"
+                           version "/catcodec-" version "-source.tar.xz"))
+       (sha256
+        (base32
+         "1qg0c2i4p29sxj0q6qp2jynlrzm5pphz2xhcjqlxa69ycrnlxzs7"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f ; no tests
+       #:make-flags (list (string-append "prefix=" %output))
+       #:phases (modify-phases %standard-phases
+                  (delete 'configure))))
+    (home-page "http://dev.openttdcoop.org/projects/catcodec")
+    (synopsis "Encode/decode OpenTTD sounds")
+    (description "catcodec encodes and decodes sounds for OpenTTD.  These
+sounds are not much more than some metadata (description and filename) and raw
+PCM data.")
+    (license license:gpl2)))
+
 (define-public gzochi
   (package
     (name "gzochi")
-    (version "0.10.1")
+    (version "0.11.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://savannah/gzochi/gzochi-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "166rawdal45kvanhvi0bkzy1d2pwf1p0lzslb287lcnm9vdw97yy"))))
+                "13j1m92zhxwkaaja3lg5x0h0b28mrrawdzk9d3hd19031akfxwb3"))))
     (build-system gnu-build-system)
-    (arguments
-     '(#:phases (modify-phases %standard-phases
-                  (add-before 'configure 'remove-Werror
-                              (lambda _
-                                ;; We can't build with '-Werror', notably
-                                ;; because deprecated functions of
-                                ;; libmicrohttpd are being used.
-                                (substitute* (find-files "." "^Makefile\\.in$")
-                                  (("-Werror")
-                                   ""))
-                                #t)))))
     (native-inputs `(("pkgconfig" ,pkg-config)))
     (inputs `(("bdb" ,bdb)
               ("glib" ,glib)
@@ -237,7 +241,7 @@ necessary.
               ("ncurses" ,ncurses)
               ("sdl" ,sdl)
               ("zlib" ,zlib)))
-    (home-page "http://www.nongnu.org/gzochi/")
+    (home-page "https://www.nongnu.org/gzochi/")
     (synopsis "Scalable middleware for multiplayer games")
     (description
      "gzochi is a framework for developing massively multiplayer online games.
@@ -275,14 +279,17 @@ files) into @file{.grf} and/or @file{.nfo} files.")
 (define-public python-sge-pygame
   (package
     (name "python-sge-pygame")
-    (version "1.5")
+    (version "1.5.1")
     (source
      (origin
        (method url-fetch)
-       (uri (pypi-uri "sge-pygame" version))
+       (uri (string-append "mirror://savannah/stellarengine/"
+                           (version-major+minor version) "/sge-pygame-"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0g0n722md6nfayiqzadwf0dh821hzqv0alp4by0vjfwr1xzv49mc"))))
+         "1rl3xjzh78sl0sq3xl8rl7cgp9v9v3h7s2pfwn7nj1vrmffzkcpd"))))
     (build-system python-build-system)
     (propagated-inputs
      `(("python-pygame" ,python-pygame)
@@ -292,7 +299,7 @@ files) into @file{.grf} and/or @file{.nfo} files.")
     (synopsis "2D game engine for Python")
     (description
      "The SGE Game Engine (\"SGE\", pronounced like \"Sage\") is a
-general-purpose 2D game engine.  It takes care of several details fro you so
+general-purpose 2D game engine.  It takes care of several details for you so
 you can focus on the game itself.  This makes more rapid game development
 possible, and it also makes the SGE easy to learn.")
     (license license:lgpl3+)))
@@ -303,7 +310,7 @@ possible, and it also makes the SGE easy to learn.")
 (define-public python-tmx
   (package
     (name "python-tmx")
-    (version "1.9.1")
+    (version "1.10")
     (source
      (origin
        (method url-fetch)
@@ -312,7 +319,7 @@ possible, and it also makes the SGE easy to learn.")
                            version ".tar.gz"))
        (sha256
         (base32
-         "1is107sx3lr09dqjiyn10xqhyv5x54c2ryhys9mb9j3mxjbm227l"))))
+         "073q0prg1nzlkga2b45vhscz374206qh4x68ccg00mxxwagn64z0"))))
     (build-system python-build-system)
     (propagated-inputs
      `(("python-six" ,python-six)))
@@ -380,7 +387,7 @@ support.")
 (define-public tiled
   (package
     (name "tiled")
-    (version "1.0.2")
+    (version "1.1.4")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/bjorn/tiled/archive/v"
@@ -388,7 +395,7 @@ support.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "134xi74xajh38rj1qhmc4x1zmncfdmqb01axnkxh6zs3qz0rxp93"))))
+                "0xb3zwcdk7khdrza6spl02g5n2xbij6nbszv8vi27vagjnmz1wxh"))))
     (build-system gnu-build-system)
     (inputs
      `(("qtbase" ,qtbase)
@@ -541,7 +548,15 @@ archive on a per-file basis.")
                                  "love-" version "-linux-src.tar.gz"))
              (sha256
               (base32
-               "11x346pw0gqad8nmkmywzx4xpcbfc3dslbrdw5x94n1i25mk0sxj"))))
+               "11x346pw0gqad8nmkmywzx4xpcbfc3dslbrdw5x94n1i25mk0sxj"))
+             (modules '((guix build utils)))
+             (snippet
+              '(begin
+                 ;; Build with luajit 2.1.0-beta3.  Fixed in love 0.11.
+                 ;; See <https://bitbucket.org/rude/love/issues/1277>.
+                 (substitute* "src/libraries/luasocket/libluasocket/lua.h"
+                   (("> 501") ">= 501"))
+                 #t))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -926,3 +941,299 @@ suitable for pixel art, game graphics, and generally any detailed graphics
 painted with a mouse.")
     (home-page "http://pulkomandy.tk/projects/GrafX2")
     (license license:gpl2))) ; GPLv2 only
+
+(define-public ois
+  (package
+    (name "ois")
+    (version "1.3")
+    (source
+     (origin
+       ;; Development has moved to github and there are no recent tarball
+       ;; releases.
+       (method git-fetch)
+       (uri (git-reference
+             (url "https://github.com/wgois/OIS.git")
+             (commit "bb75ccc1aabc1c547195579963601ff6080ca2f2")))
+       (file-name (string-append name "-" version))
+       (sha256
+        (base32
+         "0w0pamjc3vj0jr718hysrw8x076fq6n9rd6wcb36sn2jd0lqvi98"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _ (zero? (system* "sh" "bootstrap")))))))
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)
+       ("m4" ,m4)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("libxaw" ,libxaw)))
+    (synopsis "Object Oriented Input System")
+    (description
+     "Cross Platform Object Oriented Input Lib System is a cross platform,
+simple solution for using all kinds of Input Devices (Keyboards, Mice,
+Joysticks, etc) and feedback devices (e.g. force feedback).  Meant to be very
+robust and compatible with many systems and operating systems.")
+    (home-page "https://github.com/wgois/OIS")
+    (license license:zlib)))
+
+(define-public mygui
+  (package
+    (name "mygui")
+    (version "3.2.2")
+    (source
+     (origin
+       (method url-fetch)
+       (uri
+        (string-append "https://github.com/MyGUI/" name
+                       "/archive/MyGUI" version ".tar.gz"))
+       (sha256
+        (base32
+         "13x7cydmj7gjmsg702sqjbfi53z265iv6j7binv3r6a7ibndfa0a"))))
+    (build-system cmake-build-system)
+    (arguments
+     '(#:tests? #f                      ; No test target
+       #:configure-flags
+       (list "-DMYGUI_INSTALL_DOCS=TRUE"
+             (string-append "-DOGRE_INCLUDE_DIR="
+                            (assoc-ref %build-inputs "ogre")
+                            "/include/OGRE"))))
+    (native-inputs
+     `(("boost" ,boost)
+       ("doxygen" ,doxygen)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("font-dejavu" ,font-dejavu)
+       ("freetype" ,freetype)
+       ("graphviz" ,graphviz)
+       ("libx11" ,libx11)
+       ("ogre" ,ogre)
+       ("ois" ,ois)))
+    (synopsis "Fast, flexible and simple GUI")
+    (description
+     "MyGUI is a library for creating Graphical User Interfaces (GUIs) for games
+and 3D applications.  The main goals of mygui are: speed, flexibility and ease
+of use.")
+    (home-page "http://mygui.info/")
+    (license license:expat)))
+
+(define-public openmw
+  (package
+    (name "openmw")
+    (version "0.43.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri
+        (string-append "https://github.com/OpenMW/openmw/archive/"
+                       name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "11phjx7b3mv4n295xgq25lkcwq0mgr35i5k05hf1h77y6n6jbw64"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:tests? #f                      ; No test target
+       #:configure-flags
+       (list "-DDESIRED_QT_VERSION=5")))
+    (native-inputs
+     `(("boost" ,boost)
+       ("doxygen" ,doxygen)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("bullet" ,bullet)
+       ("ffmpeg" ,ffmpeg)
+       ("libxt" ,libxt)
+       ("mygui" ,mygui)
+       ("openal" ,openal)
+       ("openscenegraph" ,openscenegraph)
+       ("qtbase" ,qtbase)
+       ("sdl" ,sdl2)
+       ("unshield" ,unshield)))
+    (synopsis "Re-implementation of the RPG Morrowind engine")
+    (description
+     "OpenMW is a game engine which reimplements and extends the one that runs
+the 2002 open-world RPG Morrowind.  The engine comes with its own editor,
+called OpenMW-CS which allows the user to edit or create their own original
+games.")
+    (home-page "https://openmw.org")
+    (license license:gpl3)))
+
+(define-public godot
+  (package
+    (name "godot")
+    (version "3.0.2")
+    (source (origin
+              (method url-fetch)
+              (uri
+               (string-append "https://github.com/godotengine/godot/archive/"
+                              version "-stable.tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0ldnk3j4w2kh454mzclmq8nk7zqrn758yrqq85i4kzljpkf93g0m"))
+              (modules '((guix build utils)))
+              (snippet
+               '(begin
+                  ;; Drop libraries that we take from Guix.  Note that some
+                  ;; of these may be modified; see "thirdparty/README.md".
+                  (with-directory-excursion "thirdparty"
+                    (for-each delete-file-recursively
+                              '("freetype"
+                                "libogg"
+                                "libpng"
+                                "libtheora"
+                                "libvorbis"
+                                "libvpx"
+                                "libwebp"
+                                "openssl"
+                                "opus"
+                                "zlib"))
+                    #t)))))
+    (build-system scons-build-system)
+    (arguments
+     `(#:scons ,scons-python2
+       #:scons-flags (list "platform=x11"
+                           ,@(if (string-prefix? "aarch64" (or (%current-target-system)
+                                                               (%current-system)))
+                               `("CCFLAGS=-DNO_THREADS")
+                               '())
+                           ;; Avoid using many of the bundled libs.
+                           ;; Note: These options can be found in the SConstruct file.
+                           "builtin_freetype=no"
+                           "builtin_glew=no"
+                           "builtin_libmpdec=no"
+                           "builtin_libogg=no"
+                           "builtin_libpng=no"
+                           "builtin_libtheora=no"
+                           "builtin_libvorbis=no"
+                           "builtin_libvpx=no"
+                           "builtin_libwebp=no"
+                           "builtin_openssl=no"
+                           "builtin_opus=no"
+                           "builtin_zlib=no")
+       #:tests? #f ; There are no tests
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'scons-use-env
+           (lambda _
+             ;; Scons does not use the environment variables by default,
+             ;; but this substitution makes it do so.
+             (substitute* "SConstruct"
+               (("env_base = Environment\\(tools=custom_tools\\)")
+                (string-append
+                 "env_base = Environment(tools=custom_tools)\n"
+                 "env_base = Environment(ENV=os.environ)")))
+             #t))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin")))
+               (with-directory-excursion "bin"
+                 (if (file-exists? "godot.x11.tools.64")
+                     (rename-file "godot.x11.tools.64" "godot")
+                     (rename-file "godot.x11.tools.32" "godot"))
+                 (install-file "godot" bin))
+               #t)))
+         (add-after 'install 'install-godot-desktop
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (desktop (string-append out "/share/applications"))
+                    (icon-dir (string-append out "/share/pixmaps")))
+               (rename-file "icon.png" "godot.png")
+               (install-file "godot.png" icon-dir)
+               (mkdir-p desktop)
+               (with-output-to-file
+                   (string-append desktop "/godot.desktop")
+                 (lambda _
+                   (format #t
+                           "[Desktop Entry]~@
+                           Name=godot~@
+                           Comment=The godot game engine~@
+                           Exec=~a/bin/godot~@
+                           TryExec=~@*~a/bin/godot~@
+                           Icon=godot~@
+                           Type=Application~%"
+                           out)))
+               #t))))))
+    (native-inputs `(("pkg-config" ,pkg-config)))
+    (inputs `(("alsa-lib" ,alsa-lib)
+              ("freetype" ,freetype)
+              ("glew" ,glew)
+              ("glu" ,glu)
+              ("libtheora" ,libtheora)
+              ("libvorbis" ,libvorbis)
+              ("libvpx" ,libvpx)
+              ("libwebp" ,libwebp)
+              ("libx11" ,libx11)
+              ("libxcursor" ,libxcursor)
+              ("libxi" ,libxi)
+              ("libxinerama" ,libxinerama)
+              ("libxrandr" ,libxrandr)
+              ("mesa" ,mesa)
+              ("openssl" ,openssl)
+              ("opusfile" ,opusfile)
+              ("pulseaudio" ,pulseaudio)))
+    (home-page "https://godotengine.org/")
+    (synopsis "Advanced 2D and 3D game engine")
+    (description
+     "Godot is an advanced multi-platform game engine written in C++.  If
+features design tools such as a visual editor, can import 3D models and
+provide high-quality 3D rendering, it contains an animation editor, and can be
+scripted in a Python-like language.")
+    (license license:expat)))
+
+(define-public eureka
+  (package
+    (name "eureka")
+    (version "1.21")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://sourceforge/eureka-editor/Eureka/"
+                                  version "/eureka-"
+                                  ;; version without dots e.g 1.21 => 121
+                                  (string-join (string-split version #\.) "")
+                                  "-source.tar.gz"))
+              (sha256
+               (base32
+                "1a7pf7xi56fcz7jc8layih5gq5m66g2ss4x5j61kzgip07j6rkir"))))
+    (build-system gnu-build-system)
+    (arguments
+     '(#:tests? #f
+       #:make-flags
+       (let ((out (assoc-ref %outputs "out")))
+         (list (string-append "PREFIX=" out)))
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (add-before 'build 'prepare-install-directories
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (mkdir-p (string-append out "/bin"))
+               (mkdir-p (string-append out "/share"))
+
+               (with-fluids ((%default-port-encoding #f))
+                 (substitute* "./src/main.cc"
+                   (("/usr/local") out)))
+
+               (substitute* "Makefile"
+                 (("-o root") ""))))))))
+    (inputs `(("mesa" ,mesa)
+              ("libxft" ,libxft)
+              ("libxinerama" ,libxinerama)
+              ("libfontconfig" ,fontconfig)
+              ("libjpeg" ,libjpeg)
+              ("libpng" ,libpng)
+              ("fltk" ,fltk)
+              ("zlib" ,zlib)))
+    (native-inputs `(("pkg-config" ,pkg-config)
+                     ("xdg-utils" ,xdg-utils)))
+    (synopsis "Doom map editor")
+    (description "Eureka is a map editor for the classic DOOM games, and a few
+related games such as Heretic and Hexen.  It comes with a 3d preview mode and
+a 2D editor view.")
+    (home-page "http://eureka-editor.sourceforge.net/")
+    (license license:gpl2+)))

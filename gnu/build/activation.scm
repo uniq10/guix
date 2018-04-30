@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -179,7 +179,8 @@ properties.  Return #t on success."
                       `("-G" ,(string-join supplementary-groups ","))
                       '())
                 ,@(if comment `("-c" ,comment) '())
-                ;; Don't use '--move-home', so ignore HOME.
+                ;; Don't use '--move-home'.
+                ,@(if home `("-d" ,home) '())
                 ,@(if shell `("-s" ,shell) '())
                 ,name)))
     (zero? (apply system* "usermod" args))))
@@ -313,6 +314,7 @@ they already exist."
     (false-if-exception (delete-file file)))
 
   (format #t "populating /etc from ~a...~%" etc)
+  (mkdir-p "/etc")
 
   ;; Create the /etc/ssl -> /run/current-system/profile/etc/ssl symlink.  This
   ;; symlink, to a target outside of the store, probably doesn't belong in the
@@ -352,24 +354,13 @@ they already exist."
   ;; Place where setuid programs are stored.
   "/run/setuid-programs")
 
-(define (link-or-copy source target)
-  "Attempt to make TARGET a hard link to SOURCE; if it fails, fall back to
-copy SOURCE to TARGET."
-  (catch 'system-error
-    (lambda ()
-      (link source target))
-    (lambda args
-      ;; Perhaps SOURCE and TARGET live in a different file system, so copy
-      ;; SOURCE.
-      (copy-file source target))))
-
 (define (activate-setuid-programs programs)
   "Turn PROGRAMS, a list of file names, into setuid programs stored under
 %SETUID-DIRECTORY."
   (define (make-setuid-program prog)
     (let ((target (string-append %setuid-directory
                                  "/" (basename prog))))
-      (link-or-copy prog target)
+      (copy-file prog target)
       (chown target 0 0)
       (chmod target #o6555)))
 

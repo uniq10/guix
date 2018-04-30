@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2018 Clément Lassieur <clement@lassieur.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -59,6 +60,7 @@
             program-file-name
             program-file-gexp
             program-file-guile
+            program-file-module-path
 
             scheme-file
             scheme-file?
@@ -78,12 +80,15 @@
             gexp->script
             text-file*
             mixed-text-file
+            file-union
+            directory-union
             imported-files
             imported-modules
             compiled-modules
 
             define-gexp-compiler
             gexp-compiler?
+            file-like?
             lower-object
 
             lower-inputs
@@ -179,6 +184,11 @@ returns its output file name of OBJ's OUTPUT."
 procedure to lower it; otherwise return #f."
   (and=> (hashq-ref %gexp-compilers (struct-vtable object))
          gexp-compiler-lower))
+
+(define (file-like? object)
+  "Return #t if OBJECT leads to a file in the store once unquoted in a
+G-expression; otherwise return #f."
+  (and (struct? object) (->bool (lookup-compiler object))))
 
 (define (lookup-expander object)
   "Search for an expander for OBJECT.  Upon success, return the three argument
@@ -341,69 +351,79 @@ This is the declarative counterpart of 'text-file'."
      (text-file name content references))))
 
 (define-record-type <computed-file>
-  (%computed-file name gexp options)
+  (%computed-file name gexp guile options)
   computed-file?
   (name       computed-file-name)                 ;string
   (gexp       computed-file-gexp)                 ;gexp
+  (guile      computed-file-guile)                ;<package>
   (options    computed-file-options))             ;list of arguments
 
 (define* (computed-file name gexp
-                        #:key (options '(#:local-build? #t)))
+                        #:key guile (options '(#:local-build? #t)))
   "Return an object representing the store item NAME, a file or directory
 computed by GEXP.  OPTIONS is a list of additional arguments to pass
 to 'gexp->derivation'.
 
 This is the declarative counterpart of 'gexp->derivation'."
-  (%computed-file name gexp options))
+  (%computed-file name gexp guile options))
 
 (define-gexp-compiler (computed-file-compiler (file <computed-file>)
                                               system target)
   ;; Compile FILE by returning a derivation whose build expression is its
   ;; gexp.
   (match file
-    (($ <computed-file> name gexp options)
-     (apply gexp->derivation name gexp options))))
+    (($ <computed-file> name gexp guile options)
+     (if guile
+         (mlet %store-monad ((guile (lower-object guile system
+                                                  #:target target)))
+           (apply gexp->derivation name gexp #:guile-for-build guile
+                  options))
+         (apply gexp->derivation name gexp options)))))
 
 (define-record-type <program-file>
-  (%program-file name gexp guile)
+  (%program-file name gexp guile path)
   program-file?
   (name       program-file-name)                  ;string
   (gexp       program-file-gexp)                  ;gexp
-  (guile      program-file-guile))                ;package
+  (guile      program-file-guile)                 ;package
+  (path       program-file-module-path))          ;list of strings
 
-(define* (program-file name gexp #:key (guile #f))
+(define* (program-file name gexp #:key (guile #f) (module-path %load-path))
   "Return an object representing the executable store item NAME that runs
-GEXP.  GUILE is the Guile package used to execute that script.
+GEXP.  GUILE is the Guile package used to execute that script.  Imported
+modules of GEXP are looked up in MODULE-PATH.
 
 This is the declarative counterpart of 'gexp->script'."
-  (%program-file name gexp guile))
+  (%program-file name gexp guile module-path))
 
 (define-gexp-compiler (program-file-compiler (file <program-file>)
                                              system target)
   ;; Compile FILE by returning a derivation that builds the script.
   (match file
-    (($ <program-file> name gexp guile)
+    (($ <program-file> name gexp guile module-path)
      (gexp->script name gexp
+                   #:module-path module-path
                    #:guile (or guile (default-guile))))))
 
 (define-record-type <scheme-file>
-  (%scheme-file name gexp)
+  (%scheme-file name gexp splice?)
   scheme-file?
   (name       scheme-file-name)                  ;string
-  (gexp       scheme-file-gexp))                 ;gexp
+  (gexp       scheme-file-gexp)                  ;gexp
+  (splice?    scheme-file-splice?))              ;Boolean
 
-(define* (scheme-file name gexp)
+(define* (scheme-file name gexp #:key splice?)
   "Return an object representing the Scheme file NAME that contains GEXP.
 
 This is the declarative counterpart of 'gexp->file'."
-  (%scheme-file name gexp))
+  (%scheme-file name gexp splice?))
 
 (define-gexp-compiler (scheme-file-compiler (file <scheme-file>)
                                             system target)
   ;; Compile FILE by returning a derivation that builds the file.
   (match file
-    (($ <scheme-file> name gexp)
-     (gexp->file name gexp))))
+    (($ <scheme-file> name gexp splice?)
+     (gexp->file name gexp #:splice? splice?))))
 
 ;; Appending SUFFIX to BASE's output file name.
 (define-record-type <file-append>
@@ -562,6 +582,7 @@ names and file names suitable for the #:allowed-references argument to
                            allowed-references disallowed-references
                            leaked-env-vars
                            local-build? (substitutable? #t)
+                           deprecation-warnings
                            (script-name (string-append name "-builder")))
   "Return a derivation NAME that runs EXP (a gexp) with GUILE-FOR-BUILD (a
 derivation) on SYSTEM; EXP is stored in a file called SCRIPT-NAME.  When
@@ -596,6 +617,9 @@ In the latter case, the list denotes store items that the result is allowed to
 refer to.  Any reference to another store item will lead to a build error.
 Similarly for DISALLOWED-REFERENCES, which can list items that must not be
 referenced by the outputs.
+
+DEPRECATION-WARNINGS determines whether to show deprecation warnings while
+compiling modules.  It can be #f, #t, or 'detailed.
 
 The other arguments are as for 'derivation'."
   (define %modules
@@ -646,7 +670,9 @@ The other arguments are as for 'derivation'."
                                      (compiled-modules %modules
                                                        #:system system
                                                        #:module-path module-path
-                                                       #:guile guile-for-build)
+                                                       #:guile guile-for-build
+                                                       #:deprecation-warnings
+                                                       deprecation-warnings)
                                      (return #f)))
                        (graphs   (if references-graphs
                                      (lower-reference-graphs references-graphs
@@ -1021,7 +1047,8 @@ last one is created from the given <scheme-file> object."
                            #:key (name "module-import-compiled")
                            (system (%current-system))
                            (guile (%guile-for-build))
-                           (module-path %load-path))
+                           (module-path %load-path)
+                           (deprecation-warnings #f))
   "Return a derivation that builds a tree containing the `.go' files
 corresponding to MODULES.  All the MODULES are built in a context where
 they can refer to each other."
@@ -1071,7 +1098,15 @@ they can refer to each other."
     (gexp->derivation name build
                       #:system system
                       #:guile-for-build guile
-                      #:local-build? #t)))
+                      #:local-build? #t
+                      #:env-vars
+                      (case deprecation-warnings
+                        ((#f)
+                         '(("GUILE_WARN_DEPRECATED" . "no")))
+                        ((detailed)
+                         '(("GUILE_WARN_DEPRECATED" . "detailed")))
+                        (else
+                         '())))))
 
 
 ;;;
@@ -1079,16 +1114,21 @@ they can refer to each other."
 ;;;
 
 (define (default-guile)
-  ;; Lazily resolve 'guile-final'.  This module must not refer to (gnu …)
+  ;; Lazily resolve 'guile-2.2' (not 'guile-final' because this is for
+  ;; programs returned by 'program-file' and we don't want to keep references
+  ;; to several Guile packages).  This module must not refer to (gnu …)
   ;; modules directly, to avoid circular dependencies, hence this hack.
-  (module-ref (resolve-interface '(gnu packages commencement))
-              'guile-final))
+  (module-ref (resolve-interface '(gnu packages guile))
+              'guile-2.2))
 
-(define (load-path-expression modules)
+(define* (load-path-expression modules #:optional (path %load-path))
   "Return as a monadic value a gexp that sets '%load-path' and
-'%load-compiled-path' to point to MODULES, a list of module names."
-  (mlet %store-monad ((modules  (imported-modules modules))
-                      (compiled (compiled-modules modules)))
+'%load-compiled-path' to point to MODULES, a list of module names.  MODULES
+are searched for in PATH."
+  (mlet %store-monad ((modules  (imported-modules modules
+                                                  #:module-path path))
+                      (compiled (compiled-modules modules
+                                                  #:module-path path)))
     (return (gexp (eval-when (expand load eval)
                     (set! %load-path
                       (cons (ungexp modules) %load-path))
@@ -1097,11 +1137,13 @@ they can refer to each other."
                             %load-compiled-path)))))))
 
 (define* (gexp->script name exp
-                       #:key (guile (default-guile)))
+                       #:key (guile (default-guile))
+                       (module-path %load-path))
   "Return an executable script NAME that runs EXP using GUILE, with EXP's
-imported modules in its search path."
+imported modules in its search path.  Look up EXP's modules in MODULE-PATH."
   (mlet %store-monad ((set-load-path
-                       (load-path-expression (gexp-modules exp))))
+                       (load-path-expression (gexp-modules exp)
+                                             module-path)))
     (gexp->derivation name
                       (gexp
                        (call-with-output-file (ungexp output)
@@ -1116,29 +1158,47 @@ imported modules in its search path."
 
                            (write '(ungexp set-load-path) port)
                            (write '(ungexp exp) port)
-                           (chmod port #o555)))))))
+                           (chmod port #o555))))
+                      #:module-path module-path)))
 
-(define* (gexp->file name exp #:key (set-load-path? #t))
-  "Return a derivation that builds a file NAME containing EXP.  When
-SET-LOAD-PATH? is true, emit code in the resulting file to set '%load-path'
-and '%load-compiled-path' to honor EXP's imported modules."
+(define* (gexp->file name exp #:key
+                     (set-load-path? #t)
+                     (module-path %load-path)
+                     (splice? #f))
+  "Return a derivation that builds a file NAME containing EXP.  When SPLICE?
+is true, EXP is considered to be a list of expressions that will be spliced in
+the resulting file.
+
+When SET-LOAD-PATH? is true, emit code in the resulting file to set
+'%load-path' and '%load-compiled-path' to honor EXP's imported modules.
+Lookup EXP's modules in MODULE-PATH."
   (match (if set-load-path? (gexp-modules exp) '())
     (()                                           ;zero modules
      (gexp->derivation name
                        (gexp
                         (call-with-output-file (ungexp output)
                           (lambda (port)
-                            (write '(ungexp exp) port))))
+                            (for-each (lambda (exp)
+                                        (write exp port))
+                                      '(ungexp (if splice?
+                                                   exp
+                                                   (gexp ((ungexp exp)))))))))
                        #:local-build? #t
                        #:substitutable? #f))
     ((modules ...)
-     (mlet %store-monad ((set-load-path (load-path-expression modules)))
+     (mlet %store-monad ((set-load-path (load-path-expression modules
+                                                              module-path)))
        (gexp->derivation name
                          (gexp
                           (call-with-output-file (ungexp output)
                             (lambda (port)
                               (write '(ungexp set-load-path) port)
-                              (write '(ungexp exp) port))))
+                              (for-each (lambda (exp)
+                                          (write exp port))
+                                        '(ungexp (if splice?
+                                                     exp
+                                                     (gexp ((ungexp exp)))))))))
+                         #:module-path module-path
                          #:local-build? #t
                          #:substitutable? #f)))))
 
@@ -1170,6 +1230,85 @@ This is the declarative counterpart of 'text-file*'."
               (display (string-append (ungexp-splicing text)) port)))))
 
   (computed-file name build))
+
+(define (file-union name files)
+  "Return a <computed-file> that builds a directory containing all of FILES.
+Each item in FILES must be a two-element list where the first element is the
+file name to use in the new directory, and the second element is a gexp
+denoting the target file.  Here's an example:
+
+  (file-union \"etc\"
+              `((\"hosts\" ,(plain-file \"hosts\"
+                                        \"127.0.0.1 localhost\"))
+                (\"bashrc\" ,(plain-file \"bashrc\"
+                                         \"alias ls='ls --color'\"))))
+
+This yields an 'etc' directory containing these two files."
+  (computed-file name
+                 (gexp
+                  (begin
+                    (mkdir (ungexp output))
+                    (chdir (ungexp output))
+                    (ungexp-splicing
+                     (map (match-lambda
+                            ((target source)
+                             (gexp
+                              (begin
+                                ;; Stat the source to abort early if it does
+                                ;; not exist.
+                                (stat (ungexp source))
+
+                                (symlink (ungexp source)
+                                         (ungexp target))))))
+                          files))))))
+
+(define* (directory-union name things
+                          #:key (copy? #f) (quiet? #f)
+                          (resolve-collision 'warn-about-collision))
+  "Return a directory that is the union of THINGS, where THINGS is a list of
+file-like objects denoting directories.  For example:
+
+  (directory-union \"guile+emacs\" (list guile emacs))
+
+yields a directory that is the union of the 'guile' and 'emacs' packages.
+
+Call RESOLVE-COLLISION when several files collide, passing it the list of
+colliding files.  RESOLVE-COLLISION must return the chosen file or #f, in
+which case the colliding entry is skipped altogether.
+
+When HARD-LINKS? is true, create hard links instead of symlinks.  When QUIET?
+is true, the derivation will not print anything."
+  (define symlink
+    (if copy?
+        (gexp (lambda (old new)
+                (if (file-is-directory? old)
+                    (symlink old new)
+                    (copy-file old new))))
+        (gexp symlink)))
+
+  (define log-port
+    (if quiet?
+        (gexp (%make-void-port "w"))
+        (gexp (current-error-port))))
+
+  (match things
+    ((one)
+     ;; Only one thing; return it.
+     one)
+    (_
+     (computed-file name
+                    (with-imported-modules '((guix build union))
+                      (gexp (begin
+                              (use-modules (guix build union)
+                                           (srfi srfi-1)) ;for 'first' and 'last'
+
+                              (union-build (ungexp output)
+                                           '(ungexp things)
+
+                                           #:log-port (ungexp log-port)
+                                           #:symlink (ungexp symlink)
+                                           #:resolve-collision
+                                           (ungexp resolve-collision)))))))))
 
 
 ;;;

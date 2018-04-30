@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -31,41 +31,38 @@
 (define-public skribilo
   (package
     (name "skribilo")
-    (version "0.9.3")
+    (version "0.9.4")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://savannah/skribilo/skribilo-"
                                  version ".tar.gz"))
              (sha256
               (base32
-               "04d8xa76jvlz25jnc6p1gzsplwcwcqrmi3f7ixdhddhl1chyz66y"))))
+               "06ywnfjfa9sxrzdszb5sryzg266380g519cm64kq62sskzl7zmnf"))))
     (build-system gnu-build-system)
     (arguments
      ;; Make the modules available under the usual location.
-     '(#:configure-flags (list (string-append "--with-guilemoduledir="
-                                              (assoc-ref %outputs "out")
-                                              "/share/guile/site/2.0"))
-
-       #:phases (alist-cons-before
-                 'configure 'pre-configure
-                 (lambda* (#:key inputs #:allow-other-keys)
-                   ;; Make sure the 'skribilo' command gets to see
-                   ;; Guile-Reader, even if Guile-Reader is not in the search
-                   ;; path.
-                   (let ((reader (assoc-ref inputs "guile-reader")))
-                     (substitute* "src/skribilo.in"
-                       (("^exec (.*) -c" _ things)
-                        (string-append "exec " things
-                                       " -L " reader "/share/guile/site/2.0"
-                                       " -C " reader "/share/guile/site/2.0"
-                                       " -c")))))
-                 %standard-phases)
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; Make sure the 'skribilo' command gets to see
+             ;; Guile-Reader, even if Guile-Reader is not in the search
+             ;; path.
+             (let ((reader (assoc-ref inputs "guile-reader")))
+               (substitute* "src/skribilo.in"
+                 (("^exec (.*) -c" _ things)
+                  (string-append "exec " things
+                                 " -L " reader "/share/guile/site/2.2"
+                                 " -C " reader "/lib/guile/2.2/site-ccache"
+                                 " -c"))))
+             #t)))
 
        #:parallel-build? #f))
 
     (native-inputs `(("pkg-config" ,pkg-config)))
 
-    (inputs `(("guile" ,guile-2.0)
+    (inputs `(("guile" ,guile-2.2)
               ("imagemagick" ,imagemagick)
               ("ghostscript" ,ghostscript)        ; for 'convert'
               ("ploticus" ,ploticus)
@@ -73,10 +70,10 @@
 
     ;; The 'skribilo' command needs them, and for people using Skribilo as a
     ;; library, these inputs are needed as well.
-    (propagated-inputs `(("guile-reader" ,guile2.0-reader)
-                         ("guile-lib" ,guile2.0-lib)))
+    (propagated-inputs `(("guile-reader" ,guile-reader)
+                         ("guile-lib" ,guile-lib)))
 
-    (home-page "http://www.nongnu.org/skribilo/")
+    (home-page "https://www.nongnu.org/skribilo/")
     (synopsis "Document production tool written in Guile Scheme")
     (description
      "Skribilo is a free document production tool that takes a structured

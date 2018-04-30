@@ -24,6 +24,7 @@
    (eval . (put 'guard 'scheme-indent-function 1))
    (eval . (put 'lambda* 'scheme-indent-function 1))
    (eval . (put 'substitute* 'scheme-indent-function 1))
+   (eval . (put 'match-record 'scheme-indent-function 2))
 
    ;; 'modify-phases' and its keywords.
    (eval . (put 'modify-phases 'scheme-indent-function 1))
@@ -83,7 +84,8 @@
    (eval . (put 'container-excursion 'scheme-indent-function 1))
    (eval . (put 'eventually 'scheme-indent-function 1))
 
-   ;; Recognize '~', '+', and '$', as used for gexps, as quotation symbols.
+   (eval . (put 'call-with-progress-reporter 'scheme-indent-function 1))
+
    ;; This notably allows '(' in Paredit to not insert a space when the
    ;; preceding symbol is one of these.
    (eval . (modify-syntax-entry ?~ "'"))

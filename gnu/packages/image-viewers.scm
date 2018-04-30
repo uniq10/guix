@@ -1,12 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014 Ian Denhardt <ian@zenhack.net>
 ;;; Copyright © 2015, 2016 Alex Kost <alezost@gmail.com>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Alex Griffin <a@ajgrf.com>
-;;; Copyright © 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;; Copyright © 2017 nee <nee-git@hidamari.blue>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Ricardo Wurmus <rekado@elephly.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,6 +38,7 @@
   #:use-module (gnu packages boost)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages curl)
+  #:use-module (gnu packages fontutils)
   #:use-module (gnu packages ghostscript)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages gnome)
@@ -44,6 +47,8 @@
   #:use-module (gnu packages image)
   #:use-module (gnu packages imagemagick)
   #:use-module (gnu packages maths)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages photo)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
@@ -54,7 +59,7 @@
 (define-public feh
   (package
     (name "feh")
-    (version "2.19")
+    (version "2.26")
     (home-page "https://feh.finalrewind.org/")
     (source (origin
               (method url-fetch)
@@ -62,19 +67,26 @@
                                   name "-" version ".tar.bz2"))
               (sha256
                (base32
-                "1sfhr6628xpj9p6bqihdq35y139x2gmrpydjlrwsl1rs77c2bgnf"))))
+                "11kckzwk3b734l0n4j41k40liq1v2lbbj1gzir5qc386g7fvzmmi"))))
     (build-system gnu-build-system)
     (arguments
-      '(#:phases (alist-delete 'configure %standard-phases)
-        #:tests? #f
-        #:make-flags
-          (list "CC=gcc" (string-append "PREFIX=" (assoc-ref %outputs "out")))))
+     '(#:phases (modify-phases %standard-phases (delete 'configure))
+       #:test-target "test"
+       #:make-flags
+       (list "CC=gcc" (string-append "PREFIX=" (assoc-ref %outputs "out")))))
+    (native-inputs
+     `(("perl" ,perl)
+       ("perl-test-command" ,perl-test-command)))
     (inputs `(("imlib2" ,imlib2)
               ("curl" ,curl)
               ("libpng" ,libpng)
               ("libxt" ,libxt)
               ("libx11" ,libx11)
               ("libxinerama" ,libxinerama)))
+    (native-search-paths
+     ;; Feh allows overriding the libcurl builtin CA path (unset in Guix)
+     ;; with the same variable as the `curl` command line HTTP tool.
+     (package-native-search-paths curl))
     (synopsis "Fast and light imlib2-based image viewer")
     (description
       "feh is an X11 image viewer aimed mostly at console users.
@@ -93,7 +105,7 @@ actions.")
 (define-public geeqie
   (package
     (name "geeqie")
-    (version "1.3")
+    (version "1.4")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/BestImageViewer/geeqie/"
@@ -101,7 +113,7 @@ actions.")
                                  version ".tar.xz"))
              (sha256
               (base32
-               "0gzc82sy66pbsmq7lnmq4y37zqad1zfwfls3ik3dmfm8s5nmcvsb"))))
+               "0ciygvcxb78pqg59r6p061mkbpvkgv2rv3r79j3kgv3kalb3ln2w"))))
     (build-system gnu-build-system)
     (arguments
      `(;; Enable support for a "map" pane using GPS data.
@@ -111,7 +123,18 @@ actions.")
        (modify-phases %standard-phases
          (add-after 'unpack 'autogen
            (lambda _
+             (define (write-dummy-changelog port)
+               (display "See Git history for a change log.\n" port))
+
              (setenv "NOCONFIGURE" "true")
+
+             ;; Create ChangeLog{,.html} to placate the makefile, which would
+             ;; otherwise require access to the Git repo.
+             (call-with-output-file "ChangeLog"
+               write-dummy-changelog)
+             (call-with-output-file "ChangeLog.html"
+               write-dummy-changelog)
+
              (zero? (system* "sh" "autogen.sh")))))))
     (inputs
      `(("clutter" ,clutter)
@@ -163,7 +186,7 @@ It is the default image viewer on LXDE desktop environment.")
 (define-public sxiv
   (package
     (name "sxiv")
-    (version "1.3.2")
+    (version "24")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -172,20 +195,29 @@ It is the default image viewer on LXDE desktop environment.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0lxnd33gaw4drhdwbkk94wzrjyhh64d57jq2ps7ffmqgizg6hlwz"))))
+                "044i077li6m4zsz2fswlcdi2m0sbr9mwws1h3k1zjaln29fw87ai"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:tests? #f                      ; no check target
-       #:make-flags (list (string-append "PREFIX=" %output)
-                          "CC=gcc")
-       #:phases (alist-delete
-                 'configure             ; no configure phase
-                 %standard-phases)))
+     `(#:tests? #f                      ; no check target
+       #:make-flags
+       (list (string-append "PREFIX=" %output)
+             "CC=gcc"
+             ;; Xft.h #includes <ft2build.h> (without ‘freetype2/’).  The sxiv
+             ;; Makefile works around this by hard-coding /usr/include instead.
+             (string-append "DEF_CPPFLAGS=-I"
+                            (assoc-ref %build-inputs "freetype")
+                            "/include/freetype2")
+             "V=1")
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure))))         ; no configure script
     (inputs
-     `(("libx11" ,libx11)
-       ("imlib2" ,imlib2)
+     `(("freetype" ,freetype)
        ("giflib" ,giflib)
-       ("libexif" ,libexif)))
+       ("imlib2" ,imlib2)
+       ("libexif" ,libexif)
+       ("libx11" ,libx11)
+       ("libxft" ,libxft)))
     (home-page "https://github.com/muennich/sxiv")
     (synopsis "Simple X Image Viewer")
     (description
@@ -214,7 +246,13 @@ it and customize it for your needs.")
        (modify-phases %standard-phases
          (add-after 'unpack 'autogen
            (lambda _
-             (zero? (system* "sh" "autogen.sh")))))))
+             (zero? (system* "sh" "autogen.sh"))))
+         (add-before 'install 'skip-gtk-update-icon-cache
+           (lambda _
+             ;; Don't create 'icon-theme.cache'
+             (substitute* (find-files "data" "^Makefile$")
+               (("gtk-update-icon-cache") (which "true")))
+             #t)))))
     (native-inputs
      `(("automake" ,automake)
        ("autoconf" ,autoconf)
@@ -250,7 +288,7 @@ your images.  Among its features are:
 (define-public catimg
   (package
     (name "catimg")
-    (version "2.3.2")
+    (version "2.4.0")
     (source
      (origin
        (method url-fetch)
@@ -259,7 +297,7 @@ your images.  Among its features are:
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0n78sl8mxyky9zcih2znzcnb9dbfmvmrdwzj73jcxfh531cgcpi9"))))
+         "1rwgbq2imd5l4nql5hrz7rr5f4gz8aad1amlf0j3cxir8slpbd1y"))))
     (build-system cmake-build-system)
     (arguments
      `(#:tests? #f                      ; no tests
@@ -390,6 +428,7 @@ imaging.  It supports several HDR and LDR image formats, and it can:
     (arguments
      ;; Python 2.5 or newer (Python 3 and up is not supported)
      `(#:python ,python-2
+       #:tests? #f ; there are no tests
        #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'configure

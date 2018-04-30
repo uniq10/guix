@@ -1,11 +1,12 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2016 Theodoros Foradis <theodoros@foradis.org>
 ;;; Copyright © 2016 Danny Milosavljevic <dannym@scratchpost.org>
 ;;; Copyright © 2017 Rene Saavedra <rennes@openmailbox.org>
 ;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -48,7 +49,7 @@
 (define-public wxwidgets
   (package
     (name "wxwidgets")
-    (version "3.0.2")
+    (version "3.0.3")
     (source
      (origin
        (method url-fetch)
@@ -56,9 +57,7 @@
                            "releases/download/v" version
                            "/wxWidgets-" version ".tar.bz2"))
        (sha256
-        (base32 "0paq27brw4lv8kspxh9iklpa415mxi8zc117vbbbhfjgapf7js1l"))
-       (patches (search-patches
-                 "wxwidgets-fix-windowGTK.patch"))))
+        (base32 "0yrhp5cs2g33cpbdwdzicmm5m4mfnlvxwv031x9266zc90zh7j08"))))
     (build-system glib-or-gtk-build-system)
     (inputs
      `(("glu" ,glu)
@@ -98,6 +97,34 @@ a graphical user interface.  It has language bindings for Python, Perl, Ruby
 and many other languages.")
     (license (list l:lgpl2.0+ (l:fsf-free "file://doc/license.txt")))))
 
+(define-public wxwidgets-2
+  (package
+    (inherit wxwidgets)
+    (version "2.8.12")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/wxWidgets/wxWidgets/"
+                           "releases/download/v" version
+                           "/wxGTK-" version ".tar.gz"))
+       (sha256
+        (base32 "1gjs9vfga60mk4j4ngiwsk9h6c7j22pw26m3asxr1jwvqbr8kkqk"))))
+    (inputs
+     `(("gtk" ,gtk+-2)
+       ("libjpeg" ,libjpeg)
+       ("libtiff" ,libtiff)
+       ("libmspack" ,libmspack)
+       ("sdl" ,sdl)
+       ("unixodbc" ,unixodbc)))
+    (arguments
+     `(#:configure-flags
+       '("--enable-unicode" "--with-regex=sys" "--with-sdl")
+       #:make-flags
+       (list (string-append "LDFLAGS=-Wl,-rpath="
+                            (assoc-ref %outputs "out") "/lib"))
+       ;; No 'check' target.
+       #:tests? #f))))
+
 (define-public wxwidgets-gtk2
   (package (inherit wxwidgets)
            (inputs `(("gtk+" ,gtk+-2)
@@ -126,6 +153,14 @@ and many other languages.")
             (substitute-keyword-arguments (package-arguments wxwidgets)
               ((#:configure-flags flags)
                `(cons "--enable-mediactrl" ,flags))))))
+
+(define-public wxwidgets-gtk2-3.1
+  (package (inherit wxwidgets-3.1)
+           (inputs `(("gtk+" ,gtk+-2)
+                     ,@(alist-delete
+                        "gtk+"
+                        (package-inputs wxwidgets-3.1))))
+           (name "wxwidgets-gtk2")))
 
 (define-public python2-wxpython
   (package
@@ -201,7 +236,7 @@ and many other languages.")
 (define-public wxsvg
   (package
     (name "wxsvg")
-    (version "1.5.11")
+    (version "1.5.12")
     (source
      (origin
        (method url-fetch)
@@ -209,7 +244,7 @@ and many other languages.")
                             version "/wxsvg-" version ".tar.bz2"))
        (sha256
         (base32
-         "0m3ff8mjiq4hvy8rmxyc9fkpf24xwxhvr3a6jmvr2q5zc41xhz7x"))))
+         "1hn3h9kzsjs4wimlpknzjfgn7q0n792hh7v3mshjgsjxdcrckzan"))))
     (build-system glib-or-gtk-build-system)
     (inputs
      `(("wxwidgets" ,wxwidgets-3.1)

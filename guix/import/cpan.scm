@@ -2,6 +2,7 @@
 ;;; Copyright © 2014 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Alex Sassmannshausen <alex@pompo.co>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -38,7 +39,6 @@
   #:use-module (guix packages)
   #:use-module (guix upstream)
   #:use-module (guix derivations)
-  #:use-module (gnu packages perl)
   #:export (cpan->guix-package
             %cpan-updater))
 
@@ -71,7 +71,7 @@
    ;; mozilla_1_0
    ("mozilla_1_1" 'mpl1.1)
    ("openssl" 'openssl)
-   ("perl_5" '(package-license perl))   ;GPL1+ and Artistic 1
+   ("perl_5" 'perl-license)   ;GPL1+ and Artistic 1
    ("qpl_1_0" 'qpl)
    ;; ssleay
    ;; sun
@@ -116,7 +116,7 @@ or #f on failure.  MODULE should be e.g. \"Test::Script\""
   (json-fetch (string-append "https://fastapi.metacpan.org/v1/release/" name)))
 
 (define (cpan-home name)
-  (string-append "http://search.cpan.org/dist/" name))
+  (string-append "http://search.cpan.org/dist/" name "/"))
 
 (define (cpan-source-url meta)
   "Return the download URL for a module's source tarball."
@@ -131,23 +131,34 @@ or #f on failure.  MODULE should be e.g. \"Test::Script\""
      ;; version is sometimes not quoted in the module json, so it gets
      ;; imported into Guile as a number, so convert it to a string.
      (number->string version))
-    (version version)))
+    (version
+     ;; Sometimes we get a "v" prefix.  Strip it.
+     (if (string-prefix? "v" version)
+         (string-drop version 1)
+         version))))
+
+(define (perl-package)
+  "Return the 'perl' package.  This is a lazy reference so that we don't
+depend on (gnu packages perl)."
+  (module-ref (resolve-interface '(gnu packages perl)) 'perl))
 
 (define %corelist
   (delay
     (let* ((perl (with-store store
                    (derivation->output-path
-                    (package-derivation store perl))))
+                    (package-derivation store (perl-package)))))
            (core (string-append perl "/bin/corelist")))
       (and (access? core X_OK)
            core))))
 
 (define core-module?
-  (let ((perl-version (package-version perl))
-        (rx (make-regexp
+  (let ((rx (make-regexp
              (string-append "released with perl v?([0-9\\.]*)"
                             "(.*and removed from v?([0-9\\.]*))?"))))
     (lambda (name)
+      (define perl-version
+        (package-version (perl-package)))
+
       (define (version-between? lower version upper)
         (and (version>=? version lower)
              (or (not upper)
@@ -236,9 +247,9 @@ META."
                        ;; have not yet had a need for cross-compiled perl
                        ;; modules, however, so we leave it out.
                        (convert-inputs '("configure" "build" "test")))
-       ,@(maybe-inputs 'inputs
+       ,@(maybe-inputs 'propagated-inputs
                        (convert-inputs '("runtime")))
-       (home-page ,(string-append "http://search.cpan.org/dist/" name))
+       (home-page ,(cpan-home name))
        (synopsis ,(assoc-ref meta "abstract"))
        (description fill-in-yourself!)
        (license ,(string->license (assoc-ref meta "license"))))))
@@ -296,7 +307,7 @@ META."
        (upstream-source
         (package (package-name package))
         (version version)
-        (urls url))))))
+        (urls (list url)))))))
 
 (define %cpan-updater
   (upstream-updater

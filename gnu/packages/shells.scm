@@ -3,11 +3,11 @@
 ;;; Copyright © 2014, 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2014 Kevin Lemonnier <lemonnierk@ulrar.net>
 ;;; Copyright © 2015 Jeff Mickey <j@codemac.net>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2016 Stefan Reichör <stefan@xsteve.at>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2017 ng0 <ng0@infotropique.org>
-;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017, 2018 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017, 2018 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -88,14 +88,19 @@ direct descendant of NetBSD's Almquist Shell (@command{ash}).")
 (define-public fish
   (package
     (name "fish")
-    (version "2.6.0")
+    (version "2.7.1")
     (source (origin
               (method url-fetch)
-              (uri (string-append "https://fishshell.com/files/"
-                                  version "/fish-" version ".tar.gz"))
+              (uri
+               (list
+                (string-append "https://fishshell.com/files/"
+                               version "/fish-" version ".tar.gz")
+                (string-append "https://github.com/fish-shell/fish-shell/"
+                               "releases/download/" version "/"
+                               name "-" version ".tar.gz")))
               (sha256
                (base32
-                "1yzx73kg5ng5ivhi68756sl5hpb8869110l9fwim6gn7f7bbprby"))
+                "0nhc3yc5lnnan7zmxqqxm07rdpwjww5ijy45ll2njdc6fnfb2az4"))
               (modules '((guix build utils)))
               ;; Don't try to install /etc/fish/config.fish.
               (snippet
@@ -134,38 +139,12 @@ direct descendant of NetBSD's Almquist Shell (@command{ash}).")
 discoverability, and friendliness.  Fish has very user-friendly and powerful
 tab-completion, including descriptions of every completion, completion of
 strings with wildcards, and many completions for specific commands.  It also
-has extensive and discoverable help.  A special help command gives access to
-all the fish documentation in your web browser.  Other features include smart
-terminal handling based on terminfo, an easy to search history, and syntax
-highlighting.")
+has extensive and discoverable help.  A special @command{help} command gives
+access to all the fish documentation in your web browser.  Other features
+include smart terminal handling based on terminfo, an easy to search history,
+and syntax highlighting.")
     (home-page "https://fishshell.com/")
     (license gpl2)))
-
-(define-public fish-guix
-  (package
-    (name "fish-guix")
-    (version "0.1.1")
-    (source
-     (origin
-       (method url-fetch)
-       (uri (string-append "https://dist.pragmatique.xyz/fish-guix/"
-                           name "-" version ".tar.xz"))
-       (sha256
-        (base32
-         "0xi0j9lvzh43lrj82gz52n2cjln0i0pgayngrg4hy5w4449biy0z"))))
-    (build-system gnu-build-system)
-    (arguments
-     `(#:tests? #f ; No checks.
-       #:make-flags (list
-                     (string-append "PREFIX=" %output))
-       #:phases
-       (modify-phases %standard-phases
-         (delete 'configure)))) ; No configure script.
-    (home-page "https://www.infotropique.org/projects/fish-guix/")
-    (synopsis "Fish completions for Guix")
-    (description
-     "Fish-guix provides completions for Guix for users of the fish shell.")
-    (license public-domain)))
 
 (define-public rc
   (package
@@ -174,7 +153,7 @@ highlighting.")
     (source (origin
               (method git-fetch)
               (uri (git-reference
-                    (url "git://github.com/rakitzis/rc.git")
+                    (url "https://github.com/rakitzis/rc.git")
                     ;; commit name 'release: rc-1.7.4'
                     (commit "c884da53a7c885d46ace2b92de78946855b18e92")))
               (sha256
@@ -312,18 +291,18 @@ history mechanism, job control and a C-like syntax.")
 (define-public zsh
   (package
     (name "zsh")
-    (version "5.2")
+    (version "5.5.1")
     (source (origin
               (method url-fetch)
               (uri (list (string-append
                            "http://www.zsh.org/pub/zsh-" version
-                           ".tar.gz")
+                           ".tar.xz")
                          (string-append
                            "http://www.zsh.org/pub/old/zsh-" version
-                           ".tar.gz")))
+                           ".tar.xz")))
               (sha256
                (base32
-                "0dsr450v8nydvpk8ry276fvbznlrjgddgp7zvhcw4cv69i9lr4ps"))))
+                "105aqkdfsdxc4531anrj2zis2ywz6icagjam9lsc235yzh48ihz1"))))
     (build-system gnu-build-system)
     (arguments `(#:configure-flags '("--with-tcsetpgrp" "--enable-pcre")
                  #:phases
@@ -346,7 +325,17 @@ history mechanism, job control and a C-like syntax.")
                                           "Test/B02typeset.ztst"
                                           "Completion/Unix/Command/_init_d"
                                           "Util/preconfig")
-                                      (("/bin/sh") (which "sh")))))))))
+                                      (("/bin/sh") (which "sh"))))))
+                   (add-before 'check 'patch-test
+                     (lambda _
+                       ;; In Zsh, `command -p` searches a predefined set of
+                       ;; paths that don't exist in the build environment. See
+                       ;; the assignment of 'path' in Src/init.c'
+                       (substitute* "Test/A01grammar.ztst"
+                         (("command -pv") "command -v")
+                         (("command -p") "command ")
+                         (("'command' -p") "'command' "))
+                       #t)))))
     (native-inputs `(("autoconf" ,autoconf)))
     (inputs `(("ncurses" ,ncurses)
               ("pcre" ,pcre)
@@ -366,14 +355,14 @@ ksh, and tcsh.")
 (define-public xonsh
   (package
     (name "xonsh")
-    (version "0.5.9")
+    (version "0.6.1")
     (source
       (origin
         (method url-fetch)
         (uri (pypi-uri "xonsh" version))
         (sha256
           (base32
-            "09s5k7fh4p0vkq0fha4ikwqlqsyv84vmlbqn8ggn0ymd47ajv38z"))
+            "09rrfcwpirbxmjjqnsbyn7lwm1wyn41z5zhkbnv57i5hcgs72kx6"))
         (modules '((guix build utils)))
         (snippet
          `(begin
@@ -430,7 +419,7 @@ use of experts and novices alike.")
                  (delete-file-recursively "rx")
                  (symlink rxpath "rx"))
                #t))
-           (add-before 'configure 'autoreconf
+           (add-after 'unpack 'autoreconf
              (lambda _
                (zero? (system* "autoreconf")))))))
       (inputs
@@ -449,38 +438,41 @@ operating system.")
       (license bsd-3))))
 
 (define-public linenoise
-  (package
-    (name "linenoise")
-    (version "1.0")
-    (source
-     (origin
-       (method url-fetch)
-       (uri (string-append "https://github.com/antirez/linenoise/"
-                           "archive/" version ".tar.gz"))
-       (file-name (string-append name "-" version ".tar.gz"))
-       (sha256
-        (base32
-         "05006hd56xcvxjdpll4x720bpfan7vwqmxbw8a2kvm10w57ll1gm"))))
-    (build-system gnu-build-system)
-    (arguments
-     `(#:tests? #f ;No tests are included
-       #:make-flags (list "CC=gcc")
-       #:phases
-       (modify-phases %standard-phases
-         (delete 'configure)
-         (replace 'install
-           (lambda* (#:key outputs #:allow-other-keys)
-             ;; At the moment there is no 'make install' in upstream.
-             (let* ((out (assoc-ref outputs "out")))
-               (install-file "linenoise.h"
-                             (string-append out "/include/linenoise"))
-               (install-file "linenoise.c"
-                             (string-append out "/include/linenoise"))
-               #t))))))
-    (home-page "https://github.com/antirez/linenoise")
-    (synopsis "Minimal zero-config readline replacement")
-    (description
-     "Linenoise is a minimal, zero-config, readline replacement.
+  (let ((commit "2105ce445821381cf1bca87b6d386d4ea88ee20d")
+        (revision "1"))
+    (package
+      (name "linenoise")
+      (version (string-append "1.0-" revision "." (string-take commit 7)))
+      (source
+       (origin
+         (method git-fetch)
+         (uri (git-reference
+               (url "https://github.com/antirez/linenoise")
+               (commit commit)))
+         (file-name (string-append name "-" version "-checkout"))
+         (sha256
+          (base32
+           "1z16qwix8z6a40fskdgxsibkqgdrp4q6ncp4n6hnv4r9iihy2d8r"))))
+      (build-system gnu-build-system)
+      (arguments
+       `(#:tests? #f ;No tests are included
+         #:make-flags (list "CC=gcc")
+         #:phases
+         (modify-phases %standard-phases
+           (delete 'configure)
+           (replace 'install
+             (lambda* (#:key outputs #:allow-other-keys)
+               ;; At the moment there is no 'make install' in upstream.
+               (let* ((out (assoc-ref outputs "out")))
+                 (install-file "linenoise.h"
+                               (string-append out "/include/linenoise"))
+                 (install-file "linenoise.c"
+                               (string-append out "/include/linenoise"))
+                 #t))))))
+      (home-page "https://github.com/antirez/linenoise")
+      (synopsis "Minimal zero-config readline replacement")
+      (description
+       "Linenoise is a minimal, zero-config, readline replacement.
 Its features include:
 
 @enumerate
@@ -490,14 +482,14 @@ Its features include:
 @item Hints (suggestions at the right of the prompt as you type)
 @item A subset of VT100 escapes, ANSI.SYS compatible
 @end enumerate\n")
-    (license bsd-2)))
+      (license bsd-2))))
 
 (define-public s-shell
-  (let ((commit "6604341edb3a775ff94415762af3ee9bd86bfb3c")
-        (revision "1"))
+  (let ((commit "da2e5c20c0c5f477ec3426dc2584889a789b1659")
+        (revision "2"))
     (package
       (name "s-shell")
-      (version (string-append "0.0.0-" revision "." (string-take commit 7)))
+      (version (git-version "0.0.0" revision commit))
       (source
        (origin
          (method git-fetch)
@@ -507,13 +499,15 @@ Its features include:
          (file-name (string-append name "-" version "-checkout"))
          (sha256
           (base32
-           "1075cml6dl15d770j3m12yz90cjacsdslbv3gank1nxd76vmpdcr"))))
+           "0qiny71ww5nhzy4mnc8652hn0mlxyb67h333gbdxp4j4qxsi13q4"))))
       (build-system gnu-build-system)
       (inputs
        `(("linenoise" ,linenoise)))
       (arguments
        `(#:tests? #f
-         #:make-flags (list "CC=gcc")
+         #:make-flags (list "CC=gcc"
+                            (string-append "PREFIX="
+                                           (assoc-ref %outputs "out")))
          #:phases
          (modify-phases %standard-phases
            (add-after 'unpack 'install-directory-fix
@@ -579,7 +573,7 @@ The OpenBSD Korn Shell is a cleaned up and enhanced ksh.")
 (define-public loksh
   (package
     (name "loksh")
-    (version "6.1")
+    (version "6.3")
     (source
      (origin
        (method url-fetch)
@@ -588,7 +582,7 @@ The OpenBSD Korn Shell is a cleaned up and enhanced ksh.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "1wg7ds56yr8fgg1m149bi53bvrwccwiashmwknggza1sqgj9m2lq"))))
+         "0i1b60g1p19s5cnzz0nmjzjnxywm9szzyp1rcwfcx3gmzvrwr2sc"))))
     (build-system gnu-build-system)
     (inputs
      `(("libbsd" ,libbsd)))
@@ -615,7 +609,7 @@ interactive POSIX shell targeted at resource-constrained systems.")
 (define-public mksh
   (package
     (name "mksh")
-    (version "55")
+    (version "56")
     (source
      (origin
        (method url-fetch)
@@ -623,7 +617,7 @@ interactive POSIX shell targeted at resource-constrained systems.")
                            version ".tgz"))
        (sha256
         (base32
-         "0mssqd2wp3cs9x01v6g66iy3ymdxagbyw2c0v597vnc1l6s2rm6f"))))
+         "1x4zjj9259ijpf8jw0nyh1fnr1pbm5fwvylclpvcrlb45xrglf5d"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ; tests require access to /dev/tty
@@ -650,3 +644,49 @@ Korn Shell programming language and a successor to the Public Domain Korn
 Shell (pdksh).")
     (license (list miros
                    isc)))) ; strlcpy.c
+
+(define-public oil-shell
+  (package
+    (name "oil-shell")
+    (version "0.4.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://www.oilshell.org/download/oil-"
+                                  version ".tar.xz"))
+              (sha256
+               (base32
+                "0ca68n46mhibarpfinqfkim6p3xmbz5rrpl4qr3sj9y0q6wm7sa2"))))
+    (build-system gnu-build-system)
+    (arguments
+     '(#:tests? #f ; the tests are not distributed in the tarballs
+       #:strip-binaries? #f ; the binaries cannot be stripped
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-compiler-invocation
+           (lambda _
+             (substitute* "configure"
+               ((" cc ") " gcc "))
+             #t))
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (setenv "CC" "gcc")
+               ;; The configure script doesn't recognize CONFIG_SHELL.
+               (setenv "CONFIG_SHELL" (which "sh"))
+               (invoke "./configure" (string-append "--prefix=" out)
+                       "--with-readline"))))
+         (add-before 'install 'make-destination
+           (lambda _
+             ;; The build scripts don't create the destination directory.
+             (mkdir-p (string-append (assoc-ref %outputs "out") "/bin")))))))
+    (inputs
+     `(("readline" ,readline)))
+    (synopsis "Bash-compatible Unix shell")
+    (description "Oil is a Unix / POSIX shell, compatible with Bash.  It
+implements the Oil language, which is a new shell language to which Bash can be
+automatically translated.  The Oil language is a superset of Bash.  It also
+implements the OSH language, a statically-parseable language based on Bash as it
+is commonly written.")
+    (home-page "https://www.oilshell.org/")
+    (license (list psfl ; The Oil sources include a patched Python 2 source tree
+                   asl2.0))))

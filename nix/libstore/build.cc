@@ -31,7 +31,11 @@
 #include <pwd.h>
 #include <grp.h>
 
-#include <bzlib.h>
+#include <zlib.h>
+
+#if HAVE_BZLIB_H
+# include <bzlib.h>
+#endif
 
 /* Includes required for chroot support. */
 #if HAVE_SYS_PARAM_H
@@ -744,7 +748,10 @@ private:
 
     /* File descriptor for the log file. */
     FILE * fLogFile;
+    gzFile   gzLogFile;
+#if HAVE_BZLIB_H
     BZFILE * bzLogFile;
+#endif
     AutoCloseFD fdLogFile;
 
     /* Number of bytes received from the builder's stdout/stderr. */
@@ -892,7 +899,10 @@ DerivationGoal::DerivationGoal(const Path & drvPath, const StringSet & wantedOut
     , needRestart(false)
     , retrySubstitution(false)
     , fLogFile(0)
+    , gzLogFile(0)
+#if HAVE_BZLIB_H
     , bzLogFile(0)
+#endif
     , useChroot(false)
     , buildMode(buildMode)
 {
@@ -1672,15 +1682,6 @@ void DerivationGoal::startBuilder()
     f.exceptions(boost::io::all_error_bits ^ boost::io::too_many_args_bit);
     startNest(nest, lvlInfo, f % showPaths(missingPaths) % curRound % nrRounds);
 
-    /* Right platform? */
-    if (!canBuildLocally(drv.platform)) {
-        if (settings.printBuildTrace)
-            printMsg(lvlError, format("@ unsupported-platform %1% %2%") % drvPath % drv.platform);
-        throw Error(
-            format("a `%1%' is required to build `%3%', but I am a `%2%'")
-            % drv.platform % settings.thisSystem % drvPath);
-    }
-
     /* Note: built-in builders are *not* running in a chroot environment so
        that we can easily implement them in Guile without having it as a
        derivation input (they are running under a separate build user,
@@ -2009,10 +2010,10 @@ void DerivationGoal::startBuilder()
 	char stack[32 * 1024];
 	int flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWIPC | CLONE_NEWUTS | SIGCHLD;
 	if (!fixedOutput) flags |= CLONE_NEWNET;
-
 	/* Ensure proper alignment on the stack.  On aarch64, it has to be 16
 	   bytes.  */
-	pid = clone(childEntry, (char *)(((uintptr_t)stack + 16) & ~0xf),
+	pid = clone(childEntry,
+		    (char *)(((uintptr_t)stack + sizeof(stack) - 8) & ~(uintptr_t)0xf),
 		    flags, this);
 	if (pid == -1)
 	    throw SysError("cloning builder process");
@@ -2086,12 +2087,8 @@ void DerivationGoal::runChild()
                outside of the namespace.  Making a subtree private is
                local to the namespace, though, so setting MS_PRIVATE
                does not affect the outside world. */
-            Strings mounts = tokenizeString<Strings>(readFile("/proc/self/mountinfo", true), "\n");
-            foreach (Strings::iterator, i, mounts) {
-                vector<string> fields = tokenizeString<vector<string> >(*i, " ");
-                string fs = decodeOctalEscaped(fields.at(4));
-                if (mount(0, fs.c_str(), 0, MS_PRIVATE, 0) == -1)
-                    throw SysError(format("unable to make filesystem `%1%' private") % fs);
+            if (mount(0, "/", 0, MS_REC|MS_PRIVATE, 0) == -1) {
+                throw SysError("unable to make ‘/’ private mount");
             }
 
             /* Bind-mount chroot directory to itself, to treat it as a
@@ -2305,6 +2302,20 @@ void DerivationGoal::runChild()
 
         execve(drv.builder.c_str(), stringsToCharPtrs(args).data(), stringsToCharPtrs(envStrs).data());
 
+	int error = errno;
+
+	/* Right platform?  Check this after we've tried 'execve' to allow for
+	   transparent emulation of different platforms with binfmt_misc
+	   handlers that invoke QEMU.  */
+	if (error == ENOEXEC && !canBuildLocally(drv.platform)) {
+	    if (settings.printBuildTrace)
+		printMsg(lvlError, format("@ unsupported-platform %1% %2%") % drvPath % drv.platform);
+	    throw Error(
+		format("a `%1%' is required to build `%3%', but I am a `%2%'")
+		% drv.platform % settings.thisSystem % drvPath);
+	}
+
+	errno = error;
         throw SysError(format("executing `%1%'") % drv.builder);
 
     } catch (std::exception & e) {
@@ -2603,8 +2614,26 @@ Path DerivationGoal::openLogFile()
     Path dir = (format("%1%/%2%/%3%/") % settings.nixLogDir % drvsLogDir % string(baseName, 0, 2)).str();
     createDirs(dir);
 
-    if (settings.compressLog) {
+    switch (settings.logCompression)
+      {
+      case COMPRESSION_GZIP: {
+        Path logFileName = (format("%1%/%2%.gz") % dir % string(baseName, 2)).str();
+        AutoCloseFD fd = open(logFileName.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0666);
+        if (fd == -1) throw SysError(format("creating log file `%1%'") % logFileName);
+        closeOnExec(fd);
 
+	/* Note: FD will be closed by 'gzclose'.  */
+        if (!(gzLogFile = gzdopen(fd.borrow(), "w")))
+            throw Error(format("cannot open compressed log file `%1%'") % logFileName);
+
+        gzbuffer(gzLogFile, 32768);
+        gzsetparams(gzLogFile, Z_BEST_COMPRESSION, Z_DEFAULT_STRATEGY);
+
+        return logFileName;
+      }
+
+#if HAVE_BZLIB_H
+      case COMPRESSION_BZIP2: {
         Path logFileName = (format("%1%/%2%.bz2") % dir % string(baseName, 2)).str();
         AutoCloseFD fd = open(logFileName.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0666);
         if (fd == -1) throw SysError(format("creating log file `%1%'") % logFileName);
@@ -2618,25 +2647,38 @@ Path DerivationGoal::openLogFile()
             throw Error(format("cannot open compressed log file `%1%'") % logFileName);
 
         return logFileName;
+      }
+#endif
 
-    } else {
+      case COMPRESSION_NONE: {
         Path logFileName = (format("%1%/%2%") % dir % string(baseName, 2)).str();
         fdLogFile = open(logFileName.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0666);
         if (fdLogFile == -1) throw SysError(format("creating log file `%1%'") % logFileName);
         closeOnExec(fdLogFile);
         return logFileName;
+      }
     }
+
+    abort();
 }
 
 
 void DerivationGoal::closeLogFile()
 {
-    if (bzLogFile) {
+    if (gzLogFile) {
+	int err;
+	err = gzclose(gzLogFile);
+	gzLogFile = NULL;
+	if (err != Z_OK) throw Error(format("cannot close compressed log file (gzip error = %1%)") % err);
+    }
+#if HAVE_BZLIB_H
+    else if (bzLogFile) {
         int err;
         BZ2_bzWriteClose(&err, bzLogFile, 0, 0, 0);
         bzLogFile = 0;
         if (err != BZ_OK) throw Error(format("cannot close compressed log file (BZip2 error = %1%)") % err);
     }
+#endif
 
     if (fLogFile) {
         fclose(fLogFile);
@@ -2699,10 +2741,19 @@ void DerivationGoal::handleChildOutput(int fd, const string & data)
         }
         if (verbosity >= settings.buildVerbosity)
             writeToStderr(data);
-        if (bzLogFile) {
+
+	if (gzLogFile) {
+	    if (data.size() > 0) {
+		int count, err;
+		count = gzwrite(gzLogFile, data.data(), data.size());
+		if (count == 0) throw Error(format("cannot write to compressed log file (gzip error = %1%)") % gzerror(gzLogFile, &err));
+	    }
+#if HAVE_BZLIB_H
+	} else if (bzLogFile) {
             int err;
             BZ2_bzWrite(&err, bzLogFile, (unsigned char *) data.data(), data.size());
             if (err != BZ_OK) throw Error(format("cannot write to compressed log file (BZip2 error = %1%)") % err);
+#endif
         } else if (fdLogFile != -1)
             writeFull(fdLogFile, data);
     }

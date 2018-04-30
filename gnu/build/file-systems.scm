@@ -19,15 +19,16 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu build file-systems)
+  #:use-module (gnu system uuid)
+  #:use-module (gnu system file-systems)
   #:use-module (guix build utils)
   #:use-module (guix build bournish)
-  #:use-module (guix build syscalls)
+  #:use-module ((guix build syscalls)
+                #:hide (file-system-type))
   #:use-module (rnrs io ports)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
   #:use-module (ice-9 rdelim)
-  #:use-module (ice-9 format)
-  #:use-module (ice-9 regex)
   #:use-module (system foreign)
   #:autoload   (system repl repl) (start-repl)
   #:use-module (srfi srfi-1)
@@ -40,15 +41,6 @@
             find-partition-by-uuid
             find-partition-by-luks-uuid
             canonicalize-device-spec
-
-            uuid->string
-            string->uuid
-            string->iso9660-uuid
-            string->ext2-uuid
-            string->ext3-uuid
-            string->ext4-uuid
-            string->btrfs-uuid
-            iso9660-uuid->string
 
             bind-mount
 
@@ -94,20 +86,6 @@ takes a bytevector and returns #t when it's a valid superblock."
                 (and (= len (bytevector-length block))
                      (and (magic? block)
                           block)))))))))
-
-(define (sub-bytevector bv start size)
-  "Return a copy of the SIZE bytes of BV starting from offset START."
-  (let ((result (make-bytevector size)))
-    (bytevector-copy! bv start result 0 size)
-    result))
-
-(define (latin1->string bv terminator)
-  "Return a string of BV, a latin1 bytevector, or #f.  TERMINATOR is a predicate
-that takes a number and returns #t when a termination character is found."
-    (let ((bytes (take-while (negate terminator) (bytevector->u8-list bv))))
-      (if (null? bytes)
-          #f
-          (list->string (map integer->char bytes)))))
 
 (define null-terminated-latin1->string
   (cut latin1->string <> zero?))
@@ -196,10 +174,6 @@ if DEVICE does not contain a btrfs file system."
 
 ;; <http://www.ecma-international.org/publications/files/ECMA-ST/Ecma-107.pdf>.
 
-(define-syntax %fat32-endianness
-  ;; Endianness of fat file systems.
-  (identifier-syntax (endianness little)))
-
 (define (fat32-superblock? sblock)
   "Return #t when SBLOCK is a fat32 superblock."
   (bytevector=? (sub-bytevector sblock 82 8)
@@ -214,19 +188,13 @@ if DEVICE does not contain a btrfs file system."
   "Return the Volume ID of a fat superblock SBLOCK as a 4-byte bytevector."
   (sub-bytevector sblock 67 4))
 
-(define (fat32-uuid->string uuid)
-  "Convert fat32 UUID, a 4-byte bytevector, to its string representation."
-  (let ((high  (bytevector-uint-ref uuid 0 %fat32-endianness 2))
-        (low (bytevector-uint-ref uuid 2 %fat32-endianness 2)))
-    (format #f "~:@(~x-~x~)" low high)))
-
 (define (fat32-superblock-volume-name sblock)
   "Return the volume name of SBLOCK as a string of at most 11 characters, or
 #f if SBLOCK has no volume name.  The volume name is a latin1 string.
 Trailing spaces are trimmed."
   (string-trim-right (latin1->string (sub-bytevector sblock 71 11) (lambda (c) #f)) #\space))
 
-(define (check-fat32-file-system device)
+(define (check-fat-file-system device)
   "Return the health of a fat file system on DEVICE."
   (match (status:exit-val
           (system* "fsck.vfat" "-v" "-a" device))
@@ -236,31 +204,37 @@ Trailing spaces are trimmed."
 
 
 ;;;
+;;; FAT16 file systems.
+;;;
+
+(define (fat16-superblock? sblock)
+  "Return #t when SBLOCK is a fat16 boot record."
+  (bytevector=? (sub-bytevector sblock 54 8)
+                (string->utf8 "FAT16   ")))
+
+(define (read-fat16-superblock device)
+  "Return the raw contents of DEVICE's fat16 superblock as a bytevector, or
+#f if DEVICE does not contain a fat16 file system."
+  (read-superblock device 0 62 fat16-superblock?))
+
+(define (fat16-superblock-uuid sblock)
+  "Return the Volume ID of a fat superblock SBLOCK as a 4-byte bytevector."
+  (sub-bytevector sblock 39 4))
+
+(define (fat16-superblock-volume-name sblock)
+  "Return the volume name of SBLOCK as a string of at most 11 characters, or
+#f if SBLOCK has no volume name.  The volume name is a latin1 string.
+Trailing spaces are trimmed."
+  (string-trim-right (latin1->string (sub-bytevector sblock 43 11)
+                                     (lambda (c) #f))
+                     #\space))
+
+
+;;;
 ;;; ISO9660 file systems.
 ;;;
 
 ;; <http://www.ecma-international.org/publications/files/ECMA-ST/Ecma-119.pdf>.
-
-(define %iso9660-uuid-rx
-  ;;                   Y                m                d                H                M                S                ss
-  (make-regexp "^([[:digit:]]{4})-([[:digit:]]{2})-([[:digit:]]{2})-([[:digit:]]{2})-([[:digit:]]{2})-([[:digit:]]{2})-([[:digit:]]{2})$"))
-
-(define (string->iso9660-uuid str)
-  "Parse STR as a ISO9660 UUID (which is really a timestamp - see /dev/disk/by-uuid).
-Return its contents as a 16-byte bytevector.  Return #f if STR is not a valid
-ISO9660 UUID representation."
-  (and=> (regexp-exec %iso9660-uuid-rx str)
-         (lambda (match)
-           (letrec-syntax ((match-numerals
-                            (syntax-rules ()
-                              ((_ index (name rest ...) body)
-                               (let ((name (match:substring match index)))
-                                 (match-numerals (+ 1 index) (rest ...) body)))
-                              ((_ index () body)
-                               body))))
-            (match-numerals 1 (year month day hour minute second hundredths)
-              (string->utf8 (string-append year month day
-                                           hour minute second hundredths)))))))
 
 (define (iso9660-superblock? sblock)
   "Return #t when SBLOCK is an iso9660 volume descriptor."
@@ -287,11 +261,11 @@ volume descriptor from ~s"
   "Return the raw contents of DEVICE's iso9660 primary volume descriptor
 as a bytevector, or #f if DEVICE does not contain an iso9660 file system."
   ;; Start reading at sector 16.
-  ;; Since we are not sure that the device contains an ISO9660 filesystem,
+  ;; Since we are not sure that the device contains an ISO9660 file system,
   ;; we have to find that out first.
   (if (read-superblock device (* 2048 16) 2048 iso9660-superblock?)
       (read-iso9660-primary-volume-descriptor device (* 2048 16))
-      #f)) ; Device does not contain an iso9660 filesystem.
+      #f)) ; Device does not contain an iso9660 file system.
 
 (define (iso9660-superblock-uuid sblock)
   "Return the modification time of an iso9660 primary volume descriptor
@@ -307,20 +281,6 @@ SBLOCK as a bytevector.  If that's not set, returns the creation time."
                    creation-time
                    modification-time)))
     (sub-bytevector time 0 16))) ; strips GMT offset.
-
-(define (iso9660-uuid->string uuid)
-  "Given an UUID bytevector, return its timestamp string."
-  (define (digits->string bytes)
-    (latin1->string bytes (lambda (c) #f)))
-  (let* ((year (sub-bytevector uuid 0 4))
-         (month (sub-bytevector uuid 4 2))
-         (day (sub-bytevector uuid 6 2))
-         (hour (sub-bytevector uuid 8 2))
-         (minute (sub-bytevector uuid 10 2))
-         (second (sub-bytevector uuid 12 2))
-         (hundredths (sub-bytevector uuid 14 2))
-         (parts (list year month day hour minute second hundredths)))
-    (string-append (string-join (map digits->string parts) "-"))))
 
 (define (iso9660-superblock-volume-name sblock)
   "Return the volume name of SBLOCK as a string.  The volume name is an ASCII
@@ -373,15 +333,16 @@ not valid header was found."
 
 (define (disk-partitions)
   "Return the list of device names corresponding to valid disk partitions."
-  (define (last-character str)
-    (string-ref str (- (string-length str) 1)))
-
   (define (partition? name major minor)
-    ;; Select device names that end in a digit, like libblkid's 'probe_all'
-    ;; function does.  Checking for "/sys/dev/block/MAJOR:MINOR/partition"
-    ;; doesn't work for partitions coming from mapped devices.
-    (and (char-set-contains? char-set:digit (last-character name))
-         (> major 2)))                      ;ignore RAM disks and floppy disks
+    ;; grub-mkrescue does some funny things for EFI support which
+    ;; makes it a lot more difficult than one would expect to support
+    ;; booting an ISO-9660 image from an USB flash drive.
+    ;; For example there's a buggy (too small) hidden partition in it
+    ;; which Linux mounts and then proceeds to fail while trying to
+    ;; fall off the edge.
+    ;; In any case, partition tables are supposed to be optional so
+    ;; here we allow checking entire disks for file systems, too.
+    (> major 2))                      ;ignore RAM disks and floppy disks
 
   (call-with-input-file "/proc/partitions"
     (lambda (port)
@@ -452,7 +413,9 @@ partition field reader that returned a value."
         (partition-field-reader read-btrfs-superblock
                                 btrfs-superblock-volume-name)
         (partition-field-reader read-fat32-superblock
-                                fat32-superblock-volume-name)))
+                                fat32-superblock-volume-name)
+        (partition-field-reader read-fat16-superblock
+                                fat16-superblock-volume-name)))
 
 (define %partition-uuid-readers
   (list (partition-field-reader read-iso9660-superblock
@@ -462,7 +425,9 @@ partition field reader that returned a value."
         (partition-field-reader read-btrfs-superblock
                                 btrfs-superblock-uuid)
         (partition-field-reader read-fat32-superblock
-                                fat32-superblock-uuid)))
+                                fat32-superblock-uuid)
+        (partition-field-reader read-fat16-superblock
+                                fat16-superblock-uuid)))
 
 (define read-partition-label
   (cut read-partition-field <> %partition-label-readers))
@@ -483,12 +448,12 @@ was READ is = to the given value."
   (partition-predicate read-partition-label string=?))
 
 (define partition-uuid-predicate
-  (partition-predicate read-partition-uuid bytevector=?))
+  (partition-predicate read-partition-uuid uuid=?))
 
 (define luks-partition-uuid-predicate
   (partition-predicate
    (partition-field-reader read-luks-header luks-header-uuid)
-   bytevector=?))
+   uuid=?))
 
 (define (find-partition predicate)
   "Return the first partition found that matches PREDICATE, or #f if none
@@ -508,65 +473,6 @@ were found."
   (find-partition luks-partition-uuid-predicate))
 
 
-;;;
-;;; UUIDs.
-;;;
-
-(define-syntax %network-byte-order
-  (identifier-syntax (endianness big)))
-
-(define (uuid->string uuid)
-  "Convert UUID, a 16-byte bytevector, to its string representation, something
-like \"6b700d61-5550-48a1-874c-a3d86998990e\"."
-  ;; See <https://tools.ietf.org/html/rfc4122>.
-  (let ((time-low  (bytevector-uint-ref uuid 0 %network-byte-order 4))
-        (time-mid  (bytevector-uint-ref uuid 4 %network-byte-order 2))
-        (time-hi   (bytevector-uint-ref uuid 6 %network-byte-order 2))
-        (clock-seq (bytevector-uint-ref uuid 8 %network-byte-order 2))
-        (node      (bytevector-uint-ref uuid 10 %network-byte-order 6)))
-    (format #f "~8,'0x-~4,'0x-~4,'0x-~4,'0x-~12,'0x"
-            time-low time-mid time-hi clock-seq node)))
-
-(define %uuid-rx
-  ;; The regexp of a UUID.
-  (make-regexp "^([[:xdigit:]]{8})-([[:xdigit:]]{4})-([[:xdigit:]]{4})-([[:xdigit:]]{4})-([[:xdigit:]]{12})$"))
-
-(define (string->uuid str)
-  "Parse STR as a DCE UUID (see <https://tools.ietf.org/html/rfc4122>) and
-return its contents as a 16-byte bytevector.  Return #f if STR is not a valid
-UUID representation."
-  (and=> (regexp-exec %uuid-rx str)
-         (lambda (match)
-           (letrec-syntax ((hex->number
-                            (syntax-rules ()
-                              ((_ index)
-                               (string->number (match:substring match index)
-                                               16))))
-                           (put!
-                            (syntax-rules ()
-                              ((_ bv index (number len) rest ...)
-                               (begin
-                                 (bytevector-uint-set! bv index number
-                                                       (endianness big) len)
-                                 (put! bv (+ index len) rest ...)))
-                              ((_ bv index)
-                               bv))))
-             (let ((time-low  (hex->number 1))
-                   (time-mid  (hex->number 2))
-                   (time-hi   (hex->number 3))
-                   (clock-seq (hex->number 4))
-                   (node      (hex->number 5))
-                   (uuid      (make-bytevector 16)))
-               (put! uuid 0
-                     (time-low 4) (time-mid 2) (time-hi 2)
-                     (clock-seq 2) (node 6)))))))
-
-(define string->ext2-uuid string->uuid)
-(define string->ext3-uuid string->uuid)
-(define string->ext4-uuid string->uuid)
-(define string->btrfs-uuid string->uuid)
-
-
 (define* (canonicalize-device-spec spec #:optional (title 'any))
   "Return the device name corresponding to SPEC.  TITLE is a symbol, one of
 the following:
@@ -575,8 +481,7 @@ the following:
      \"/dev/sda1\";
   • 'label', in which case SPEC is known to designate a partition label--e.g.,
      \"my-root-part\";
-  • 'uuid', in which case SPEC must be a UUID (a 16-byte bytevector)
-     designating a partition;
+  • 'uuid', in which case SPEC must be a UUID designating a partition;
   • 'any', in which case SPEC can be anything.
 "
   (define max-trials
@@ -622,9 +527,11 @@ the following:
      (resolve find-partition-by-label spec identity))
     ((uuid)
      (resolve find-partition-by-uuid
-              (if (string? spec)
-                  (string->uuid spec)
-                  spec)
+              (cond ((string? spec)
+                     (string->uuid spec))
+                    ((uuid? spec)
+                     (uuid-bytevector spec))
+                    (else spec))
               uuid->string))
     (else
      (error "unknown device title" title))))
@@ -635,7 +542,7 @@ the following:
     (cond
      ((string-prefix? "ext" type) check-ext2-file-system)
      ((string-prefix? "btrfs" type) check-btrfs-file-system)
-     ((string-suffix? "fat" type) check-fat32-file-system)
+     ((string-suffix? "fat" type) check-fat-file-system)
      (else #f)))
 
   (if check-procedure
@@ -679,11 +586,8 @@ corresponds to the symbols listed in FLAGS."
       (()
        0))))
 
-(define* (mount-file-system spec #:key (root "/root"))
-  "Mount the file system described by SPEC under ROOT.  SPEC must have the
-form:
-
-  (DEVICE TITLE MOUNT-POINT TYPE (FLAGS ...) OPTIONS CHECK?)
+(define* (mount-file-system fs #:key (root "/root"))
+  "Mount the file system described by FS, a <file-system> object, under ROOT.
 
 DEVICE, MOUNT-POINT, and TYPE must be strings; OPTIONS can be a string or #f;
 FLAGS must be a list of symbols.  CHECK? is a Boolean indicating whether to
@@ -709,34 +613,36 @@ run a file system check."
                             (if options
                                 (string-append "," options)
                                 "")))))
-  (match spec
-    ((source title mount-point type (flags ...) options check?)
-     (let ((source      (canonicalize-device-spec source title))
-           (mount-point (string-append root "/" mount-point))
-           (flags       (mount-flags->bit-mask flags)))
-       (when check?
-         (check-file-system source type))
+  (let ((type        (file-system-type fs))
+        (options     (file-system-options fs))
+        (source      (canonicalize-device-spec (file-system-device fs)
+                                               (file-system-title fs)))
+        (mount-point (string-append root "/"
+                                    (file-system-mount-point fs)))
+        (flags       (mount-flags->bit-mask (file-system-flags fs))))
+    (when (file-system-check? fs)
+      (check-file-system source type))
 
-       ;; Create the mount point.  Most of the time this is a directory, but
-       ;; in the case of a bind mount, a regular file or socket may be needed.
-       (if (and (= MS_BIND (logand flags MS_BIND))
-                (not (file-is-directory? source)))
-           (unless (file-exists? mount-point)
-             (mkdir-p (dirname mount-point))
-             (call-with-output-file mount-point (const #t)))
-           (mkdir-p mount-point))
+    ;; Create the mount point.  Most of the time this is a directory, but
+    ;; in the case of a bind mount, a regular file or socket may be needed.
+    (if (and (= MS_BIND (logand flags MS_BIND))
+             (not (file-is-directory? source)))
+        (unless (file-exists? mount-point)
+          (mkdir-p (dirname mount-point))
+          (call-with-output-file mount-point (const #t)))
+        (mkdir-p mount-point))
 
-       (cond
-        ((string-prefix? "nfs" type)
-         (mount-nfs source mount-point type flags options))
-        (else
-         (mount source mount-point type flags options)))
+    (cond
+     ((string-prefix? "nfs" type)
+      (mount-nfs source mount-point type flags options))
+     (else
+      (mount source mount-point type flags options)))
 
-       ;; For read-only bind mounts, an extra remount is needed, as per
-       ;; <http://lwn.net/Articles/281157/>, which still applies to Linux 4.0.
-       (when (and (= MS_BIND (logand flags MS_BIND))
-                  (= MS_RDONLY (logand flags MS_RDONLY)))
-         (let ((flags (logior MS_BIND MS_REMOUNT MS_RDONLY)))
-           (mount source mount-point type flags #f)))))))
+    ;; For read-only bind mounts, an extra remount is needed, as per
+    ;; <http://lwn.net/Articles/281157/>, which still applies to Linux 4.0.
+    (when (and (= MS_BIND (logand flags MS_BIND))
+               (= MS_RDONLY (logand flags MS_RDONLY)))
+      (let ((flags (logior MS_BIND MS_REMOUNT MS_RDONLY)))
+        (mount source mount-point type flags #f)))))
 
 ;;; file-systems.scm ends here

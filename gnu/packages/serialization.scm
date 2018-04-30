@@ -7,6 +7,9 @@
 ;;; Copyright © 2017 Corentin Bocquillon <corentin@nybble.fr>
 ;;; Copyright © 2017 Gregor Giesen <giesen@zaehlwerk.net>
 ;;; Copyright © 2017 Frederick M. Muriithi <fredmanglis@gmail.com>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Joshua Sierles, Nextjournal <joshua@nextjournal.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,17 +33,21 @@
   #:use-module (guix utils)
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
+  #:use-module (guix build-system r)
   #:use-module (gnu packages)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages boost)
   #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages cran)
+  #:use-module (gnu packages databases)
   #:use-module (gnu packages documentation)
   #:use-module (gnu packages lua)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
   #:use-module (gnu packages perl)
-  #:use-module (guix build-system python))
+  #:use-module (gnu packages statistics))
 
 (define-public cereal
   (package
@@ -68,7 +75,8 @@
           (lambda _
             (substitute* "doc/doxygen.in"
               (("@CMAKE_CURRENT_SOURCE_DIR@") "."))
-            (zero? (system* "doxygen" "doc/doxygen.in"))))
+            (invoke "doxygen" "doc/doxygen.in")
+            #t))
          ;; There is no "install" target, so we have to provide our own
          ;; "install" phase.
          (replace 'install
@@ -127,10 +135,11 @@ such as compact binary encodings, XML, or JSON.")
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'autoconf
+         (add-after 'unpack 'autoconf
            (lambda _
-             (system* "autoreconf" "-vfi"))))))
-    (home-page "http://www.msgpack.org")
+             (invoke "autoreconf" "-vfi")
+             #t)))))
+    (home-page "https://www.msgpack.org")
     (synopsis "Binary serialization library")
     (description "Msgpack is a library for C/C++ that implements binary
 serialization.")
@@ -239,7 +248,7 @@ that implements both the msgpack and msgpack-rpc specifications.")
 (define-public yaml-cpp
   (package
     (name "yaml-cpp")
-    (version "0.5.3")
+    (version "0.6.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -247,8 +256,10 @@ that implements both the msgpack and msgpack-rpc specifications.")
                     "yaml-cpp-" version ".tar.gz"))
               (sha256
                (base32
-                "1vk6pjh0f5k6jwk2sszb9z5169whmiha9ainbdpa1arxlkq7v3b6"))))
+                "038ddf771d1zrdfiwqzq2lsjdis1fxbaasbdja2w9f1av3k3gv15"))))
     (build-system cmake-build-system)
+    (arguments
+     '(#:configure-flags '("-DBUILD_SHARED_LIBS=ON")))
     (inputs
      `(("boost" ,boost)))
     (native-inputs
@@ -261,7 +272,7 @@ that implements both the msgpack and msgpack-rpc specifications.")
 (define-public jsoncpp
   (package
     (name "jsoncpp")
-    (version "1.8.0")
+    (version "1.8.4")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -270,7 +281,7 @@ that implements both the msgpack and msgpack-rpc specifications.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1g35ci93s03wph4kabi46iz42wgyfbn2763cklf15h7hrdi29ssx"))))
+                "1dpxk8hkni5dq4mdw8qbaj40jmid3a31d1gh8iqcnfwkw34ym7f4"))))
     (build-system cmake-build-system)
     (home-page "https://github.com/open-source-parsers/jsoncpp")
     (arguments
@@ -357,14 +368,14 @@ However, “Memory efficiency” and “Speed” have not been primary goals.")
 (define-public python-ruamel.yaml
   (package
     (name "python-ruamel.yaml")
-    (version "0.15.19")
+    (version "0.15.37")
     (source
      (origin
        (method url-fetch)
        (uri (pypi-uri "ruamel.yaml" version))
        (sha256
         (base32
-         "0qx779avw8d1vsjqyi7z21h1g5ykp8paqavgj0lzbp8h7bw9vpgv"))))
+         "0629xzlwbddfwp8lkjz3mpvxhml9kx17cfs8aydzg55idzcl562h"))))
     (build-system python-build-system)
     (native-inputs
      `(("python-pytest" ,python-pytest)))
@@ -383,3 +394,96 @@ style and key ordering are kept, so you can diff the source.")
 
 (define-public python2-ruamel.yaml
   (package-with-python2 python-ruamel.yaml))
+
+(define-public python-cbor
+  (package
+    (name "python-cbor")
+    (version "1.0.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "cbor" version))
+       (sha256
+        (base32
+         "1dmv163cnslyqccrybkxn0c9s1jk1mmafmgxv75iamnz5lk5l8hk"))))
+    (build-system python-build-system)
+    (home-page "https://bitbucket.org/bodhisnarkva/cbor")
+    (synopsis "Implementation of the Concise Binary Object Representation")
+    (description
+     "Python-cbor provides an implementation of the Concise Binary Object
+Representation (@dfn{CBOR}).  CBOR is comparable to JSON, has a superset of
+JSON's ability, but serializes to a binary format which is smaller and faster
+to generate and parse.  The two primary functions are @code{cbor.loads} and
+@code{cbor.dumps}.")
+    (license license:asl2.0)))
+
+(define-public flatbuffers
+  (package
+    (name "flatbuffers")
+    (version "1.9.0")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (string-append "https://github.com/google/flatbuffers/archive/v"
+                            version ".tar.gz"))
+        (sha256
+         (base32
+          "1qs7sa9q4q6hs12yp875lvrv6393178qcmqs1ziwmjk088g4k9aw"))))
+    (build-system cmake-build-system)
+    (arguments
+     '(#:build-type "Release"
+       #:configure-flags
+       (list (string-append "-DCMAKE_INSTALL_LIBDIR="
+                            (assoc-ref %outputs "out") "/lib"))))
+    (home-page "https://google.github.io/flatbuffers/")
+    (synopsis "Memory-efficient serialization library")
+    (description "FlatBuffers is a cross platform serialization library for C++,
+C#, C, Go, Java, JavaScript, PHP, and Python.  It was originally created for
+game development and other performance-critical applications.")
+    (license license:asl2.0)))
+
+(define-public r-feather
+  (package
+    (name "r-feather")
+    (version "0.3.1")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (cran-uri "feather" version))
+        (sha256
+         (base32
+          "1q6dbkfnkpnabq8lb6bm9ma44cfcghx2lm23pyk3vg7943wrn1pi"))))
+    (build-system r-build-system)
+    (propagated-inputs
+     `(("r-hms" ,r-hms)
+       ("r-rcpp" ,r-rcpp)
+       ("r-tibble" ,r-tibble)))
+    (home-page "https://github.com/wesm/feather")
+    (synopsis "R Bindings to the Feather API")
+    (description "Read and write feather files, a lightweight binary columnar
+daa store designed for maximum speed.")
+    (license license:asl2.0)))
+
+(define-public python-feather-format
+  (package
+    (name "python-feather-format")
+    (version "0.4.0")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (pypi-uri "feather-format" version))
+        (sha256
+         (base32
+          "1adivm5w5ji4qv7hq7942vqlk8l2wgw87bdlsia771z14z3zp857"))))
+    (build-system python-build-system)
+    (propagated-inputs
+     `(("python-pandas" ,python-pandas)
+       ("python-pyarrow" ,python-pyarrow)))
+    (home-page "https://github.com/wesm/feather")
+    (synopsis "Python wrapper to the Feather file format")
+    (description "This package provides a Python wrapper library to the
+Apache Arrow-based Feather binary columnar serialization data frame format.")
+    (license license:asl2.0)))
+
+(define-public python2-feather-format
+  (package-with-python2 python-feather-format))

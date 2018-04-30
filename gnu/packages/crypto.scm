@@ -1,11 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014 David Thompson <davet@gnu.org>
-;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016, 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2015, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2016, 2017, 2018 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Lukas Gradl <lgradl@openmailbox>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016, 2017 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2017 Pierre Langlois <pierre.langlois@gmx.com>
+;;; Copyright © 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Arun Isaac <arunisaac@systemreboot.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -29,16 +32,21 @@
   #:use-module (gnu packages attr)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages cryptsetup)
+  #:use-module (gnu packages databases)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages gnupg)
   #:use-module (gnu packages image)
-  #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages libbsd)
+  #:use-module (gnu packages libffi)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages nettle)
   #:use-module (gnu packages password-utils)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages python)
   #:use-module (gnu packages readline)
   #:use-module (gnu packages search)
   #:use-module (gnu packages serialization)
@@ -52,35 +60,70 @@
   #:use-module (guix git-download)
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system gnu)
-  #:use-module (guix build-system python))
+  #:use-module (guix build-system perl)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-26))
 
 (define-public libsodium
   (package
     (name "libsodium")
-    (version "1.0.13")
+    (version "1.0.16")
     (source (origin
             (method url-fetch)
             (uri (list (string-append
-                        "http://download.libsodium.org/libsodium/"
+                        "https://download.libsodium.org/libsodium/"
                         "releases/libsodium-" version ".tar.gz")
                        (string-append
                         "https://download.libsodium.org/libsodium/"
                         "releases/old/libsodium-" version ".tar.gz")))
             (sha256
              (base32
-              "1z93wfg4k5svg8yck6cgdr6ysj91kbpn03nyzwxanncy3b5sq4ww"))))
+              "0cq5pn7qcib7q70mm1lgjwj75xdxix27v0xl1xl0kvxww7hwgbgf"))))
     (build-system gnu-build-system)
     (synopsis "Portable NaCl-based crypto library")
     (description
      "Sodium is a new easy-to-use high-speed software library for network
 communication, encryption, decryption, signatures, etc.")
     (license license:isc)
-    (home-page "http://libsodium.org")))
+    (home-page "https://libsodium.org")))
+
+(define-public libmd
+  (package
+    (name "libmd")
+    (version "1.0.0")
+    (source (origin
+            (method url-fetch)
+            (uri
+             (list
+              (string-append "https://archive.hadrons.org/software/libmd/libmd-"
+                             version ".tar.xz")
+              (string-append "https://libbsd.freedesktop.org/releases/libmd-"
+                             version ".tar.xz")))
+            (sha256
+             (base32
+              "1iv45npzv0gncjgcpx5m081861zdqxw667ysghqb8721yrlyl6pj"))))
+    (build-system gnu-build-system)
+    (synopsis "Message Digest functions from BSD systems")
+    (description
+     "The currently provided message digest algorithms are:
+@itemize
+@item MD2
+@item MD4
+@item MD5
+@item RIPEMD-160
+@item SHA-1
+@item SHA-2 (SHA-256, SHA-384 and SHA-512)
+@end itemize")
+    (license (list license:bsd-3
+                   license:bsd-2
+                   license:isc
+                   license:public-domain))
+    (home-page "https://www.hadrons.org/software/libmd/")))
 
 (define-public signify
   (package
     (name "signify")
-    (version "21")
+    (version "23")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/aperezdc/signify/"
@@ -88,7 +131,7 @@ communication, encryption, decryption, signatures, etc.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0jd26kxwmmar3bylpx9x5dpqxzs17ky5dvwx8pdgcg95n4lyk223"))))
+                "0c70mzawgahsvmsv4xdrass4pgyynd67ipd9lij0fgi8wkq0ns8w"))))
     (build-system gnu-build-system)
     ;; TODO Build with libwaive (described in README.md), to implement something
     ;; like OpenBSD's pledge().
@@ -160,7 +203,7 @@ OpenBSD tool of the same name.")
     (arguments
      `(#:configure-flags '("--disable-tools" "--disable-python")
        #:phases (modify-phases %standard-phases
-                  (add-before 'configure 'autoconf
+                  (add-after 'unpack 'autoconf
                     (lambda _
                       (zero? (system* "autoreconf" "-vfi")))))))
     (home-page "https://github.com/savoirfairelinux/opendht/")
@@ -217,7 +260,7 @@ the wrong hands.")
 (define-public keyutils
   (package
     (name "keyutils")
-    (version "1.5.9")
+    (version "1.5.10")
     (source
      (origin
        (method url-fetch)
@@ -226,7 +269,7 @@ the wrong hands.")
                        version ".tar.bz2"))
        (sha256
         (base32
-         "1bl3w03ygxhc0hz69klfdlwqn33jvzxl1zfl2jmnb2v85iawb8jd"))
+         "1dmgjcf7mnwc6h72xkvpaqpzxw8vmlnsmzz0s27pg0giwzm3sp0i"))
        (modules '((guix build utils)))
        ;; Create relative symbolic links instead of absolute ones to /lib/*
        (snippet '(substitute* "Makefile" (("\\$\\(LNS\\) \\$\\(LIBDIR\\)/")
@@ -343,9 +386,9 @@ no man page, refer to the home page for usage details.")
          (delete 'configure)   ;no configuration to be done
          (add-after 'install 'i18n
            (lambda* (#:key make-flags #:allow-other-keys)
-             (zero? (apply system*
-                           "make" "-C" "extras/translations"
-                           "install" make-flags))))
+             (apply invoke "make" "-C" "extras/translations"
+                    "install" make-flags)
+             #t))
          (add-after 'install 'wrap
            (lambda* (#:key inputs outputs #:allow-other-keys)
              (let ((out (assoc-ref outputs "out")))
@@ -370,8 +413,9 @@ no man page, refer to the home page for usage details.")
              ;; querying `tomb -h`.
              (let ((tomb (string-append (assoc-ref outputs "out")
                                         "/bin/tomb")))
-               (zero? (system* tomb "dig" "-s" "10" "secrets.tomb"))))))))
-    (home-page "http://www.dyne.org/software/tomb")
+               (invoke tomb "dig" "-s" "10" "secrets.tomb")
+               #t))))))
+    (home-page "https://www.dyne.org/software/tomb")
     (synopsis "File encryption for secret data")
     (description
      "Tomb is an application to manage the creation and access of encrypted
@@ -415,25 +459,303 @@ utility as a demonstration of the @code{scrypt} key derivation function.
 attacks than alternative functions such as @code{PBKDF2} or @code{bcrypt}.")
     (license license:bsd-2)))
 
-(define-public python-asn1crypto
+(define-public perl-math-random-isaac-xs
   (package
-    (name "python-asn1crypto")
-    (version "0.22.0")
+    (name "perl-math-random-isaac-xs")
+    (version "1.004")
     (source
-      (origin
-        (method url-fetch)
-        (uri (string-append "https://github.com/wbond/asn1crypto/archive/"
-                            version ".tar.gz"))
-        (sha256
-         (base32
-          "1kn910896l3knmilla1c9ly20q181s43w1ah08lzkbm1h3j6pcz0"))))
-    (build-system python-build-system)
-    (home-page "https://github.com/wbond/asn1crypto")
-    (synopsis "ASN.1 parser and serializer in Python")
-    (description "asn1crypto is an ASN.1 parser and serializer with definitions
-for private keys, public keys, certificates, CRL, OCSP, CMS, PKCS#3, PKCS#7,
-PKCS#8, PKCS#12, PKCS#5, X.509 and TSP.")
-    (license license:expat)))
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/J/JA/JAWNSY/"
+                           "Math-Random-ISAAC-XS-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0yxqqcqvj51fn7b7j5xqhz65v74arzgainn66c6k7inijbmr1xws"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-build" ,perl-module-build)
+       ("perl-test-nowarnings" ,perl-test-nowarnings)))
+    (home-page "http://search.cpan.org/dist/Math-Random-ISAAC-XS")
+    (synopsis "C implementation of the ISAAC PRNG algorithm")
+    (description "ISAAC (Indirection, Shift, Accumulate, Add, and Count) is a
+fast pseudo-random number generator.  It is suitable for applications where a
+significant amount of random data needs to be produced quickly, such as
+solving using the Monte Carlo method or for games.  The results are uniformly
+distributed, unbiased, and unpredictable unless you know the seed.
 
-(define-public python2-asn1crypto
-  (package-with-python2 python-asn1crypto))
+This package implements the same interface as @code{Math::Random::ISAAC}.")
+    (license license:public-domain)))
+
+(define-public perl-math-random-isaac
+  (package
+    (name "perl-math-random-isaac")
+    (version "1.004")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/J/JA/JAWNSY/"
+                           "Math-Random-ISAAC-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0z1b3xbb3xz71h25fg6jgsccra7migq7s0vawx2rfzi0pwpz0wr7"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-test-nowarnings" ,perl-test-nowarnings)))
+    (propagated-inputs
+     `(("perl-math-random-isaac-xs" ,perl-math-random-isaac-xs)))
+    (home-page "http://search.cpan.org/dist/Math-Random-ISAAC")
+    (synopsis "Perl interface to the ISAAC PRNG algorithm")
+    (description "ISAAC (Indirection, Shift, Accumulate, Add, and Count) is a
+fast pseudo-random number generator.  It is suitable for applications where a
+significant amount of random data needs to be produced quickly, such as
+solving using the Monte Carlo method or for games.  The results are uniformly
+distributed, unbiased, and unpredictable unless you know the seed.
+
+This package provides a Perl interface to the ISAAC pseudo random number
+generator.")
+    (license license:public-domain)))
+
+(define-public perl-crypt-random-source
+  (package
+    (name "perl-crypt-random-source")
+    (version "0.12")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/E/ET/ETHER/"
+                           "Crypt-Random-Source-" version ".tar.gz"))
+       (sha256
+        (base32
+         "00mw5m52sbz9nqp3f6axyrgcrihqxn7k8gv0vi1kvm1j1nc9g29h"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-build-tiny" ,perl-module-build-tiny)
+       ("perl-test-exception" ,perl-test-exception)))
+    (propagated-inputs
+     `(("perl-capture-tiny" ,perl-capture-tiny)
+       ("perl-module-find" ,perl-module-find)
+       ("perl-module-runtime" ,perl-module-runtime)
+       ("perl-moo" ,perl-moo)
+       ("perl-namespace-clean" ,perl-namespace-clean)
+       ("perl-sub-exporter" ,perl-sub-exporter)
+       ("perl-type-tiny" ,perl-type-tiny)))
+    (home-page "http://search.cpan.org/dist/Crypt-Random-Source")
+    (synopsis "Get weak or strong random data from pluggable sources")
+    (description "This module provides implementations for a number of
+byte-oriented sources of random data.")
+    (license license:perl-license)))
+
+(define-public perl-math-random-secure
+  (package
+    (name "perl-math-random-secure")
+    (version "0.080001")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/F/FR/FREW/"
+                           "Math-Random-Secure-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0dgbf4ncll4kmgkyb9fsaxn0vf2smc9dmwqzgh3259zc2zla995z"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-list-moreutils" ,perl-list-moreutils)
+       ("perl-test-leaktrace" ,perl-test-leaktrace)
+       ("perl-test-sharedfork" ,perl-test-sharedfork)
+       ("perl-test-warn" ,perl-test-warn)))
+    (inputs
+     `(("perl-crypt-random-source" ,perl-crypt-random-source)
+       ("perl-math-random-isaac" ,perl-math-random-isaac)
+       ("perl-math-random-isaac-xs" ,perl-math-random-isaac-xs)
+       ("perl-moo" ,perl-moo)))
+    (home-page "http://search.cpan.org/dist/Math-Random-Secure")
+    (synopsis "Cryptographically secure replacement for rand()")
+    (description "This module is intended to provide a
+cryptographically-secure replacement for Perl's built-in @code{rand} function.
+\"Crytographically secure\", in this case, means:
+
+@enumerate
+@item No matter how many numbers you see generated by the random number
+generator, you cannot guess the future numbers, and you cannot guess the seed.
+@item There are so many possible seeds that it would take decades, centuries,
+or millennia for an attacker to try them all.
+@item The seed comes from a source that generates relatively strong random
+data on your platform, so the seed itself will be as random as possible.
+@end enumerate\n")
+    (license license:artistic2.0)))
+
+(define-public crypto++
+  (package
+    (name "crypto++")
+    (version "6.0.0")
+    (source (origin
+              (method url-fetch/zipbomb)
+              (uri (string-append "https://cryptopp.com/cryptopp"
+                                  (string-join (string-split version #\.) "")
+                                  ".zip"))
+              (sha256
+               (base32
+                "1nidm6xbdza5cbgf5md2zznmaq692rfyjasycwipl6rzdfwjvb34"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags
+       (list (string-append "PREFIX=" (assoc-ref %outputs "out")))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'disable-native-optimisation
+           ;; This package installs more than just headers.  Ensure that the
+           ;; cryptest.exe binary & static library aren't CPU model specific.
+           (lambda _
+             (substitute* "GNUmakefile"
+               ((" -march=native") ""))
+             #t))
+         (delete 'configure))))
+    (native-inputs
+     `(("unzip" ,unzip)))
+    (home-page "https://cryptopp.com/")
+    (synopsis "C++ class library of cryptographic schemes")
+    (description "Crypto++ is a C++ class library of cryptographic schemes.")
+    ;; The compilation is distributed under the Boost license; the individual
+    ;; files in the compilation are in the public domain.
+    (license (list license:boost1.0 license:public-domain))))
+
+(define-public libb2
+  (let ((revision "1")                  ; upstream doesn't ‘do’ releases
+        (commit "60ea749837362c226e8501718f505ab138e5c19d"))
+    (package
+      (name "libb2")
+      (version (git-version "0.0.0" revision commit))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/BLAKE2/libb2")
+                      (commit commit)))
+                (file-name (git-file-name name version))
+                (sha256
+                 (base32
+                  "07a2m8basxrsj9dsp5lj24y8jraj85lfy56756a7za1nfkgy04z7"))))
+      (build-system gnu-build-system)
+      (native-inputs
+       `(("autoconf" ,autoconf)
+         ("automake" ,automake)
+         ("libtool" ,libtool)))
+      (arguments
+       `(#:configure-flags
+         (list
+           ,@(if (any (cute string-prefix? <> (or (%current-system)
+                                                  (%current-target-system)))
+                      '("x86_64" "i686"))
+               ;; fat only checks for Intel optimisations
+               '("--enable-fat")
+               '())
+           "--disable-native") ; don't optimise at build time.
+         #:phases
+         (modify-phases %standard-phases
+           (add-after 'unpack 'bootstrap
+             (lambda _
+               (invoke "sh" "autogen.sh"))))))
+      (home-page "https://blake2.net/")
+      (synopsis "Library implementing the BLAKE2 family of hash functions")
+      (description
+       "libb2 is a portable implementation of the BLAKE2 family of cryptographic
+hash functions.  It includes optimised implementations for IA-32 and AMD64
+processors, and an interface layer that automatically selects the best
+implementation for the processor it is run on.
+
+@dfn{BLAKE2} (RFC 7693) is a family of high-speed cryptographic hash functions
+that are faster than MD5, SHA-1, SHA-2, and SHA-3, yet are at least as secure
+as the latest standard, SHA-3.  It is an improved version of the SHA-3 finalist
+BLAKE.")
+      (license license:public-domain))))
+
+(define-public rhash
+  (package
+    (name "rhash")
+    (version "1.3.5")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/rhash/RHash/archive/v"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0bhz3xdl6r06k1bqigdjz42l31iqz2qdpg7zk316i7p2ra56iq4q"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags (list "CC=gcc"
+                          (string-append "PREFIX=" %output))
+       #:test-target "test"
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* "Makefile"
+               (("\\$\\(DESTDIR\\)/etc")
+                (string-append (assoc-ref outputs "out") "/etc")))
+             #t))
+         (add-after 'build 'build-library
+           (lambda* (#:key make-flags #:allow-other-keys)
+             (apply invoke "make" "lib-shared" make-flags)))
+         (add-after 'install 'install-library
+           (lambda* (#:key make-flags #:allow-other-keys)
+             (apply invoke "make" "install-lib-shared" make-flags)
+             (apply invoke
+                    "make" "-C" "librhash" "install-headers"
+                    "install-so-link" make-flags)))
+         (add-after 'check 'check-library
+           (lambda* (#:key make-flags #:allow-other-keys)
+             (apply invoke "make" "test-shared-lib" make-flags))))))
+    (home-page "https://sourceforge.net/projects/rhash/")
+    (synopsis "Utility for computing hash sums")
+    (description "RHash is a console utility for calculation and verification
+of magnet links and a wide range of hash sums like CRC32, MD4, MD5, SHA1,
+SHA256, SHA512, SHA3, AICH, ED2K, Tiger, DC++ TTH, BitTorrent BTIH, GOST R
+34.11-94, RIPEMD-160, HAS-160, EDON-R, Whirlpool and Snefru.")
+    (license (license:non-copyleft "file://COPYING"))))
+
+(define-public botan
+  (package
+    (name "botan")
+    (version "2.5.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://botan.randombit.net/releases/"
+                                  "Botan-" version ".tgz"))
+              (sha256
+               (base32
+                "06zvwknhwfrkdvq2sybqbqhnd2d4nq2cszlnsddql13z7vh1z8xq"))))
+    (build-system gnu-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out (assoc-ref %outputs "out"))
+                    (lib (string-append out "/lib")))
+               (invoke "python" "./configure.py"
+                       (string-append "--prefix=" out)
+                       ;; Otherwise, the `botan` executable cannot find
+                       ;; libbotan.
+                       (string-append "--ldflags=-Wl,-rpath=" lib)
+                       "--with-rst2man"
+                       ;; Recommended by upstream
+                       "--with-zlib" "--with-bzip2" "--with-sqlite3"))))
+         (replace 'check
+           (lambda _ (invoke "./botan-test"))))))
+    (native-inputs
+     `(("python" ,python-minimal-wrapper)
+       ("python-docutils" ,python-docutils)))
+    (inputs
+     `(("sqlite" ,sqlite)
+       ("bzip2" ,bzip2)
+       ("zlib" ,zlib)))
+    (synopsis "Cryptographic library in C++11")
+    (description "Botan is a cryptography library, written in C++11, offering
+the tools necessary to implement a range of practical systems, such as TLS/DTLS,
+PKIX certificate handling, PKCS#11 and TPM hardware support, password hashing,
+and post-quantum crypto schemes.  In addition to the C++, botan has a C89 API
+specifically designed to be easy to call from other languages.  A Python binding
+using ctypes is included, and several other language bindings are available.")
+    (home-page "https://botan.randombit.net")
+    (license license:bsd-2)))

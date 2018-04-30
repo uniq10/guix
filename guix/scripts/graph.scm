@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -27,9 +27,11 @@
   #:use-module (guix gexp)
   #:use-module (guix derivations)
   #:use-module (guix memoization)
+  #:use-module (guix modules)
   #:use-module ((guix build-system gnu) #:select (standard-packages))
   #:use-module (gnu packages)
   #:use-module (guix sets)
+  #:use-module ((guix utils) #:select (location-file))
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
   #:use-module (srfi srfi-34)
@@ -44,6 +46,7 @@
             %derivation-node-type
             %reference-node-type
             %referrer-node-type
+            %module-node-type
             %node-types
 
             guix-graph))
@@ -332,6 +335,36 @@ substitutes."
 
 
 ;;;
+;;; Scheme modules.
+;;;
+
+(define (module-from-package package)
+  (file-name->module-name (location-file (package-location package))))
+
+(define (source-module-dependencies* module)
+  "Like 'source-module-dependencies' but filter out modules that are not
+package modules, while attempting to retain user package modules."
+  (remove (match-lambda
+            (('guix _ ...) #t)
+            (('system _ ...) #t)
+            (('language _ ...) #t)
+            (('ice-9 _ ...) #t)
+            (('srfi _ ...) #t)
+            (_ #f))
+          (source-module-dependencies module)))
+
+(define %module-node-type
+  ;; Show the graph of package modules.
+  (node-type
+   (name "module")
+   (description "the graph of package modules")
+   (convert (lift1 (compose list module-from-package) %store-monad))
+   (identifier (lift1 identity %store-monad))
+   (label object->string)
+   (edges (lift1 source-module-dependencies* %store-monad))))
+
+
+;;;
 ;;; List of node types.
 ;;;
 
@@ -344,7 +377,8 @@ substitutes."
         %bag-emerged-node-type
         %derivation-node-type
         %reference-node-type
-        %referrer-node-type))
+        %referrer-node-type
+        %module-node-type))
 
 (define (lookup-node-type name)
   "Return the node type called NAME.  Raise an error if it is not found."
@@ -417,7 +451,7 @@ substitutes."
   ;; TRANSLATORS: Here 'dot' is the name of a program; it must not be
   ;; translated.
   (display (G_ "Usage: guix graph PACKAGE...
-Emit a Graphviz (dot) representation of the dependencies of PACKAGE...\n"))
+Emit a representation of the dependency graph of PACKAGE...\n"))
   (display (G_ "
   -b, --backend=TYPE     produce a graph with the given backend TYPE"))
   (display (G_ "
@@ -447,12 +481,9 @@ Emit a Graphviz (dot) representation of the dependencies of PACKAGE...\n"))
 
 (define (guix-graph . args)
   (with-error-handling
-    (let* ((opts     (args-fold* args %options
-                                 (lambda (opt name arg . rest)
-                                   (leave (G_ "~A: unrecognized option~%") name))
-                                 (lambda (arg result)
-                                   (alist-cons 'argument arg result))
-                                 %default-options))
+    (let* ((opts     (parse-command-line args %options
+                                         (list %default-options)
+                                         #:build-options? #f))
            (backend  (assoc-ref opts 'backend))
            (type     (assoc-ref opts 'node-type))
            (items    (filter-map (match-lambda

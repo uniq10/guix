@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,6 +23,7 @@
   #:use-module (guix build-system cmake)
   #:use-module (guix download)
   #:use-module (guix packages)
+  #:use-module (gnu packages)
   #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages databases)
@@ -35,14 +37,15 @@
 (define-public owncloud-client
   (package
     (name "owncloud-client")
-    (version "2.3.1")
+    (version "2.3.4")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://download.owncloud.com/desktop/stable/"
                            "owncloudclient-" version ".tar.xz"))
        (sha256
-        (base32 "051rky4rpm73flxxkhfdxqq23ncnk4ixhscbg74w82sa4d93f54k"))
+        (base32 "1fpi1mlp2b8sx2993b4mava5c6qw794dmlayih430299z1l9wh49"))
+       (patches (search-patches "owncloud-disable-updatecheck.patch"))
        (modules '((guix build utils)))
        (snippet
         '(begin
@@ -162,7 +165,7 @@ their folder.
 (define-public lsyncd
   (package
     (name "lsyncd")
-    (version "2.2.1")
+    (version "2.2.2")
     (source
      (origin
        (method url-fetch)
@@ -171,7 +174,7 @@ their folder.
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0da7mrq2c578v2dd5x9v75l1fqrm28jvn28qkcd49y8p992nj6gl"))))
+         "02g054qv8rnbxywd4f0gnd13lrlns9175d3ciqnyslhs1zs15nqb"))))
     (build-system cmake-build-system)
     (arguments
      `(;; The "tests" target is broken and assumes that tests are run in the
@@ -201,6 +204,6 @@ interface (inotify or fsevents).  It aggregates and combines events for a few
 seconds and then spawns one (or more) process(es) to synchronize the changes.
 By default this is rsync, which must be installed on all source and target
 machines.  Lsyncd is thus a light-weight live mirror solution that is
-comparatively easy to install not requiring new filesystems or block devices
-and does not hamper local filesystem performance.")
+comparatively easy to install not requiring new file systems or block devices
+and does not hamper local file system performance.")
     (license license:gpl2+)))

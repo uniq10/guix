@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -21,13 +22,24 @@
 ;;; tool.
 ;;;
 
-;; Attempt to use our very own Guix modules.
-(eval-when (compile load eval)
+(use-modules (system base compile))
 
-  ;; Ignore any available .go, and force recompilation.  This is because our
-  ;; checkout in the store has mtime set to the epoch, and thus .go files look
-  ;; newer, even though they may not correspond.
+(eval-when (expand load eval)
+
+  ;; Pre-load the compiler so we don't end up auto-compiling it.
+  (compile #t)
+
+  ;; Use our very own Guix modules.
   (set! %fresh-auto-compile #t)
+
+  ;; Ignore .go files except for Guile's.  This is because our checkout in the
+  ;; store has mtime set to the epoch, and thus .go files look newer, even
+  ;; though they may not correspond.  Use 'reverse' so that /gnu/store/…-guile
+  ;; comes before /run/current-system/profile.
+  (set! %load-compiled-path
+    (list
+     (dirname (dirname (search-path (reverse %load-compiled-path)
+                                    "ice-9/boot-9.go")))))
 
   (and=> (assoc-ref (current-source-location) 'filename)
          (lambda (file)
@@ -48,6 +60,8 @@
              ((guix scripts system) #:select (read-operating-system))
              ((guix scripts pack)
               #:select (lookup-compressor self-contained-tarball))
+             (gnu bootloader)
+             (gnu bootloader u-boot)
              (gnu packages)
              (gnu packages gcc)
              (gnu packages base)
@@ -132,7 +146,10 @@ SYSTEM."
     "i686-w64-mingw32"))
 
 (define %guixsd-supported-systems
-  '("x86_64-linux" "i686-linux"))
+  '("x86_64-linux" "i686-linux" "armhf-linux"))
+
+(define %u-boot-systems
+  '("armhf-linux"))
 
 (define (qemu-jobs store system)
   "Return a list of jobs that build QEMU images for SYSTEM."
@@ -156,20 +173,32 @@ system.")
     (expt 2 20))
 
   (if (member system %guixsd-supported-systems)
-      (list (->job 'usb-image
-                   (run-with-store store
-                     (mbegin %store-monad
-                       (set-guile-for-build (default-guile))
-                       (system-disk-image installation-os
-                                          #:disk-image-size
-                                          (* 1024 MiB)))))
-            (->job 'iso9660-image
-                   (run-with-store store
-                     (mbegin %store-monad
-                       (set-guile-for-build (default-guile))
-                       (system-disk-image installation-os
-                                          #:file-system-type
-                                          "iso9660")))))
+      (if (member system %u-boot-systems)
+          (list (->job 'flash-image
+                       (run-with-store store
+                         (mbegin %store-monad
+                           (set-guile-for-build (default-guile))
+                           (system-disk-image
+                            (operating-system (inherit installation-os)
+                             (bootloader (bootloader-configuration
+                                          (bootloader u-boot-bootloader)
+                                          (target #f))))
+                            #:disk-image-size
+                            (* 1024 MiB))))))
+          (list (->job 'usb-image
+                       (run-with-store store
+                         (mbegin %store-monad
+                           (set-guile-for-build (default-guile))
+                           (system-disk-image installation-os
+                                              #:disk-image-size
+                                              (* 1024 MiB)))))
+                (->job 'iso9660-image
+                       (run-with-store store
+                         (mbegin %store-monad
+                           (set-guile-for-build (default-guile))
+                           (system-disk-image installation-os
+                                              #:file-system-type
+                                              "iso9660"))))))
       '()))
 
 (define (system-test-jobs store system)
@@ -250,7 +279,8 @@ all its dependencies, and ready to be installed on non-GuixSD distributions.")
       "Return a job for PACKAGE on SYSTEM, or #f if this combination is not
 valid."
       (cond ((member package base-packages)
-             #f)
+             (package-job store (symbol-append 'base. (job-name package))
+                          package system))
             ((supported-package? package system)
              (let ((drv (package-derivation store package system
                                             #:graft? #f)))
@@ -259,6 +289,25 @@ valid."
                                  package system))))
             (else
              #f)))))
+
+(define (all-packages)
+  "Return the list of packages to build."
+  (define (adjust package result)
+    (cond ((package-replacement package)
+           (cons* package                         ;build both
+                  (package-replacement package)
+                  result))
+          ((package-superseded package)
+           result)                                ;don't build it
+          (else
+           (cons package result))))
+
+  (fold-packages adjust
+                 (fold adjust '()                 ;include base packages
+                       (match (%final-inputs)
+                         (((labels packages _ ...) ...)
+                          packages)))
+                 #:select? (const #t)))           ;include hidden packages
 
 
 ;;;
@@ -270,7 +319,15 @@ valid."
   (define subset
     (match (assoc-ref arguments 'subset)
       ("core" 'core)                              ; only build core packages
+      ("hello" 'hello)                            ; only build hello
+      (((? string?) (? string?) ...) 'list)       ; only build selected list of packages
       (_ 'all)))                                  ; build everything
+
+  (define systems
+    (match (assoc-ref arguments 'systems)
+      (#f              %hydra-supported-systems)
+      ((lst ...)       lst)
+      ((? string? str) (call-with-input-string str read))))
 
   (define (cross-jobs system)
     (define (from-32-to-64? target)
@@ -292,8 +349,15 @@ valid."
 
     (define (pointless? target)
       ;; Return #t if it makes no sense to cross-build to TARGET from SYSTEM.
-      (and (string-contains target "mingw")
-           (not (string=? "x86_64-linux" system))))
+      (match system
+        ((or "x86_64-linux" "i686-linux")
+         (if (string-contains target "mingw")
+             (not (string=? "x86_64-linux" system))
+             #f))
+        (_
+         ;; Don't try to cross-compile from non-Intel platforms: this isn't
+         ;; very useful and these are often brittle configurations.
+         #t)))
 
     (define (either proc1 proc2 proc3)
       (lambda (x)
@@ -311,20 +375,17 @@ valid."
   (parameterize ((%graft? #f))
     ;; Return one job for each package, except bootstrap packages.
     (append-map (lambda (system)
+                  (format (current-error-port)
+                          "evaluating for '~a' (heap size: ~a MiB)...~%"
+                          system
+                          (round
+                           (/ (assoc-ref (gc-stats) 'heap-size)
+                              (expt 2. 20))))
+                  (invalidate-derivation-caches!)
                   (case subset
                     ((all)
                      ;; Build everything, including replacements.
-                     (let ((all (fold-packages
-                                 (lambda (package result)
-                                   (cond ((package-replacement package)
-                                          (cons* package
-                                                 (package-replacement package)
-                                                 result))
-                                         ((package-superseded package)
-                                          result) ;don't build it
-                                         (else
-                                          (cons package result))))
-                                 '()))
+                     (let ((all (all-packages))
                            (job (lambda (package)
                                   (package->job store package
                                                 system))))
@@ -340,6 +401,22 @@ valid."
                                                  package system))
                                   %core-packages)
                              (cross-jobs system)))
+                    ((hello)
+                     ;; Build hello package only.
+                     (if (string=? system (%current-system))
+                         (let ((hello (specification->package "hello")))
+                           (list (package-job store (job-name hello) hello system)))
+                         '()))
+                    ((list)
+                     ;; Build selected list of packages only.
+                     (if (string=? system (%current-system))
+                         (let* ((names (assoc-ref arguments 'subset))
+                                (packages (map specification->package names)))
+                           (map (lambda (package)
+                                    (package-job store (job-name package)
+                                                 package system))
+                                  packages))
+                         '()))
                     (else
                      (error "unknown subset" subset))))
-                %hydra-supported-systems)))
+                systems)))

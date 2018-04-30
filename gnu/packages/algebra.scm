@@ -1,11 +1,13 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2013, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016, 2017 Nicolas Goaziou <mail@nicolasgoaziou.fr>
+;;; Copyright © 2013, 2015, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;;; Copyright © 2014 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2018 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -33,6 +35,7 @@
   #:use-module (gnu packages gl)
   #:use-module (gnu packages graphviz)
   #:use-module (gnu packages image)
+  #:use-module (gnu packages java)
   #:use-module (gnu packages maths)
   #:use-module (gnu packages mpi)
   #:use-module (gnu packages multiprecision)
@@ -44,9 +47,11 @@
   #:use-module (gnu packages texinfo)
   #:use-module (gnu packages xiph)
   #:use-module (gnu packages xorg)
+  #:use-module (guix build-system ant)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system cmake)
   #:use-module (guix download)
+  #:use-module (guix git-download)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix utils))
@@ -132,7 +137,7 @@ solve the shortest vector problem.")
 (define-public pari-gp
   (package
    (name "pari-gp")
-   (version "2.9.2")
+   (version "2.9.4")
    (source (origin
             (method url-fetch)
             (uri (string-append
@@ -140,7 +145,7 @@ solve the shortest vector problem.")
                   version ".tar.gz"))
             (sha256
               (base32
-                "0zi08qz9nk17wwdna4xb2vp3i3mh5sgv1y8wqbf0j2sfryxlr8ls"))))
+                "0ir6m3a8r46md5x6zk4xf159qra7aqparby9zk03k81hjrrxr72g"))))
    (build-system gnu-build-system)
    (native-inputs `(("texlive" ,texlive-tiny)))
    (inputs `(("gmp" ,gmp)
@@ -206,7 +211,7 @@ GP2C, the GP to C compiler, translates GP scripts to PARI programs.")
 (define-public giac-xcas
   (package
     (name "giac-xcas")
-    (version "1.2.3-51")
+    (version "1.4.9-45")
     (source (origin
               (method url-fetch)
               ;; "~parisse/giac" is not used because the maintainer regularly
@@ -218,7 +223,7 @@ GP2C, the GP to C compiler, translates GP scripts to PARI programs.")
                                   "source/giac_" version ".tar.gz"))
               (sha256
                (base32
-                "1w7d4sdjbvqiibnfkhrqy9np3smsysilfba9pry3q1qn5g5y6nrp"))))
+                "11za5rznr2dgy6598y4iwrcyi86w7f601ci9i794kl8k22pqhcd8"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -228,13 +233,6 @@ GP2C, the GP to C compiler, translates GP scripts to PARI programs.")
              ;; Some Makefiles contain hard-coded "/bin/cp".
              (substitute* (find-files "doc" "^Makefile")
                (("/bin/cp") (which "cp")))
-             #t))
-         (add-after 'unpack 'disable-broken-test
-           (lambda _
-             ;; Disable failing test.  Actually, the results are correct but
-             ;; a sorting discrepancy prevents the test from being validated.
-             (substitute* "check/Makefile.in"
-               (("chk_fhan16") ""))
              #t)))))
     (inputs
      `(("fltk" ,fltk)
@@ -315,7 +313,7 @@ fast arithmetic.")
 (define-public arb
   (package
    (name "arb")
-   (version "2.10.0")
+   (version "2.12.0")
    (source (origin
             (method url-fetch)
             (uri (string-append
@@ -324,7 +322,7 @@ fast arithmetic.")
             (file-name (string-append name "-" version ".tar.gz"))
             (sha256
               (base32
-                "0jwcv9ssvi8axb1y7m2h4ykgyl015cl6g28gfl92l4dgnag585ak"))))
+                "0j37xkxbqpra4sf0a96x4sqbl5fkal8d7c94bi9wdsqqj6kgcsil"))))
    (build-system gnu-build-system)
    (propagated-inputs
     `(("flint" ,flint))) ; flint.h is included by arf.h
@@ -333,22 +331,21 @@ fast arithmetic.")
       ("mpfr" ,mpfr)))
    (arguments
     `(#:phases
-        (alist-replace
-         'configure
-         (lambda* (#:key inputs outputs #:allow-other-keys)
-           (let ((out (assoc-ref outputs "out"))
-                 (flint (assoc-ref inputs "flint"))
-                 (gmp (assoc-ref inputs "gmp"))
-                 (mpfr (assoc-ref inputs "mpfr")))
-             ;; do not pass "--enable-fast-install", which makes the
-             ;; homebrew configure process fail
-             (zero? (system*
-                     "./configure"
-                     (string-append "--prefix=" out)
-                     (string-append "--with-flint=" flint)
-                     (string-append "--with-gmp=" gmp)
-                     (string-append "--with-mpfr=" mpfr)))))
-         %standard-phases)))
+      (modify-phases %standard-phases
+        (replace 'configure
+          (lambda* (#:key inputs outputs #:allow-other-keys)
+            (let ((out (assoc-ref outputs "out"))
+                  (flint (assoc-ref inputs "flint"))
+                  (gmp (assoc-ref inputs "gmp"))
+                  (mpfr (assoc-ref inputs "mpfr")))
+              ;; do not pass "--enable-fast-install", which makes the
+              ;; homebrew configure process fail
+              (zero? (system*
+                      "./configure"
+                      (string-append "--prefix=" out)
+                      (string-append "--with-flint=" flint)
+                      (string-append "--with-gmp=" gmp)
+                      (string-append "--with-mpfr=" mpfr)))))))))
    (synopsis "Arbitrary precision floating-point ball arithmetic")
    (description
     "Arb is a C library for arbitrary-precision floating-point ball
@@ -441,14 +438,14 @@ geometry and singularity theory.")
 (define-public gmp-ecm
   (package
    (name "gmp-ecm")
-   (version "7.0")
+   (version "7.0.4")
    (source (origin
-            (method url-fetch)
-            (uri (string-append "https://gforge.inria.fr/frs/download.php/"
-                                "file/35642/ecm-"
-                                version ".tar.gz"))
-            (sha256 (base32
-                     "00jzzwqp49m01vwsr9z1w7bvm8lb69l3f62x7qr8sfz0xiczxnpm"))))
+             (method url-fetch)
+             ;; Use the ‘Latest version’ link for a stable URI across releases.
+             (uri (string-append "https://gforge.inria.fr/frs/download.php/"
+                                 "latestfile/160/ecm-" version ".tar.gz"))
+             (sha256 (base32
+                      "0hxs24c2m3mh0nq1zz63z3sb7dhy1rilg2s1igwwcb26x3pb7xqc"))))
    (build-system gnu-build-system)
    (inputs
     `(("gmp" ,gmp)))
@@ -479,7 +476,6 @@ binary.")
               (base32
                "0amh9ik44jfg66csyvf4zz1l878c4755kjndq9j0270akflgrbb2"))))
     (build-system gnu-build-system)
-    (inputs `(("readline" ,readline)))
     (native-inputs
      `(("ed" ,ed)
        ("flex" ,flex)
@@ -523,6 +519,7 @@ a C program.")
     (license license:bsd-3)))
 
 (define-public fftw
+  ;; TODO: Make this 3.3.7 (see below) on the next upgrade cycle.
   (package
     (name "fftw")
     (version "3.3.5")
@@ -582,30 +579,171 @@ cosine/ sine transforms or DCT/DST).")
      (string-append (package-description fftw)
                     "  With OpenMPI parallelism support."))))
 
+(define-public fftw-3.3.7
+  ;; TODO: Make this the default 'fftw' on the next upgrade cycle.
+  (package
+    (inherit fftw)
+    (version "3.3.7")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "ftp://ftp.fftw.org/pub/fftw/fftw-"
+                                  version".tar.gz"))
+              (sha256
+               (base32
+                "0wsms8narnbhfsa8chdflv2j9hzspvflblnqdn7hw8x5xdzrnq1v"))))))
+
+(define-public fftw-avx
+  (package
+    (inherit fftw-3.3.7)
+    (name "fftw-avx")
+    (arguments
+     (substitute-keyword-arguments (package-arguments fftw-3.3.7)
+       ((#:configure-flags flags ''())
+        ;; Enable AVX & co.  See details at:
+        ;; <http://fftw.org/fftw3_doc/Installation-on-Unix.html>.
+        `(append '("--enable-avx" "--enable-avx2" "--enable-avx512"
+                   "--enable-avx-128-fma")
+                 ,flags))
+       ((#:substitutable? _ #f)
+        ;; To run the tests, we must have a CPU that supports all these
+        ;; extensions.  Since we cannot be sure that machines in the build
+        ;; farm support them, disable substitutes altogether.
+        #f)
+       ((#:phases _)
+        ;; Since we're not providing binaries, let '-mtune=native' through.
+        '%standard-phases)))
+    (synopsis "Computing the discrete Fourier transform (AVX2-optimized)")
+    (supported-systems '("x86_64-linux"))))
+
+(define-public java-la4j
+  (package
+    (name "java-la4j")
+    (version "0.6.0")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/vkostyukov/la4j.git")
+                    (commit version)))
+              (file-name (string-append name "-" version "-checkout"))
+              (sha256
+               (base32
+                "1qir8dr978cfvz9k12m2kbdwpyf6cqdf1d0ilb7lnkhbgq5i53w3"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "la4j.jar"
+       #:jdk ,icedtea-8
+       #:test-exclude (list "**/Abstract*.java"
+                            "**/MatrixTest.java"
+                            "**/DenseMatrixTest.java"
+                            "**/SparseMatrixTest.java"
+                            "**/VectorTest.java"
+                            "**/SparseVectorTest.java"
+                            "**/DenseVectorTest.java")))
+    (native-inputs
+     `(("java-junit" ,java-junit)
+       ("java-hamcrest-core" ,java-hamcrest-core)))
+    (home-page "http://la4j.org/")
+    (synopsis "Java library that provides Linear Algebra primitives and algorithms")
+    (description "The la4j library is a Java library that provides Linear
+Algebra primitives (matrices and vectors) and algorithms.  The key features of
+the la4j library are:
+
+@itemize
+@item No dependencies and tiny size
+@item Fluent object-oriented/functional API
+@item Sparse (CRS, CCS) and dense (1D/2D arrays) matrices
+@item Linear systems solving (Gaussian, Jacobi, Zeidel, Square Root, Sweep and other)
+@item Matrices decomposition (Eigenvalues/Eigenvectors, SVD, QR, LU, Cholesky and other)
+@item MatrixMarket/CSV IO formats support for matrices and vectors
+@end itemize\n")
+    (license license:asl2.0)))
+
+(define-public java-jlargearrays
+  (package
+    (name "java-jlargearrays")
+    (version "1.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://search.maven.org/remotecontent?"
+                                  "filepath=pl/edu/icm/JLargeArrays/"
+                                  version "/JLargeArrays-" version
+                                  "-sources.jar"))
+              (file-name (string-append name "-" version ".jar"))
+              (sha256
+               (base32
+                "0v05iphpxbjnd7f4jf1rlqq3m8hslhcm0imdbsgxr20pi3xkaf2a"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jlargearrays.jar"
+       #:tests? #f ; tests are not included in the release archive
+       #:jdk ,icedtea-8))
+    (propagated-inputs
+     `(("java-commons-math3" ,java-commons-math3)))
+    (home-page "https://gitlab.com/ICM-VisLab/JLargeArrays")
+    (synopsis "Library of one-dimensional arrays that can store up to 263 elements")
+    (description "JLargeArrays is a Java library of one-dimensional arrays
+that can store up to 263 elements.")
+    (license license:bsd-2)))
+
+(define-public java-jtransforms
+  (package
+    (name "java-jtransforms")
+    (version "3.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://search.maven.org/remotecontent?"
+                                  "filepath=com/github/wendykierp/JTransforms/"
+                                  version "/JTransforms-" version "-sources.jar"))
+              (sha256
+               (base32
+                "1haw5m8shv5srgcpwkl853dz8bv6h90bzlhcps6mdpb4cixjirsg"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jtransforms.jar"
+       #:tests? #f ; tests are not included in the release archive
+       #:jdk ,icedtea-8))
+    (propagated-inputs
+     `(("java-commons-math3" ,java-commons-math3)
+       ("java-jlargearrays" ,java-jlargearrays)))
+    (home-page "https://github.com/wendykierp/JTransforms")
+    (synopsis "Multithreaded FFT library written in pure Java")
+    (description "JTransforms is a multithreaded FFT library written in pure
+Java.  Currently, four types of transforms are available: @dfn{Discrete
+Fourier Transform} (DFT), @dfn{Discrete Cosine Transform} (DCT), @dfn{Discrete
+Sine Transform} (DST) and @dfn{Discrete Hartley Transform} (DHT).")
+    (license license:bsd-2)))
+
 (define-public eigen
   (package
     (name "eigen")
-    (version "3.2.9")
+    (version "3.3.4")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://bitbucket.org/eigen/eigen/get/"
                                   version ".tar.bz2"))
               (sha256
                (base32
-                "1zs5b210mq7nyanky07li6456rrd0xv2nxf6sl2lhkzdq5p067jd"))
+                "19m4406jvqnwh7kpcvx1lfx2vdc5zwia5q9ayv89bimg1gmln9fx"))
               (file-name (string-append name "-" version ".tar.bz2"))
+	      (patches (search-patches "eigen-arm-neon-fixes.patch"))
               (modules '((guix build utils)))
               (snippet
                ;; There are 3 test failures in the "unsupported" directory,
                ;; but maintainers say it's a known issue and it's unsupported
                ;; anyway, so just skip them.
-               '(substitute* "CMakeLists.txt"
-                  (("add_subdirectory\\(unsupported\\)")
-                   "# Do not build the tests for unsupported features.\n")
-                  ;; Work around
-                  ;; <http://eigen.tuxfamily.org/bz/show_bug.cgi?id=1114>.
-                  (("\"include/eigen3\"")
-                   "\"${CMAKE_INSTALL_PREFIX}/include/eigen3\"")))))
+               '(begin
+		  (substitute* "CMakeLists.txt"
+                    (("add_subdirectory\\(unsupported\\)")
+                     "# Do not build the tests for unsupported features.\n")
+                    ;; Work around
+                    ;; <http://eigen.tuxfamily.org/bz/show_bug.cgi?id=1114>.
+                    (("\"include/eigen3\"")
+                     "\"${CMAKE_INSTALL_PREFIX}/include/eigen3\""))
+		  (substitute* "test/bdcsvd.cpp"
+                    ;; See
+                    ;; https://bitbucket.org/eigen/eigen/commits/ea8c22ce6920e982d15245ee41d0531a46a28e5d
+                    ((".*svd_preallocate[^\n]*" &)
+                     (string-append "//" & " // Not supported by BDCSVD")))))))
     (build-system cmake-build-system)
     (arguments
      '(;; Turn off debugging symbols to save space.
@@ -616,6 +754,7 @@ cosine/ sine transforms or DCT/DST).")
                     (lambda _
                       (let* ((cores  (parallel-job-count))
                              (dash-j (format #f "-j~a" cores)))
+			(setenv "EIGEN_SEED" "1") ;for reproducibility
                         ;; First build the tests, in parallel.  See
                         ;; <http://eigen.tuxfamily.org/index.php?title=Tests>.
                         (and (zero? (system* "make" "buildtests" dash-j))

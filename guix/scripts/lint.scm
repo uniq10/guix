@@ -6,6 +6,8 @@
 ;;; Copyright © 2016 Danny Milosavljevic <dannym+a@scratchpost.org>
 ;;; Copyright © 2016 Hartmut Goebel <h.goebel@crazy-compilers.com>
 ;;; Copyright © 2017 Alex Kost <alezost@gmail.com>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -32,6 +34,7 @@
   #:use-module (guix licenses)
   #:use-module (guix records)
   #:use-module (guix ui)
+  #:use-module (guix upstream)
   #:use-module (guix utils)
   #:use-module (guix memoization)
   #:use-module (guix scripts)
@@ -72,6 +75,7 @@
             check-mirror-url
             check-license
             check-vulnerabilities
+            check-for-updates
             check-formatting
             run-checkers
 
@@ -411,11 +415,30 @@ for connections to complete; when TIMEOUT is #f, wait as long as needed."
                    (close-connection port))))
 
              (case (response-code response)
-               ((301 302 307)
+               ((302                    ; found (redirection)
+                 303                    ; see other
+                 307                    ; temporary redirection
+                 308)                   ; permanent redirection
                 (let ((location (response-location response)))
                   (if (or (not location) (member location visited))
                       (values 'http-response response)
                       (loop location (cons location visited))))) ;follow the redirect
+               ((301)                   ; moved permanently
+                (let ((location (response-location response)))
+                  ;; Return RESPONSE, unless the final response as we follow
+                  ;; redirects is not 200.
+                  (if location
+                      (let-values (((status response2)
+                                    (loop location (cons location visited))))
+                        (case status
+                          ((http-response)
+                           (values 'http-response
+                                   (if (= 200 (response-code response2))
+                                       response
+                                       response2)))
+                          (else
+                           (values status response2))))
+                      (values 'http-response response)))) ;invalid redirect
                (else
                 (values 'http-response response)))))
          (lambda (key . args)
@@ -467,31 +490,46 @@ warning for PACKAGE mentionning the FIELD."
                 (probe-uri uri #:timeout 3)))     ;wait at most 3 seconds
     (case status
       ((http-response)
-       (if (= 200 (response-code argument))
-           (match (response-content-length argument)
-             ((? number? length)
-              ;; As of July 2016, SourceForge returns 200 (instead of 404)
-              ;; with a small HTML page upon failure.  Attempt to detect such
-              ;; malicious behavior.
-              (or (> length 1000)
+       (cond ((= 200 (response-code argument))
+              (match (response-content-length argument)
+                ((? number? length)
+                 ;; As of July 2016, SourceForge returns 200 (instead of 404)
+                 ;; with a small HTML page upon failure.  Attempt to detect
+                 ;; such malicious behavior.
+                 (or (> length 1000)
+                     (begin
+                       (emit-warning package
+                                     (format #f
+                                             (G_ "URI ~a returned \
+suspiciously small file (~a bytes)")
+                                             (uri->string uri)
+                                             length))
+                       #f)))
+                (_ #t)))
+             ((= 301 (response-code argument))
+              (if (response-location argument)
                   (begin
                     (emit-warning package
-                                  (format #f
-                                          (G_ "URI ~a returned \
-suspiciously small file (~a bytes)")
+                                  (format #f (G_ "permanent redirect from ~a to ~a")
                                           (uri->string uri)
-                                          length))
+                                          (uri->string
+                                           (response-location argument))))
+                    #t)
+                  (begin
+                    (emit-warning package
+                                  (format #f (G_ "invalid permanent redirect \
+from ~a")
+                                          (uri->string uri)))
                     #f)))
-             (_ #t))
-           (begin
-             (emit-warning package
-                           (format #f
-                                   (G_ "URI ~a not reachable: ~a (~s)")
-                                   (uri->string uri)
-                                   (response-code argument)
-                                   (response-reason-phrase argument))
-                           field)
-             #f)))
+             (else
+              (emit-warning package
+                            (format #f
+                                    (G_ "URI ~a not reachable: ~a (~s)")
+                                    (uri->string uri)
+                                    (response-code argument)
+                                    (response-reason-phrase argument))
+                            field)
+              #f)))
       ((ftp-response)
        (match argument
          (('ok) #t)
@@ -527,7 +565,7 @@ suspiciously small file (~a bytes)")
       ((invalid-http-response gnutls-error)
        ;; Probably a misbehaving server; ignore.
        #f)
-      ((unknown-protocol)                             ;nothing we can do
+      ((unknown-protocol)                         ;nothing we can do
        #f)
       (else
        (error "internal linter error" status)))))
@@ -550,24 +588,49 @@ suspiciously small file (~a bytes)")
                                     (package-home-page package))
                     'home-page)))))
 
+(define %distro-directory
+  (dirname (search-path %load-path "gnu.scm")))
+
 (define (check-patch-file-names package)
   "Emit a warning if the patches requires by PACKAGE are badly named or if the
 patch could not be found."
   (guard (c ((message-condition? c)     ;raised by 'search-patch'
              (emit-warning package (condition-message c)
                            'patch-file-names)))
+    (define patches
+      (or (and=> (package-source package) origin-patches)
+          '()))
+
     (unless (every (match-lambda        ;patch starts with package name?
                      ((? string? patch)
                       (and=> (string-contains (basename patch)
                                               (package-name package))
                              zero?))
                      (_  #f))     ;must be an <origin> or something like that.
-                   (or (and=> (package-source package) origin-patches)
-                       '()))
+                   patches)
       (emit-warning
        package
        (G_ "file names of patches should start with the package name")
-       'patch-file-names))))
+       'patch-file-names))
+
+    ;; Check whether we're reaching tar's maximum file name length.
+    (let ((prefix (string-length %distro-directory))
+          (margin (string-length "guix-0.13.0-10-123456789/"))
+          (max    99))
+      (for-each (match-lambda
+                  ((? string? patch)
+                   (when (> (+ margin (if (string-prefix? %distro-directory
+                                                          patch)
+                                          (- (string-length patch) prefix)
+                                          (string-length patch)))
+                            max)
+                     (emit-warning
+                      package
+                      (format #f (G_ "~a: file name is too long")
+                              (basename patch))
+                      'patch-file-names)))
+                  (_ #f))
+                patches))))
 
 (define (escape-quotes str)
   "Replace any quote character in STR by an escaped quote character."
@@ -755,34 +818,43 @@ be determined."
     ((? origin?)
      (and=> (origin-actual-file-name patch) basename))))
 
-(define (current-vulnerabilities*)
-  "Like 'current-vulnerabilities', but return the empty list upon networking
-or HTTP errors.  This allows network-less operation and makes problems with
-the NIST server non-fatal.."
+(define (call-with-networking-fail-safe message error-value proc)
+  "Call PROC catching any network-related errors.  Upon a networking error,
+display a message including MESSAGE and return ERROR-VALUE."
   (guard (c ((http-get-error? c)
-             (warning (G_ "failed to retrieve CVE vulnerabilities \
-from ~s: ~a (~s)~%")
+             (warning (G_ "~a: HTTP GET error for ~a: ~a (~s)~%")
+                      message
                       (uri->string (http-get-error-uri c))
                       (http-get-error-code c)
                       (http-get-error-reason c))
-             (warning (G_ "assuming no CVE vulnerabilities~%"))
-             '()))
+             error-value))
     (catch #t
-      (lambda ()
-        (current-vulnerabilities))
+      proc
       (match-lambda*
         (('getaddrinfo-error errcode)
-         (warning (G_ "failed to lookup NIST host: ~a~%")
+         (warning (G_ "~a: host lookup failure: ~a~%")
+                  message
                   (gai-strerror errcode))
-         (warning (G_ "assuming no CVE vulnerabilities~%"))
-         '())
+         error-value)
         (('tls-certificate-error args ...)
-         (warning (G_ "TLS certificate error: ~a")
+         (warning (G_ "~a: TLS certificate error: ~a")
+                  message
                   (tls-certificate-error-string args))
-         (warning (G_ "assuming no CVE vulnerabilities~%"))
-         '())
+         error-value)
         (args
          (apply throw args))))))
+
+(define-syntax-rule (with-networking-fail-safe message error-value exp ...)
+  (call-with-networking-fail-safe message error-value
+                                  (lambda () exp ...)))
+
+(define (current-vulnerabilities*)
+  "Like 'current-vulnerabilities', but return the empty list upon networking
+or HTTP errors.  This allows network-less operation and makes problems with
+the NIST server non-fatal."
+  (with-networking-fail-safe (G_ "while retrieving CVE vulnerabilities")
+                             '()
+                             (current-vulnerabilities)))
 
 (define package-vulnerabilities
   (let ((lookup (delay (vulnerabilities->lookup-proc
@@ -810,16 +882,37 @@ from ~s: ~a (~s)~%")
                                      (or (and=> (package-source package)
                                                 origin-patches)
                                          '())))
+              (known-safe (or (assq-ref (package-properties package)
+                                        'lint-hidden-cve)
+                              '()))
               (unpatched (remove (lambda (vuln)
-                                   (find (cute string-contains
-                                           <> (vulnerability-id vuln))
-                                         patches))
+                                   (let ((id (vulnerability-id vuln)))
+                                     (or
+                                       (find (cute string-contains
+                                                   <> id)
+                                             patches)
+                                       (member id known-safe))))
                                  vulnerabilities)))
          (unless (null? unpatched)
            (emit-warning package
                          (format #f (G_ "probably vulnerable to ~a")
                                  (string-join (map vulnerability-id unpatched)
                                               ", ")))))))))
+
+(define (check-for-updates package)
+  "Check if there is an update available for PACKAGE."
+  (match (with-networking-fail-safe
+          (format #f (G_ "while retrieving upstream info for '~a'")
+                  (package-name package))
+          #f
+          (package-latest-release* package (force %updaters)))
+    ((? upstream-source? source)
+     (when (version>? (upstream-source-version source)
+                      (package-version package))
+       (emit-warning package
+                     (format #f (G_ "can be upgraded to ~a")
+                             (upstream-source-version source)))))
+    (#f #f))) ; cannot find newer upstream release
 
 
 ;;;
@@ -878,24 +971,39 @@ move to the previous or next line")
                                    #:key (reporters %formatting-reporters))
   "Report white-space issues in FILE starting from STARTING-LINE, and report
 them for PACKAGE."
-  (define last-line
-    ;; Number of the presumed last line.
-    ;; XXX: Ideally we'd stop at the boundaries of the surrounding sexp, but
-    ;; for now just use this simple heuristic.
-    (+ starting-line 60))
+  (define (sexp-last-line port)
+    ;; Return the last line of the sexp read from PORT or an estimate thereof.
+    (define &failure (list 'failure))
+
+    (let ((start      (ftell port))
+          (start-line (port-line port))
+          (sexp       (catch 'read-error
+                        (lambda () (read port))
+                        (const &failure))))
+      (let ((line (port-line port)))
+        (seek port start SEEK_SET)
+        (set-port-line! port start-line)
+        (if (eq? sexp &failure)
+            (+ start-line 60)                     ;conservative estimate
+            line))))
 
   (call-with-input-file file
     (lambda (port)
-      (let loop ((line-number 1))
+      (let loop ((line-number 1)
+                 (last-line #f))
         (let ((line (read-line port)))
           (or (eof-object? line)
-              (> line-number last-line)
-              (begin
-                (unless (< line-number starting-line)
-                  (for-each (lambda (report)
-                              (report package line line-number))
-                            reporters))
-                (loop (+ 1 line-number)))))))))
+              (and last-line (> line-number last-line))
+              (if (and (= line-number starting-line)
+                       (not last-line))
+                  (loop (+ 1 line-number)
+                        (+ 1 (sexp-last-line port)))
+                  (begin
+                    (unless (< line-number starting-line)
+                      (for-each (lambda (report)
+                                  (report package line line-number))
+                                reporters))
+                    (loop (+ 1 line-number) last-line)))))))))
 
 (define (check-formatting package)
   "Check the formatting of the source code of PACKAGE."
@@ -971,6 +1079,10 @@ or a list thereof")
      (description "Check the Common Vulnerabilities and Exposures\
  (CVE) database")
      (check       check-vulnerabilities))
+   (lint-checker
+     (name        'refresh)
+     (description "Check the package for new upstream releases")
+     (check       check-for-updates))
    (lint-checker
      (name        'formatting)
      (description "Look for formatting issues in the source")
@@ -1056,12 +1168,8 @@ run the checkers on all packages.\n"))
 (define (guix-lint . args)
   (define (parse-options)
     ;; Return the alist of option values.
-    (args-fold* args %options
-                (lambda (opt name arg result)
-                  (leave (G_ "~A: unrecognized option~%") name))
-                (lambda (arg result)
-                  (alist-cons 'argument arg result))
-                %default-options))
+    (parse-command-line args %options (list %default-options)
+                        #:build-options? #f))
 
   (let* ((opts (parse-options))
          (args (filter-map (match-lambda

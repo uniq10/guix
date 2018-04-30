@@ -1,9 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013 Cyril Roelandt <tipecaml@gmail.com>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016, 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -60,7 +61,7 @@
 (define-public vim
   (package
     (name "vim")
-    (version "8.0.0727")
+    (version "8.0.1428")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/vim/vim/archive/v"
@@ -68,20 +69,13 @@
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "0hwqglpsk8qlp2rn6q9p35fxk88xixljk1yv42m3j01g3bgqg0gx"))))
+               "08hzx843cxr5b2llc3332wxpgh3gjrs7jgd6s3sdrxnvg0s0y7s8"))))
     (build-system gnu-build-system)
     (arguments
      `(#:test-target "test"
        #:parallel-tests? #f
        #:phases
        (modify-phases %standard-phases
-         (add-after 'unpack 'make-bit-reproducable
-           (lambda _
-             (substitute* "src/version.c"
-               ((" VIM_VERSION_LONG_DATE") " VIM_VERSION_LONG")
-               ((" __DATE__") "")
-               ((" __TIME__") ""))
-             #t))
          (add-after 'configure 'patch-config-files
            (lambda _
              (substitute* "runtime/tools/mve.awk"
@@ -89,6 +83,13 @@
              (substitute* '("src/testdir/Makefile"
                             "src/testdir/test_normal.vim")
                (("/bin/sh") (which "sh")))
+             #t))
+         (add-before 'check 'patch-failing-test
+           (lambda _
+             ;; XXX A single test fails with “Can't create file /dev/stdout” (at
+             ;; Test_writefile_sync_dev_stdout line 5) while /dev/stdout exists.
+             (substitute* "src/testdir/test_writefile.vim"
+               (("/dev/stdout") "a-regular-file"))
              #t)))))
     (inputs
      `(("gawk" ,gawk)
@@ -109,6 +110,27 @@ Vim is perfect for all kinds of text editing, from composing email to editing
 configuration files.")
     (license license:vim)))
 
+(define-public xxd
+  (package (inherit vim)
+    (name "xxd")
+    (arguments
+     `(#:make-flags '("CC=gcc")
+       #:tests? #f ; there are none
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (add-after 'unpack 'chdir
+           (lambda _
+             (chdir "src/xxd")))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((bin (string-append (assoc-ref outputs "out") "/bin")))
+               (install-file "xxd" bin)
+               #t))))))
+    (synopsis "Hexdump utility from vim")
+    (description "This package provides the Hexdump utility xxd that comes
+with the editor vim.")))
+
 (define-public vim-full
   (package
     ;; This package should share its source with Vim, but it doesn't
@@ -116,15 +138,6 @@ configuration files.")
     ;; frequency of important bug fixes.
     (inherit vim)
     (name "vim-full")
-    (version "8.0.0600")
-    (source (origin
-             (method url-fetch)
-             (uri (string-append "https://github.com/vim/vim/archive/v"
-                                 version ".tar.gz"))
-             (file-name (string-append name "-" version ".tar.gz"))
-             (sha256
-              (base32
-               "1ifaj0lfzqn06snkcd83l58m9r6lg7lk3wspx71k5ycvypyfi67s"))))
     (arguments
      `(#:configure-flags
        (list (string-append "--with-lua-prefix="
@@ -144,17 +157,6 @@ configuration files.")
        ,@(substitute-keyword-arguments (package-arguments vim)
            ((#:phases phases)
             `(modify-phases ,phases
-               (add-after 'build 'drop-failing-tests
-                 (lambda _
-                   ;; These tests fail mysteriously with GUI enabled.
-                   ;; https://github.com/vim/vim/issues/1460
-                   (substitute* "src/testdir/test_cmdline.vim"
-                     (("call assert_equal\\(.+getcmd.+\\(\\)\\)") ""))
-                   ;; FIXME: This test broke after GCC-5 core-updates merge.
-                   ;; "Test_system_exmode line 7: Expected '0' but got '/'"
-                   (substitute* "src/testdir/test_system.vim"
-                     (("call assert_equal\\('0', a\\[0\\]\\)") ""))
-                   #t))
                (add-before 'check 'start-xserver
                  (lambda* (#:key inputs #:allow-other-keys)
                    ;; Some tests require an X server, but does not start one.
@@ -446,6 +448,46 @@ trouble using them, because you do not have to remember each snippet name.")
       (home-page "https://github.com/Shougo/context_filetype.vim")
       (license license:expat)))) ; ??? check again
 
+;; The 2.2 release was in 2015, no new releases planned.
+(define-public vim-fugitive
+  (let ((commit "de6c05720cdf74c0218218d7207f700232a5b6dc")
+        (revision "1"))
+    (package
+      (name "vim-fugitive")
+      (version (string-append "2.2-" revision "." (string-take commit 7)))
+      (source
+        (origin
+          (method git-fetch)
+          (uri (git-reference
+                 (url "https://github.com/tpope/vim-fugitive.git")
+                 (commit commit)))
+          (file-name (string-append name "-" version "-checkout"))
+         (sha256
+          (base32
+           "0zg9vv7hirnx45vc2mwgg0xijmwwz55bssyd6cpdz71wbhrcpxxb"))))
+      (build-system gnu-build-system)
+      (arguments
+       '(#:tests? #f
+         #:phases
+         (modify-phases %standard-phases
+           (delete 'configure)
+           (delete 'build)
+           (replace 'install
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (vimfiles (string-append out "/share/vim/vimfiles"))
+                      (doc (string-append vimfiles "/doc"))
+                      (plugin (string-append vimfiles "/plugin")))
+                 (copy-recursively "doc" doc)
+                 (copy-recursively "plugin" plugin)
+                 #t))))))
+      (home-page "https://github.com/tpope/vim-fugitive")
+      (synopsis "Vim plugin to work with Git")
+      (description "Vim-fugitive is a wrapper for Vim that complements the
+command window, where you can stage and review your changes before the next
+commit or run any Git arbitrary command.")
+      (license license:vim)))) ; distributed under the same license as vim
+
 (define-public vim-airline
   (package
     (name "vim-airline")
@@ -675,31 +717,53 @@ refactor Vim in order to:
 (define-public vifm
   (package
     (name "vifm")
-    (version "0.8.2")
+    (version "0.9.1")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "mirror://sourceforge/vifm/vifm/vifm-"
-                            version ".tar.bz2"))
+        (uri (list
+               (string-append "https://github.com/vifm/vifm/releases/download/v"
+                              version "/vifm-" version ".tar.bz2")
+               (string-append "https://sourceforge.net/projects/vifm/files/vifm/"
+                              "vifm-" version ".tar.bz2")))
         (sha256
          (base32
-          "07r15kq7kjl3a41sd11ncpsii866xxps4f90zh3lv8jqcrv6silb"))))
+          "1cz7vjjmghgdxd1lvsdwv85gvx4kz8idq14qijpwkpfrf2va9f98"))))
     (build-system gnu-build-system)
     (arguments
-    '(#:phases
+    '(#:configure-flags '("--disable-build-timestamp")
+      #:phases
       (modify-phases %standard-phases
         (add-after 'patch-source-shebangs 'patch-test-shebangs
           (lambda _
-            (substitute* (find-files "tests" "\\.c$")
-              (("/bin/sh") (which "sh")))
-            #t)))))
+            (substitute* (cons* "src/background.c"
+                                "src/cfg/config.c"
+                                (find-files "tests" "\\.c$"))
+              (("/bin/sh") (which "sh"))
+              (("/bin/bash") (which "bash")))
+            ;; This test segfaults
+            (substitute* "tests/Makefile"
+              (("misc") ""))
+            #t))
+         (add-after 'install 'install-vim-plugin-files
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (vifm (string-append out "/share/vifm"))
+                    (vimfiles (string-append out "/share/vim/vimfiles")))
+               (copy-recursively (string-append vifm "/colors")
+                                 (string-append vimfiles "/colors"))
+               (copy-recursively (string-append vifm "/vim")
+                                 vimfiles)
+               (delete-file-recursively (string-append vifm "/colors"))
+               (delete-file-recursively (string-append vifm "/vim")))
+             #t)))))
     (native-inputs
-     `(("groff" ,groff) ; for the documentation
-       ("perl" ,perl)))
+     `(("groff" ,groff))) ; for the documentation
     (inputs
      `(("libx11" ,libx11)
-       ("ncurses" ,ncurses)))
-    (home-page "http://vifm.info/")
+       ("ncurses" ,ncurses)
+       ("perl" ,perl)))
+    (home-page "https://vifm.info/")
     (synopsis "Flexible vi-like file manager using ncurses")
     (description "Vifm is a file manager providing a @command{vi}-like usage
 experience.  It has similar keybindings and modes (e.g. normal, command line,

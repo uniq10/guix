@@ -2,8 +2,8 @@
 ;;; Copyright © 2013, 2014, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014, 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
@@ -33,9 +33,12 @@
   #:use-module (gnu packages base)
   #:use-module (gnu packages libevent)
   #:use-module (gnu packages linux)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages pcre)
+  #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages qt)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages tls)
@@ -44,26 +47,28 @@
 (define-public tor
   (package
     (name "tor")
-    (version "0.3.0.9")
+    (version "0.3.2.10")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://dist.torproject.org/tor-"
                                  version ".tar.gz"))
              (sha256
               (base32
-               "0hhyb1wil8japynqnm07r1f67w3wdnafdg9amzlrrcfcyq5qim28"))))
+               "1vnb2wkcmm8rnz0fqi3k7arl60mpycs8rjn8hvbgv56g3p1pgpv0"))))
     (build-system gnu-build-system)
     (arguments
-     `(#:configure-flags (list "--enable-expensive-hardening"
-                               "--enable-gcc-hardening"
+     `(#:configure-flags (list "--enable-gcc-hardening"
                                "--enable-linker-hardening")))
     (native-inputs
-     `(("python" ,python-2)))  ; for tests
+     `(("pkg-config" ,pkg-config)
+       ("python" ,python-2)))  ; for tests
     (inputs
      `(("zlib" ,zlib)
        ("openssl" ,openssl)
        ("libevent" ,libevent)
-       ("libseccomp", libseccomp)))
+       ("libseccomp" ,libseccomp)
+       ("xz" ,xz)
+       ("zstd" ,zstd)))
     (home-page "https://www.torproject.org/")
     (synopsis "Anonymous network router to improve privacy on the Internet")
     (description
@@ -135,13 +140,14 @@ rejects UDP traffic from the application you're using.")
        #:configure-flags (list (string-append "--sysconfdir="
                                               (assoc-ref %outputs "out")
                                               "/etc/privoxy"))
-       #:phases (alist-cons-after
-                 'unpack 'autoconf
-                 (lambda _
-                   ;; Unfortunately, this is not a tarball produced by
-                   ;; "make dist".
-                   (zero? (system* "autoreconf" "-vfi")))
-                 %standard-phases)
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'autoconf
+           (lambda _
+             ;; Unfortunately, this is not a tarball produced by
+             ;; "make dist".
+             (invoke "autoreconf" "-vfi")
+             #t)))
        #:tests? #f))
     (inputs
      `(("w3m" ,w3m)
@@ -225,7 +231,9 @@ networks.")
            ;; After all the patching we run the tests after installing.
            ;; This is also a known issue:
            ;; https://github.com/micahflee/onionshare/issues/284
-           (lambda _ (zero? (system* "nosetests" "test")))))))
+           (lambda _
+             (invoke "nosetests" "test")
+             #t)))))
     (native-inputs
      `(("python-nose" ,python-nose)))
     (inputs

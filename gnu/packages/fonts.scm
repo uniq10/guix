@@ -7,19 +7,21 @@
 ;;; Copyright © 2015 Eric Dvorsak <eric@dvorsak.fr>
 ;;; Copyright © 2015, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015, 2016 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2016, 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2016, 2017, 2018 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Jookia <166291@gmail.com>
 ;;; Copyright © 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2016 Dmitry Nikolaev <cameltheman@gmail.com>
-;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2016 Toni Reina <areina@riseup.net>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 José Miguel Sánchez García <jmi2k@openmailbox.com>
 ;;; Copyright © 2017 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Brendan Tildesley <brendan.tildesley@openmailbox.org>
-;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2017, 2018 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2017 Mohammed Sadiq <sadiq@sadiqpk.org>
+;;; Copyright © 2018 Charlie Ritter <chewzerita@posteo.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -49,11 +51,31 @@
   #:use-module (gnu packages base)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages fontutils)
-  #:use-module (gnu packages golang)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
   #:use-module (gnu packages xorg))
+
+(define-public font-ibm-plex
+  (package
+    (name "font-ibm-plex")
+    (version "1.0.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/IBM/plex/releases/download/"
+                    "v" version "/OpenType.zip"))
+              (sha256
+               (base32
+                "0nzxw9z6waixslam248yr26ci3fbk83c7jf6m90hncnaj6zxx795"))))
+    (build-system font-build-system)
+    (home-page "https://github.com/IBM/plex")
+    (synopsis "IBM Plex typeface")
+    (description "This package provides the Plex font family.  It comes in a
+Sans, Serif, Mono and Sans Condensed, all with roman and true italics.  The
+fonts have been designed to work well in user interface (UI) environments as
+well as other mediums.")
+    (license license:silofl1.1)))
 
 (define-public font-inconsolata
   (package
@@ -140,7 +162,7 @@ provide serif, sans and monospaced variants.")
               (base32
                "1p3qs51x5327gnk71yq8cvmxc6wgx79sqxfvxcv80cdvgggjfnyv"))))
     (build-system font-build-system)
-    (home-page "http://www.gnome.org/fonts/")
+    (home-page "https://www.gnome.org/fonts/")
     (synopsis "Bitstream Vera sans-serif typeface")
     (description "Vera is a sans-serif typeface from Bitstream, Inc.  This
 package provides the TrueType (TTF) files.")
@@ -168,6 +190,25 @@ itself."))))
     (synopsis "Cantarell sans-serif typeface")
     (description "The Cantarell font family is a contemporary Humanist
 sans-serif designed for on-screen reading.  It is used by GNOME@tie{}3.")
+    (license license:silofl1.1)))
+
+(define-public font-lato
+  (package
+    (name "font-lato")
+    (version "2.010")
+    (source (origin
+              (method url-fetch/zipbomb)
+              (uri (string-append "http://www.latofonts.com/download/Lato2OFL.zip"))
+              (sha256
+               (base32
+                "1f5540g0ja1nx3ddd3ywn77xc81ssrxpq8n3gyb9sabyq2b4xda2"))))
+    (build-system font-build-system)
+    (home-page "http://www.latofonts.com/lato-free-fonts/")
+    (synopsis "Lato sans-serif typeface")
+    (description
+     "Lato is a sanserif typeface family.  It covers over 3000 glyphs per style.
+The Lato 2.010 family supports more than 100 Latin-based languages, over
+50 Cyrillic-based languages as well as Greek and IPA phonetics.")
     (license license:silofl1.1)))
 
 (define-public font-gnu-freefont-ttf
@@ -264,37 +305,24 @@ The Liberation Fonts are sponsored by Red Hat.")
               (sha256
                (base32
                 "0x7cz6hvhpil1rh03rax9zsfzm54bh7r4bbrq8rz673gl9h47v0v"))))
-    (build-system gnu-build-system)
+    (build-system font-build-system)
     (arguments
-     `(#:tests? #f ; there are no tests
-       #:modules ((guix build utils)
-                  (guix build gnu-build-system)
-                  (srfi srfi-1)
-                  (srfi srfi-26))
-       #:phases
+     `(#:phases
        (modify-phases %standard-phases
-         (delete 'configure)
-         (replace 'build
+         (add-before 'install 'build
            (lambda _
              (let ((compile
                     (lambda (name ext)
-                      (zero? (system*
-                              "fontforge" "-lang=ff"
-                              "-c" (string-append "Open('" name "');"
-                                                  "Generate('"
-                                                  (basename name "sfd") ext
-                                                  "')"))))))
-               (every (lambda (name)
-                        (and (compile name "ttf")
-                             (compile name "otf")))
-                      (find-files "." "\\.sfd$")))))
-         (replace 'install
-           (lambda* (#:key outputs #:allow-other-keys)
-             (let ((font-dir (string-append (assoc-ref outputs "out")
-                                            "/share/fonts/truetype")))
-               (mkdir-p font-dir)
-               (for-each (cut install-file <> font-dir)
-                         (find-files "." "\\.(otf|ttf)$"))
+                      (invoke
+                       "fontforge" "-lang=ff"
+                       "-c" (string-append "Open('" name "');"
+                                           "Generate('"
+                                           (basename name "sfd") ext
+                                           "')")))))
+               (for-each (lambda (name)
+                           (and (compile name "ttf")
+                                (compile name "otf")))
+                         (find-files "." "\\.sfd$"))
                #t))))))
     (native-inputs
      `(("fontforge" ,fontforge)))
@@ -515,6 +543,32 @@ fonts.")
     ;; exceptions.
     (license license:gpl3)))
 
+(define-public font-rachana
+  (package
+    (name "font-rachana")
+    (version "7.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "https://gitlab.com/smc/rachana/repository/archive.tar.gz?ref=Version"
+             version))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0jc091gshna6p1dd6lf507jxkgk6rsja835fc9dm71mcplq53bm1"))))
+    (build-system font-build-system)
+    (home-page "https://smc.org.in")
+    (synopsis "Malayalam font")
+    (description
+     "Rachana is a Malayalam font designed by Hussain K H.  The project was
+part of Rachana Aksharavedi for the original script of Malayalam in computing.
+Rachana has about 1,200+ glyphs for Malayalam and contains glyphs required for
+printing old Malayalam books without compromising the writing style.")
+    ;; This font is licensed under SIL 1.1 or GPLv3+ with font embedding
+    ;; exceptions.
+    (license (list license:silofl1.1 license:gpl3+))))
+
 (define-public font-tex-gyre
   (package
     (name "font-tex-gyre")
@@ -561,7 +615,7 @@ languages, plus Greek and Cyrillic.")
 (define-public font-gnu-unifont
   (package
     (name "font-gnu-unifont")
-    (version "10.0.05")
+    (version "10.0.07")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -569,7 +623,7 @@ languages, plus Greek and Cyrillic.")
                     version ".tar.gz"))
               (sha256
                (base32
-                "07sajc32l2knnz6gmd81zxjhcxq8xr6r2kf42wig56vj05s3d1cb"))))
+                "1js8dn4v4pv8jqprsxa1fv4fs3hqhm9x4dj19fg9qgc8fx7k0v0k"))))
     (build-system gnu-build-system)
     (outputs '("out" ; TrueType version
                "pcf" ; PCF (bitmap) version
@@ -622,35 +676,14 @@ utilities to ease adding new glyphs to the font.")
     (name "font-google-noto")
     (version "20170403")
     (source (origin
-              (method url-fetch)
+              (method url-fetch/zipbomb)
               (uri (string-append "https://noto-website.storage.googleapis.com/"
                                   "pkgs/Noto-hinted.zip"))
+              (file-name (string-append name "-" version ".zip"))
               (sha256
                (base32
                 "1p92a6dvs7wqwjfpp1ahr9z1wz35am0l8r78521383spd77bmrfm"))))
-    (build-system trivial-build-system)
-    (arguments
-     `(#:modules ((guix build utils))
-       #:builder (begin
-                   (use-modules (guix build utils)
-                                (srfi srfi-26))
-
-                   (let ((PATH     (string-append (assoc-ref %build-inputs
-                                                             "unzip")
-                                                  "/bin"))
-                         (font-dir (string-append %output
-                                                  "/share/fonts/truetype")))
-                     (setenv "PATH" PATH)
-                     (system* "unzip" (assoc-ref %build-inputs "source"))
-
-                     (mkdir-p font-dir)
-                     (for-each (lambda (ttf)
-                                 (install-file ttf font-dir))
-                               (find-files "." "\\.ttf$"))
-                     (for-each (lambda (otf)
-                                 (install-file otf font-dir))
-                               (find-files "." "\\.otf$"))))))
-    (native-inputs `(("unzip" ,unzip)))
+    (build-system font-build-system)
     (home-page "https://www.google.com/get/noto/")
     (synopsis "Fonts to cover all languages")
     (description "Google Noto Fonts is a family of fonts designed to support
@@ -759,17 +792,15 @@ glyph designs, not just an added slant.")
 (define-public font-hack
   (package
     (name "font-hack")
-    (version "2.020")
+    (version "3.002")
     (source (origin
               (method url-fetch/zipbomb)
               (uri (string-append
-                    "https://github.com/chrissimpkins/Hack/releases/download/v"
-                    version "/Hack-v"
-                    (string-replace-substring version "." "_")
-                    "-ttf.zip"))
+                    "https://github.com/source-foundry/Hack/releases/download/v"
+                    version "/Hack-v" version "-ttf.zip"))
               (sha256
                (base32
-                "16kkmc3psckw1b7k07ccn1gi5ymhlg9djh43nqjzg065g6p6d184"))))
+                "18fpaczj2rxfwgnrqpkxq0qn01parhmngglc4i1n3gchyzdsrh0x"))))
     (build-system font-build-system)
     (home-page "https://sourcefoundry.org/hack/")
     (synopsis "Typeface designed for source code")
@@ -777,9 +808,12 @@ glyph designs, not just an added slant.")
      "Hack is designed to be a workhorse typeface for code.  It expands upon
 the Bitstream Vera & DejaVu projects, provides 1561 glyphs, and includes
 Powerline support.")
-    (license (license:x11-style
-              "https://github.com/chrissimpkins/Hack/blob/master/LICENSE.md"
-              "Hack Open Font License v2.0"))))
+    (license
+     ;; See https://github.com/source-foundry/Hack/issues/271 for details.
+     (list license:expat                ; the Hack modifications to...
+           license:public-domain        ; ...the DejaVu modifications to...
+           (license:x11-style           ; ...the Bitstream Vera typeface
+            "file://LICENSE.md" "Bitstream Vera License")))))
 
 (define-public font-adobe-source-code-pro
   (package
@@ -820,9 +854,50 @@ designed to work well in user interface environments.")
                (base32
                 "1z65x0dw5dq6rs6p9wyfrir50rlh95vgzsxr8jcd40nqazw4jhpi"))))
     (build-system font-build-system)
-    (home-page "http://mozilla.github.io/Fira/")
+    (home-page "https://mozilla.github.io/Fira/")
     (synopsis "Mozilla's monospace font")
     (description "This is the typeface used by Mozilla in Firefox OS.")
+    (license license:silofl1.1)))
+
+(define-public font-fira-sans
+  (package
+    (name "font-fira-sans")
+    (version "4.202")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/mozilla/Fira/archive/"
+                                  version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1r6zdnqqp4bgq5nmgqbj0vvj7x1h9w912851ggbl9wc7fdjnjqnq"))))
+    (build-system font-build-system)
+    (home-page "https://mozilla.github.io/Fira/")
+    (synopsis "Mozilla's Fira Sans Font")
+    (description "This is the typeface used by Mozilla in Firefox OS.")
+    (license license:silofl1.1)))
+
+(define-public font-fira-code
+  (package
+    (name "font-fira-code")
+    (version "1.204")
+    (source (origin
+              (method url-fetch/zipbomb)
+              (uri (string-append "https://github.com/tonsky/FiraCode/releases/"
+                                  "download/" version
+                                  "/FiraCode_" version ".zip"))
+              (sha256
+               (base32
+                "17wky221b3igrqhmxgmqiyv1xdfn0nw471vzhpkrvv1w2w1w1k18"))))
+    (build-system font-build-system)
+    (home-page "https://mozilla.github.io/Fira/")
+    (synopsis "Monospaced font with programming ligatures")
+    (description
+     "Fira Code is an extension of the Fira Mono font containing a set of ligatures
+for common programming multi-character combinations.  This is just a font rendering
+feature: underlying code remains ASCII-compatible.  This helps to read and understand
+code faster.  For some frequent sequences like .. or //, ligatures allow us to
+correct spacing.")
     (license license:silofl1.1)))
 
 (define-public font-awesome
@@ -1008,7 +1083,7 @@ programming.  Iosevka is completely generated from its source code.")
 Holmes type foundry, released under the same license as the Go programming
 language.  It includes a set of proportional, sans-serif fonts, and a set of
 monospace, slab-serif fonts.")
-      (license (package-license go-1.4)))))
+      (license license:bsd-3))))
 
 (define-public font-google-material-design-icons
   (package
@@ -1021,7 +1096,7 @@ monospace, slab-serif fonts.")
                     version ".tar.gz"))
               (sha256
                (base32
-                "183n0qv3q8w6n27libarq1fhc4mqv2d3sasbfmbn7x9r5pw9c6ga"))
+                "018i3za9r6kf6svci33z09lc5pr5yz4164m8gzzwjzzqcrng0p5j"))
               (file-name (string-append name "-" version ".tar.gz"))))
     (build-system font-build-system)
     (home-page "http://google.github.io/material-design-icons")
@@ -1035,41 +1110,148 @@ have been optimized for beautiful display on all common platforms and display
 resolutions.")
     (license license:asl2.0)))
 
-(define-public font-mathjax
+(define-public font-open-dyslexic
   (package
-    (name "font-mathjax")
-    (version "2.7.1")
+    (name "font-open-dyslexic")
+    (version "20160623")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append
-             "https://github.com/mathjax/MathJax/archive/"
-             version ".tar.gz"))
+       (uri (string-append "https://github.com/antijingoist/open-dyslexic/"
+                           "archive/" version "-Stable.tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0sbib5lk0jrvbq6s72ag6ss3wjlz5wnk07ddxij1kp96yg3c1d1b"))))
+         "0al0j9kb32kfavcpq1kigsd36yzvf5yhzqhds0jkh7ngbxyxwkx4"))))
+    (build-system font-build-system)
+    (home-page "https://opendyslexic.org")
+    (synopsis "Font for dyslexics and high readability")
+    (description "OpenDyslexic is a font designed to help readability for some
+of the symptoms of dyslexia.  Letters have heavy weighted bottoms to provide
+an indication of orientation to make it more difficult to confuse with other
+similar letters.  Consistently weighted bottoms can also help reinforce the
+line of text.  The unique shapes of each letter can help prevent flipping and
+swapping.  The italic style for OpenDyslexic has been crafted to be used for
+emphasis while still being readable.")
+    (license
+     (license:fsdg-compatible
+      "https://www.gnome.org/fonts/#Final_Bitstream_Vera_Fonts"
+      "The Font Software may be sold as part of a larger software package but
+no copy of one or more of the Font Software typefaces may be sold by
+itself."))))
+
+(define-public font-dosis
+  (package
+    (name "font-dosis")
+    (version "1.7")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://www.impallari.com/media/releases/dosis-"
+                           "v" version ".zip"))
+       (sha256
+        (base32
+         "1qhci68f68mf87jd69vjf9qjq3wydgw1q7ivn3amjb65ls1s0c4s"))))
     (build-system trivial-build-system)
     (arguments
      `(#:modules ((guix build utils))
-       #:builder
-       (begin
-         (use-modules (guix build utils)
-                      (ice-9 match))
-         (set-path-environment-variable
-          "PATH" '("bin") (map (match-lambda
-                                 ((_ . input)
-                                  input))
-                               %build-inputs))
-         (let ((install-directory (string-append %output "/share/fonts/mathjax")))
-           (mkdir-p install-directory)
-           (zero? (system* "tar" "-C" install-directory "-xvf"
-                           (assoc-ref %build-inputs "source")
-                           "MathJax-2.7.1/fonts" "--strip" "2"))))))
+       #:builder (begin
+                   (use-modules (guix build utils)
+                                (srfi srfi-26))
+
+                   (let ((PATH     (string-append (assoc-ref %build-inputs
+                                                             "unzip")
+                                                  "/bin"))
+                         (ttf-dir (string-append %output
+                                                 "/share/fonts/truetype"))
+                         (otf-dir (string-append %output
+                                                 "/share/fonts/opentype")))
+                     (setenv "PATH" PATH)
+                     (system* "unzip" (assoc-ref %build-inputs "source"))
+
+                     (mkdir-p ttf-dir)
+                     (mkdir-p otf-dir)
+                     (for-each (lambda (ttf)
+                                 (install-file ttf ttf-dir))
+                               (find-files "." "\\.ttf$"))
+                     (for-each (lambda (otf)
+                                 (install-file otf otf-dir))
+                               (find-files "." "\\.otf$"))))))
+    (native-inputs `(("unzip" ,unzip)))
+    (home-page "http://www.impallari.com/dosis")
+    (synopsis "Very simple, rounded, sans serif family")
+    (description
+     "Dosis is a very simple, rounded, sans serif family.
+The lighter weights are minimalist.  The bolder weights have more personality.
+The medium weight is nice and balanced.  The overall result is a family
+that's clean and modern, and can express a wide range of voices & feelings.
+It comes in 7 incremental weights:
+ExtraLight, Light, Book, Medium, Semibold, Bold & ExtraBold")
+    (license license:silofl1.1)))
+
+(define-public font-culmus
+  (package
+    (name "font-culmus")
+    (version "0.132")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://sourceforge.net/projects/"
+                           "culmus/files/culmus/" version "/culmus-src-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1djxalm26r7bcq33ckmfa15xfs6pmqzvcl64d5lqa1dl01bl4j4z"))))
+    (build-system font-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'install 'build
+           (lambda _
+             (let ((compile
+                    (lambda (name ext)
+                      (invoke
+                       "fontforge" "-lang=ff"
+                       "-c" (string-append "Open('" name "');"
+                                           "Generate('"
+                                           (basename name "sfd") ext
+                                           "')")))))
+               ;; This part based on the fonts shipped in the non-source package.
+               (for-each (lambda (name)
+                           (compile name "ttf"))
+                         (find-files "." "^[^Nachlieli].*\\.sfd$"))
+               (for-each (lambda (name)
+                           (compile name "otf"))
+                         (find-files "." "^Nachlieli.*\\.sfd$"))
+               #t))))))
     (native-inputs
-     `(("gzip" ,gzip)
-       ("tar" ,tar)))
-    (home-page "https://www.mathjax.org/")
-    (synopsis "Fonts for MathJax")
-    (description "This package contains the fonts required for MathJax.")
-    (license license:asl2.0)))
+     `(("fontforge" ,fontforge)))
+    (home-page "http://culmus.sourceforge.net/")
+    (synopsis "TrueType Hebrew Fonts for X11")
+    (description "14 Hebrew trivial families.  Contain ASCII glyphs from various
+sources.  Those families provide a basic set of a serif (Frank Ruehl), sans
+serif (Nachlieli) and monospaced (Miriam Mono) trivials.  Also included Miriam,
+Drugulin, Aharoni, David, Hadasim etc.  Cantillation marks support is
+available in Keter YG.")
+    (license license:gpl2))) ; consult the LICENSE file included
+
+(define-public font-lohit
+  (package
+    (name "font-lohit")
+    (version "20140220")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://releases.pagure.org/lohit/lohit-ttf-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1rmgr445hw1n851ywy28csfvswz1i6hnc8mzp88qw2xk9j4dn32d"))))
+    (build-system font-build-system)
+    (home-page "https://pagure.io/lohit")
+    (synopsis "Lohit TrueType Indic fonts")
+    (description "Lohit is a font family designed to cover Indic scripts.
+Lohit supports the Assamese, Bengali, Devanagari (Hindi, Kashmiri, Konkani,
+Maithili, Marathi, Nepali, Sindhi, Santali, Bodo, Dogri languages), Gujarati,
+Kannada, Malayalam, Manipuri, Oriya, Punjabi, Tamil and Telugu scripts.")
+    (license license:silofl1.1)))

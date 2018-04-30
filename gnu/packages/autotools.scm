@@ -1,11 +1,13 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2012 Nikita Karetnikov <nikita@karetnikov.org>
-;;; Copyright © 2012, 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Mathieu Lirzin <mthl@openmailbox.org>
 ;;; Copyright © 2014 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
 ;;; Copyright © 2015, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 David Thompson <davet@gnu.org>
-;;; Copyright © 2017 ng0 <ng0@libertad.pw>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -26,6 +28,7 @@
   #:use-module (guix licenses)
   #:use-module (gnu packages)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages python)
   #:use-module (gnu packages m4)
   #:use-module (gnu packages man)
   #:use-module (gnu packages bash)
@@ -122,8 +125,8 @@ know anything about Autoconf or M4.")
                                (string-append "--build=" build)))))))))))
 
 
-(define* (autoconf-wrapper #:optional (autoconf autoconf))
-  "Return an wrapper around AUTOCONF that generates `configure' scripts that
+(define (make-autoconf-wrapper autoconf)
+  "Return a wrapper around AUTOCONF that generates `configure' scripts that
 use our own Bash instead of /bin/sh in shebangs.  For that reason, it should
 only be used internally---users should not end up distributing `configure'
 files with a system-specific shebang."
@@ -189,12 +192,18 @@ exec ~a --no-auto-compile \"$0\" \"$@\"
                        (patch-shebang "configure"))
                      (exit (status:exit-val result))))
                 port)))
-           (chmod (string-append bin "/autoconf") #o555)))))))
+           (chmod (string-append bin "/autoconf") #o555)))))
+
+    ;; Do not show it in the UI since it's meant for internal use.
+    (properties '((hidden? . #t)))))
+
+(define-public autoconf-wrapper
+  (make-autoconf-wrapper autoconf))
 
 (define-public autoconf-archive
   (package
     (name "autoconf-archive")
-    (version "2017.03.21")
+    (version "2018.03.13")
     (source
      (origin
       (method url-fetch)
@@ -202,7 +211,7 @@ exec ~a --no-auto-compile \"$0\" \"$@\"
                           version ".tar.xz"))
       (sha256
        (base32
-        "0rfpapadka2023qhy8294ca5awxpb8d4904js6kv7piby5ax8siq"))))
+        "0ng1lvpijf3kv7w7nb1shqs23vp0398yicyvkf9lsk56kw6zjxb1"))))
     (build-system gnu-build-system)
     (home-page "https://www.gnu.org/software/autoconf-archive/")
     (synopsis "Collection of freely reusable Autoconf macros")
@@ -239,21 +248,19 @@ output is indexed in many ways to simplify browsing.")
 (define-public automake
   (package
     (name "automake")
-    (version "1.15")
+    (version "1.15.1")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnu/automake/automake-"
                                  version ".tar.xz"))
              (sha256
               (base32
-               "0dl6vfi2lzz8alnklwxzfz624b95hb1ipjvd3mk177flmddcf24r"))
+               "1bzd9g32dfm4rsbw93ld9x7b5nc1y6i4m6zp032qf1i28a8s6sxg"))
              (patches
-              (search-patches "automake-regexp-syntax.patch"
-                              "automake-skip-amhello-tests.patch"
-                              "automake-test-gzip-warning.patch"))))
+              (search-patches "automake-skip-amhello-tests.patch"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(("autoconf" ,(autoconf-wrapper))
+     `(("autoconf" ,autoconf-wrapper)
        ("perl" ,perl)))
     (native-search-paths
      (list (search-path-specification
@@ -265,47 +272,47 @@ output is indexed in many ways to simplify browsing.")
                   (srfi srfi-1)
                   (srfi srfi-26)
                   (rnrs io ports))
-       #:phases (alist-cons-before
-                 'patch-source-shebangs 'patch-tests-shebangs
-                 (lambda _
-                   (let ((sh (which "sh")))
-                     (substitute* (find-files "t" "\\.(sh|tap)$")
-                       (("#![[:blank:]]?/bin/sh")
-                        (string-append "#!" sh)))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'patch-source-shebangs 'patch-tests-shebangs
+           (lambda _
+             (let ((sh (which "sh")))
+               (substitute* (find-files "t" "\\.(sh|tap)$")
+                 (("#![[:blank:]]?/bin/sh")
+                  (string-append "#!" sh)))
 
-                     ;; Set these variables for all the `configure' runs
-                     ;; that occur during the test suite.
-                     (setenv "SHELL" sh)
-                     (setenv "CONFIG_SHELL" sh)))
+               ;; Set these variables for all the `configure' runs
+               ;; that occur during the test suite.
+               (setenv "SHELL" sh)
+               (setenv "CONFIG_SHELL" sh)
+               #t)))
 
-                 ;; Files like `install-sh', `mdate.sh', etc. must use
-                 ;; #!/bin/sh, otherwise users could leak erroneous shebangs
-                 ;; in the wild.  See <http://bugs.gnu.org/14201> for an
-                 ;; example.
-                 (alist-cons-after
-                  'install 'unpatch-shebangs
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    (let* ((out (assoc-ref outputs "out"))
-                           (dir (string-append out "/share")))
-                      (define (starts-with-shebang? file)
-                        (equal? (call-with-input-file file
-                                  (lambda (p)
-                                    (list (get-u8 p) (get-u8 p))))
-                                (map char->integer '(#\# #\!))))
+           ;; Files like `install-sh', `mdate.sh', etc. must use
+           ;; #!/bin/sh, otherwise users could leak erroneous shebangs
+           ;; in the wild.  See <http://bugs.gnu.org/14201> for an
+           ;; example.
+           (add-after 'install 'unpatch-shebangs
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let* ((out (assoc-ref outputs "out"))
+                      (dir (string-append out "/share")))
+                 (define (starts-with-shebang? file)
+                   (equal? (call-with-input-file file
+                             (lambda (p)
+                               (list (get-u8 p) (get-u8 p))))
+                           (map char->integer '(#\# #\!))))
 
-                      (for-each (lambda (file)
-                                  (when (and (starts-with-shebang? file)
-                                             (executable-file? file))
-                                    (format #t "restoring shebang on `~a'~%"
-                                            file)
-                                    (substitute* file
-                                      (("^#!.*/bin/sh")
-                                       "#!/bin/sh")
-                                      (("^#!.*/bin/env(.*)$" _ args)
-                                       (string-append "#!/usr/bin/env"
-                                                      args)))))
-                                (find-files dir ".*"))))
-                  %standard-phases))))
+                 (for-each (lambda (file)
+                             (when (and (starts-with-shebang? file)
+                                        (executable-file? file))
+                               (format #t "restoring shebang on `~a'~%"
+                                       file)
+                               (substitute* file
+                                 (("^#!.*/bin/sh")
+                                  "#!/bin/sh")
+                                 (("^#!.*/bin/env(.*)$" _ args)
+                                  (string-append "#!/usr/bin/env"
+                                                 args)))))
+                           (find-files dir ".*"))))))))
     (home-page "https://www.gnu.org/software/automake/")
     (synopsis "Making GNU standards-compliant Makefiles")
     (description
@@ -314,6 +321,21 @@ standards-compliant Makefiles.  Build requirements are entered in an
 intuitive format and then Automake works with Autoconf to produce a robust
 Makefile, simplifying the entire process for the developer.")
     (license gpl2+)))                      ; some files are under GPLv3+
+
+(define-public automake-1.16
+  ;; Make this the default on the next rebuild cycle.
+  (package
+    (inherit automake)
+    (version "1.16.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnu/automake/automake-"
+                                  version ".tar.xz"))
+              (sha256
+               (base32
+                "08g979ficj18i1w6w5219bgmns7czr03iadf20mk3lrzl8wbn1ax"))
+              (patches
+               (search-patches "automake-skip-amhello-tests.patch"))))))
 
 (define-public libtool
   (package
@@ -333,7 +355,7 @@ Makefile, simplifying the entire process for the developer.")
                      ("perl" ,perl)
                      ("help2man" ,help2man) ;because we modify ltmain.sh
                      ("automake" ,automake)      ;some tests rely on 'aclocal'
-                     ("autoconf" ,(autoconf-wrapper)))) ;others on 'autom4te'
+                     ("autoconf" ,autoconf-wrapper))) ;others on 'autom4te'
 
     (arguments
      `(;; Libltdl is provided as a separate package, so don't install it here.
@@ -392,13 +414,46 @@ complexity of working with shared libraries across platforms.")
     (build-system gnu-build-system)
     (arguments
      '(#:configure-flags '("--enable-ltdl-install") ;really install it
-       #:phases (alist-cons-before
-                 'configure 'change-directory
-                 (lambda _
-                   (chdir "libltdl"))
-                 %standard-phases)))
+       #:phases (modify-phases %standard-phases
+                  (add-before 'configure 'change-directory
+                    (lambda _ (chdir "libltdl") #t)))))
 
     (synopsis "System-independent dlopen wrapper of GNU libtool")
     (description (package-description libtool))
     (home-page (package-home-page libtool))
     (license lgpl2.1+)))
+
+(define-public pyconfigure
+  (package
+    (name "pyconfigure")
+    (version "0.2.3")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://gnu/pyconfigure/pyconfigure-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "0kxi9bg7l6ric39vbz9ykz4a21xlihhh2zcc3297db8amvhqwhrp"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'patch-python
+           (lambda _
+             (substitute* "pyconf.in"
+               (("/usr/bin/env python") (which "python3")))
+             #t)))))
+    (inputs
+     `(("python" ,python-3)))
+    (synopsis "@command{configure} interface for Python-based packages")
+    (description
+     "GNU pyconfigure provides template files for easily implementing
+standards-compliant configure scripts and Makefiles for Python-based packages.
+It is designed to work alongside existing Python setup scripts, making it easy
+to integrate into existing projects.  Powerful and flexible Autoconf macros
+are available, allowing you to easily make adjustments to the installation
+procedure based on the capabilities of the target computer.")
+    (home-page "https://www.gnu.org/software/pyconfigure/manual/")
+    (license
+     (fsf-free
+      "https://www.gnu.org/prep/maintain/html_node/License-Notices-for-Other-Files.html"))))

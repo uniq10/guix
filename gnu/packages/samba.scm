@@ -5,6 +5,7 @@
 ;;; Copyright © 2016 Adonay "adfeno" Felipe Nogueira <https://libreplanet.org/wiki/User:Adfeno> <adfeno@openmailbox.org>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -34,6 +35,7 @@
   #:use-module (gnu packages crypto)
   #:use-module (gnu packages cups)
   #:use-module (gnu packages databases)
+  #:use-module (gnu packages docbook)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages popt)
   #:use-module (gnu packages pkg-config)
@@ -42,19 +44,20 @@
   #:use-module (gnu packages kerberos)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages perl)
-  #:use-module (gnu packages python))
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages xml))
 
 (define-public cifs-utils
   (package
     (name "cifs-utils")
-    (version "6.7")
+    (version "6.8")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://download.samba.org/pub/linux-cifs/"
                            name "/" name "-" version ".tar.bz2"))
        (sha256 (base32
-                "1ayghnkryy1n1zm5dyvyyr7n3807nsm6glfcbbki5c2a8w91dwmj"))))
+                "0ygz3pagjpaj5ky11hzh4byyymb7fpmqiqkprn11zwj31h2zdlg7"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("autoconf" ,autoconf)
@@ -71,7 +74,7 @@
      `(#:phases
        (modify-phases %standard-phases
          ;; The 6.7 tarball is missing ‘install.sh’. Create it.
-         (add-before 'configure 'autoreconf
+         (add-after 'unpack 'autoreconf
            (lambda _
              (zero? (system* "autoreconf" "-i"))))
          (add-before 'configure 'set-root-sbin
@@ -90,7 +93,7 @@ the Linux kernel CIFS client.")
 (define-public iniparser
   (package
     (name "iniparser")
-    (version "4.0")
+    (version "4.1")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/ndevilla/iniparser/archive/v"
@@ -98,47 +101,43 @@ the Linux kernel CIFS client.")
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "1flj7srvh2hp9ls96qz922bklyhw7f27mmn23b16839zpdjddfz0"))))
+               "1bpk8dj9d5cl64lg6jsk0qlzrpg848nymwxc3fx707fk1n0al3cn"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases
+     `(#:make-flags
+       (list "CC=gcc")
+       #:phases
        (modify-phases %standard-phases
          (replace 'configure
            (lambda* (#:key outputs #:allow-other-keys)
              (substitute* '("Makefile" "test/Makefile")
                (("/usr/lib")
-                (string-append (assoc-ref outputs "out") "/lib"))
-               (("\\?= gcc") "= gcc"))))
+                (string-append (assoc-ref outputs "out") "/lib")))))
          (replace 'build
-           (lambda _
-             (and (zero? (system* "make" "libiniparser.so"))
-                         (symlink "libiniparser.so.0" "libiniparser.so"))))
+           (lambda* (#:key make-flags #:allow-other-keys)
+             (apply invoke "make" "libiniparser.so.1"
+                    make-flags)))
          (replace 'install
            (lambda* (#:key outputs #:allow-other-keys)
              (let* ((out  (assoc-ref outputs "out"))
                     (lib  (string-append out "/lib"))
                     (inc  (string-append out "/include"))
-                    (doc  (string-append out "/share/doc"))
+                    (doc  (string-append out "/share/doc/" ,name))
                     (html (string-append doc "/html")))
-               (define (copy dir)
+               (define (install dir)
                  (lambda (file)
-                   (copy-file file
-                              (string-append dir "/"
-                                             (basename file)))))
-               (mkdir-p lib)
-               (for-each (copy lib)
-                         (find-files "." "^lib.*\\.(so\\.|a)"))
+                   (install-file file dir)))
+               (for-each (install lib)
+                         (find-files "." "^lib.*\\.so"))
                (with-directory-excursion lib
-                 (symlink "libiniparser.so.0" "libiniparser.so"))
-               (mkdir-p inc)
-               (for-each (copy inc)
+                 (symlink "libiniparser.so.1" "libiniparser.so"))
+               (for-each (install inc)
                          (find-files "src" "\\.h$"))
-               (mkdir-p html)
-               (for-each (copy html)
+               (for-each (install html)
                          (find-files "html" ".*"))
-               (for-each (copy doc)
+               (for-each (install doc)
                          '("AUTHORS" "INSTALL" "LICENSE" "README.md"))))))))
-    (home-page "http://ndevilla.free.fr/iniparser")
+    (home-page "https://github.com/ndevilla/iniparser")
     (synopsis "Standalone ini file parsing library")
     (description
      "iniparser is a free stand-alone `ini' file parsing library (Windows
@@ -149,18 +148,29 @@ anywhere.")
 (define-public samba
   (package
     (name "samba")
-    (version "4.6.6")
+    (version "4.7.7")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://download.samba.org/pub/samba/stable/"
                                  "samba-" version ".tar.gz"))
              (sha256
               (base32
-               "13hs7xplygbl5dgwnn3l0hkbc0a282wdrkbx5c7y6nnqyw4whcgw"))))
+               "0c81x2ncnvz3mi6fjj81clm1mh049d3ip3fj031l44qclxpx3yi9"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases
+     `(#:phases
        (modify-phases %standard-phases
+         (add-before 'configure 'locate-docbook-stylesheets
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; XXX for some reason XML_CATALOG_FILES is not respected.
+             (substitute* '("buildtools/wafsamba/samba_conftests.py"
+                            "buildtools/wafsamba/wafsamba.py"
+                            "docs-xml/xslt/man.xsl")
+               (("http://docbook.sourceforge.net/release/xsl/current/")
+                (string-append (assoc-ref inputs "docbook-xsl")
+                               "/xml/xsl/docbook-xsl-"
+                               ,(package-version docbook-xsl) "/")))
+             #t))
          (replace 'configure
            ;; samba uses a custom configuration script that runs waf.
            (lambda* (#:key outputs #:allow-other-keys)
@@ -203,7 +213,9 @@ anywhere.")
        ("tevent" ,tevent)
        ("tdb" ,tdb)))
     (native-inputs
-     `(("perl" ,perl)
+     `(("docbook-xsl" ,docbook-xsl)    ;for generating manpages
+       ("xsltproc" ,libxslt)           ;ditto
+       ("perl" ,perl)
        ("pkg-config" ,pkg-config)
        ("python" ,python-2))) ; incompatible with Python 3
     (home-page "https://www.samba.org/")
@@ -221,31 +233,26 @@ Desktops into Active Directory environments using the winbind daemon.")
 (define-public talloc
   (package
     (name "talloc")
-    (version "2.1.10")
+    (version "2.1.13")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://www.samba.org/ftp/talloc/talloc-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "06gn45if56g81vbj3841fzdjsahrrczwqpfrydm2zv6nxd5yk1f9"))))
+                "0iv09iv385x69gfzvassq6m3y0rd8ncylls95dm015xdy3drkww4"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
        (modify-phases %standard-phases
          (replace 'configure
            (lambda* (#:key outputs #:allow-other-keys)
-             ;; test_magic_differs.sh has syntax error, and is not in the right
-             ;; place where wscript expected.
-             ;; Skip the test.
-             (substitute* "wscript"
-               (("magic_ret = .*") "magic_ret = 0\n"))
-             ;; talloc uses a custom configuration script that runs a
-             ;; python script called 'waf'.
+             ;; talloc uses a custom configuration script that runs a Python
+             ;; script called 'waf', and doesn't tolerate unknown options.
              (setenv "CONFIG_SHELL" (which "sh"))
              (let ((out (assoc-ref outputs "out")))
-               (zero? (system* "./configure"
-                               (string-append "--prefix=" out)))))))))
+               (invoke "./configure"
+                       (string-append "--prefix=" out))))))))
     (inputs
      `(("python" ,python-2)))
     (home-page "https://talloc.samba.org")
@@ -296,14 +303,14 @@ destructors.  It is the core memory allocator used in Samba.")
 (define-public tevent
   (package
     (name "tevent")
-    (version "0.9.33")
+    (version "0.9.36")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://www.samba.org/ftp/tevent/tevent-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "1p0vxmldk99xpp7i4y6kpb75f8m7hxyv5bzkspy9hhpxh7ljww92"))))
+                "0k1v4vnlzpf7h3p4khaw8a7damrc68g136bf2xzys08nzpinnaxx"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases
@@ -331,14 +338,14 @@ many event types, including timers, signals, and the classic file descriptor eve
 (define-public ldb
   (package
     (name "ldb")
-    (version "1.1.31")
+    (version "1.3.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://www.samba.org/ftp/ldb/ldb-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0ipbz9m50dkancq0dbz12q815nkknbsp2i3sxpsqhmmknlm3xm84"))))
+                "1avn4fl393kc80krbc47phbp0argdkys62ycs8vm934a6nvz0gnf"))))
     (build-system gnu-build-system)
     (arguments
      '(#:phases

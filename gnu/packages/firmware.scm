@@ -2,7 +2,8 @@
 ;;; Copyright © 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2017 David Craven <david@craven.ch>
-;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,6 +24,7 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix utils)
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
   #:use-module (gnu packages)
@@ -32,6 +34,7 @@
   #:use-module (gnu packages cmake)
   #:use-module (gnu packages cross-base)
   #:use-module (gnu packages flex)
+  #:use-module (gnu packages gcc)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages python))
@@ -52,31 +55,28 @@
               (patches (search-patches "ath9k-htc-firmware-objcopy.patch"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-cons-before
-                 'configure 'pre-configure
-                 (lambda* (#:key inputs #:allow-other-keys)
-                   (chdir "target_firmware")
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'pre-configure
+           (lambda* (#:key inputs #:allow-other-keys)
+             (chdir "target_firmware")
 
-                   ;; 'configure' is a simple script that runs 'cmake' with
-                   ;; the right flags.
-                   (substitute* "configure"
-                     (("^TOOLCHAIN=.*$")
-                      (string-append "TOOLCHAIN="
-                                     (assoc-ref inputs "cross-gcc")
-                                     "\n"))))
-                 (alist-replace
-                  'install
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    (let* ((out    (assoc-ref outputs "out"))
-                           (fw-dir (string-append out "/lib/firmware")))
-                      (mkdir-p fw-dir)
-                      (for-each (lambda (file)
-                                  (copy-file file
-                                             (string-append fw-dir "/"
-                                                            (basename file))))
-                                (find-files "." "\\.fw$"))
-                      #t))
-                  %standard-phases))
+             ;; 'configure' is a simple script that runs 'cmake' with
+             ;; the right flags.
+             (substitute* "configure"
+               (("^TOOLCHAIN=.*$")
+                (string-append "TOOLCHAIN="
+                               (assoc-ref inputs "cross-gcc")
+                               "\n")))
+             #t))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out    (assoc-ref outputs "out"))
+                    (fw-dir (string-append out "/lib/firmware")))
+               (for-each (lambda (file)
+                           (install-file file fw-dir))
+                         (find-files "." "\\.fw$"))
+              #t))))
        #:tests? #f))
 
     ;; The firmware is cross-compiled using a "bare bones" compiler (no libc.)
@@ -94,11 +94,11 @@ Linux-libre.")
     (license (license:non-copyleft "http://directory.fsf.org/wiki/License:ClearBSD"))))
 
 (define-public b43-tools
-  (let ((commit "8dce53297966b31b6c70a7a03c2433978dd9f288")
-        (rev "1"))
+  (let ((commit "27892ef741e7f1d08cb939744f8b8f5dac7b04ae")
+        (revision "1"))
     (package
       (name "b43-tools")
-      (version (string-append "20140625-" rev "." (string-take commit 7)))
+      (version (git-version "0.0.0" revision commit))
       (source
        (origin
          (method git-fetch)
@@ -108,7 +108,7 @@ Linux-libre.")
          (file-name (string-append name "-" version "-checkout"))
          (sha256
           (base32
-           "08k7sdr9jagm43r2zv4h03j86klhkblpk73p12444a3vzg1gy1lv"))))
+           "1wgmj4d65izbhprwb5bcwimc2ryv19b9066lqzy4sa5m6wncm9cn"))))
       (build-system gnu-build-system)
       (native-inputs
        `(("flex" ,flex)
@@ -117,11 +117,11 @@ Linux-libre.")
        `(#:modules ((srfi srfi-1)
                     (guix build gnu-build-system)
                     (guix build utils))
-         #:tests? #f                    ;no tests
+         #:tests? #f                    ; no tests
          #:phases
          (let ((subdirs '("assembler" "disassembler")))
            (modify-phases %standard-phases
-             (delete 'configure)
+             (delete 'configure)        ; no configure script
              (add-before 'build 'patch-/bin/true
                (lambda _
                  (substitute* (find-files "." "Makefile")
@@ -129,21 +129,22 @@ Linux-libre.")
                  #t))
              (replace 'build
                (lambda _
-                 (every (lambda (dir)
-                          (zero? (system* "make" "-C" dir "CC=gcc")))
-                        subdirs)))
+                 (for-each (lambda (dir)
+                             (invoke "make" "-C" dir "CC=gcc"))
+                           subdirs)
+                 #t))
              (replace 'install
                (lambda* (#:key outputs #:allow-other-keys)
                  (let ((out (assoc-ref outputs "out")))
                    (mkdir-p (string-append out "/bin"))
-                   (every (lambda (dir)
-                            (zero?
-                             (system* "make" "-C" dir
-                                      (string-append "PREFIX=" out)
-                                      "install")))
-                          subdirs))))))))
+                   (for-each (lambda (dir)
+                               (invoke "make" "-C" dir
+                                       (string-append "PREFIX=" out)
+                                       "install"))
+                             subdirs)
+                   #t)))))))
       (home-page
-       "http://bues.ch/cms/hacking/misc.html#linux_b43_driver_firmware_tools")
+       "https://bues.ch/cms/hacking/misc.html#linux_b43_driver_firmware_tools")
       (synopsis "Collection of tools for the b43 wireless driver")
       (description
        "The b43 firmware tools is a collection of firmware extractor,
@@ -184,14 +185,14 @@ by the b43-open driver of Linux-libre.")
 (define-public seabios
   (package
     (name "seabios")
-    (version "1.10.1")
+    (version "1.11.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://code.coreboot.org/p/seabios/downloads/get/"
                                   "seabios-" version ".tar.gz"))
               (sha256
                (base32
-                "1jyjl719drnl1v0gf0l5q6qjjmkyqcqkka6s28dfdi0yqsxdsqsh"))))
+                "1xwvp77djxbxbxg82hzj26pv6zka3556vkdcp09hnfwapcp46av2"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("python-2" ,python-2)))
@@ -211,9 +212,9 @@ by the b43-open driver of Linux-libre.")
                (copy-file "out/bios.bin" (string-append fmw "/bios.bin"))))))))
     (home-page "https://www.seabios.org/SeaBIOS")
     (synopsis "x86 BIOS implementation")
-    (description "SeaBIOS is an open source implementation of a 16bit x86 BIOS.
-SeaBIOS can run in an emulator or it can run natively on X86 hardware with the
-use of coreboot.")
+    (description "SeaBIOS is an implementation of a 16bit x86 BIOS.  SeaBIOS
+can run in an emulator or it can run natively on X86 hardware with the use of
+coreboot.")
     ;; Dual licensed.
     (license (list license:gpl3+ license:lgpl3+
                    ;; src/fw/acpi-dsdt.dsl is lgpl2
@@ -259,6 +260,8 @@ use of coreboot.")
                (setenv "WORKSPACE" cwd)
                (setenv "EDK_TOOLS_PATH" tools)
                (setenv "PATH" (string-append (getenv "PATH") ":" bin))
+               ; FIXME: The below script errors out. When using 'invoke' instead
+               ; of 'system*' this causes the build to fail.
                (system* "bash" "edksetup.sh" "BaseTools")
                (substitute* "Conf/target.txt"
                  (("^TARGET[ ]*=.*$") "TARGET = RELEASE\n")
@@ -268,14 +271,16 @@ use of coreboot.")
                           (number->string (parallel-job-count)))))
                ;; Build build support.
                (setenv "BUILD_CC" "gcc")
-               (zero? (system* "make" "-C" (string-append tools "/Source/C"))))))
+               (invoke "make" "-C" (string-append tools "/Source/C"))
+               #t)))
          (add-after 'build 'build-ia32
            (lambda _
              (substitute* "Conf/target.txt"
                (("^TARGET_ARCH[ ]*=.*$") "TARGET_ARCH = IA32\n")
                (("^ACTIVE_PLATFORM[ ]*=.*$")
                 "ACTIVE_PLATFORM = OvmfPkg/OvmfPkgIa32.dsc\n"))
-             (zero? (system* "build"))))
+             (invoke "build")
+             #t))
          ,@(if (string=? "x86_64-linux" (%current-system))
              '((add-after 'build 'build-x64
                 (lambda _
@@ -283,7 +288,8 @@ use of coreboot.")
                     (("^TARGET_ARCH[ ]*=.*$") "TARGET_ARCH = X64\n")
                     (("^ACTIVE_PLATFORM[ ]*=.*$")
                      "ACTIVE_PLATFORM = OvmfPkg/OvmfPkgX64.dsc\n"))
-                  (zero? (system* "build")))))
+                  (invoke "build")
+                  #t)))
              '())
          (delete 'build)
          (replace 'install
@@ -299,9 +305,102 @@ use of coreboot.")
                    '()))
              #t)))))
     (supported-systems '("x86_64-linux" "i686-linux"))
-    (home-page "http://www.tianocore.org")
+    (home-page "https://www.tianocore.org")
     (synopsis "UEFI firmware for QEMU")
     (description "OVMF is an EDK II based project to enable UEFI support for
 Virtual Machines.  OVMF contains a sample UEFI firmware for QEMU and KVM.")
     (license (list license:expat
                    license:bsd-2 license:bsd-3 license:bsd-4))))
+
+(define* (make-arm-trusted-firmware platform #:optional (arch "aarch64"))
+  (package
+    (name (string-append "arm-trusted-firmware-" platform))
+    (version "1.5")
+    (source
+      (origin
+        (method git-fetch)
+        (uri (git-reference
+               ;; There are only GitHub generated release snapshots.
+               (url "https://github.com/ARM-software/arm-trusted-firmware.git")
+               (commit (string-append "v" version))))
+        (file-name (git-file-name "arm-trusted-firmware" version))
+       (sha256
+        (base32
+         "1gm0bn2llzfzz9bfsz11fhwxj5lxvyrq7bc13fjj033nljzxn7k8"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (delete 'configure) ; no configure script
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out"))
+                   (bin (find-files "." ".*\\.bin$")))
+               (for-each
+                 (lambda (file)
+                   (install-file file out))
+                 bin))
+             #t)))
+       #:make-flags (list (string-append "PLAT=" ,platform)
+                          ,@(if (and (not (string-prefix? "aarch64"
+                                                          (%current-system)))
+                                     (string-prefix? "aarch64" arch))
+                              `("CROSS_COMPILE=aarch64-linux-gnu-")
+                              '())
+                          ,@(if (and (not (string-prefix? "armhf"
+                                                          (%current-system)))
+                                     (string-prefix? "armhf" arch))
+                              `("CROSS_COMPILE=arm-linux-gnueabihf-")
+                              '())
+                          "DEBUG=1")
+       #:tests? #f)) ; no tests
+    (native-inputs
+     `(,@(if (and (not (string-prefix? "aarch64" (%current-system)))
+                  (string-prefix? "aarch64" arch))
+           ;; gcc-7 since it is used for u-boot, which needs gcc-7.
+           `(("cross-gcc" ,(cross-gcc "aarch64-linux-gnu" #:xgcc gcc-7))
+             ("cross-binutils" ,(cross-binutils "aarch64-linux-gnu")))
+           '())
+       ,@(if (and (not (string-prefix? "armhf" (%current-system)))
+                  (string-prefix? "armhf" arch))
+           ;; gcc-7 since it is used for u-boot, which needs gcc-7.
+           `(("cross-gcc" ,(cross-gcc "arm-linux-gnueabihf" #:xgcc gcc-7))
+             ("cross-binutils" ,(cross-binutils "arm-linux-gnueabihf")))
+           '())
+        ))
+    (home-page "https://github.com/ARM-software/arm-trusted-firmware")
+    (synopsis "Implementation of \"secure world software\"")
+    (description
+     "ARM Trusted Firmware provides a reference implementation of secure world
+software for ARMv7A and ARMv8-A, including a Secure Monitor executing at
+@dfn{Exception Level 3} (EL3).  It implements various ARM interface standards,
+such as:
+@enumerate
+@item The Power State Coordination Interface (PSCI)
+@item Trusted Board Boot Requirements (TBBR, ARM DEN0006C-1)
+@item SMC Calling Convention
+@item System Control and Management Interface
+@item Software Delegated Exception Interface (SDEI)
+@end enumerate\n")
+    (license (list license:bsd-3
+                   license:bsd-2)))) ; libfdt
+
+(define-public arm-trusted-firmware-pine64-plus
+  (let ((base (make-arm-trusted-firmware "sun50iw1p1"))
+        ;; Vendor's arm trusted firmware branch hasn't been upstreamed yet.
+        (commit "ae78724247a01560164d607ed66db111c74d8df0")
+        (revision "1"))
+    (package
+      (inherit base)
+      (name "arm-trusted-firmware-pine64-plus")
+      (version (string-append "1.2-" revision "." (string-take commit 7)))
+      (source
+        (origin
+          (method git-fetch)
+          (uri (git-reference
+                 (url "https://github.com/apritzel/arm-trusted-firmware.git")
+                 (commit commit)))
+          (file-name (git-file-name name version))
+          (sha256
+           (base32
+            "0r4xnlq7v9khjfcg6gqp7nmrmnw4z1r8bipwdr07png1dcbb8214")))))))

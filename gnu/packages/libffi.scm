@@ -1,6 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2012, 2013, 2014 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2014 Federico Beffa <beffa@fbengineering.ch>
+;;; Copyright © 2015 Ricardo Wurmus <ricardo.wurmus@mdc-berlin.de>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Ben Woodcroft <donttrustben@gmail.com>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,7 +27,13 @@
   #:use-module (guix licenses)
   #:use-module (guix packages)
   #:use-module (guix download)
-  #:use-module (guix build-system gnu))
+  #:use-module (gnu packages check)
+  #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages ruby)
+  #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
+  #:use-module (guix build-system ruby))
 
 (define-public libffi
   (let ((post-install-phase
@@ -42,7 +53,8 @@
                              name "-" version ".tar.gz"))
              (sha256
               (base32
-               "0dya49bnhianl0r65m65xndz6ls2jn1xngyn72gd28ls3n7bnvnh"))))
+               "0dya49bnhianl0r65m65xndz6ls2jn1xngyn72gd28ls3n7bnvnh"))
+             (patches (search-patches "libffi-3.2.1-complex-alpha.patch"))))
     (build-system gnu-build-system)
     (arguments `(#:phases (alist-cons-after 'install 'post-install
                                             ,post-install-phase
@@ -65,3 +77,103 @@ conversions for values passed between the two languages.")
     ;; See <https://github.com/atgreen/libffi/blob/master/LICENSE>.
     (license expat))))
 
+(define-public python-cffi
+  (package
+    (name "python-cffi")
+    (version "1.11.4")
+    (source
+     (origin
+      (method url-fetch)
+      (uri (pypi-uri "cffi" version))
+      (sha256
+       (base32 "07fiy4wqg8g08x38r04ydjr8n6g0g74gb8si8b6jhymijalq746z"))))
+    (build-system python-build-system)
+    (outputs '("out" "doc"))
+    (inputs
+     `(("libffi" ,libffi)))
+    (propagated-inputs ; required at run-time
+     `(("python-pycparser" ,python-pycparser)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("python-sphinx" ,python-sphinx)
+       ("python-pytest" ,python-pytest)))
+    (arguments
+     `(#:modules ((ice-9 ftw)
+                  (srfi srfi-26)
+                  (guix build utils)
+                  (guix build python-build-system))
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'check
+           (lambda _
+             (setenv "PYTHONPATH"
+                     (string-append
+                      (getenv "PYTHONPATH")
+                      ":" (getcwd) "/build/"
+                      (car (scandir "build" (cut string-prefix? "lib." <>)))))
+
+             ;; XXX The "normal" approach of setting CC and friends does
+             ;; not work here.  Is this the correct way of doing things?
+             (substitute* "testing/embedding/test_basic.py"
+               (("c = distutils\\.ccompiler\\.new_compiler\\(\\)")
+                (string-append "c = distutils.ccompiler.new_compiler();"
+                               "c.set_executables(compiler='gcc',"
+                               "compiler_so='gcc',linker_exe='gcc',"
+                               "linker_so='gcc -shared')")))
+             (substitute* "testing/cffi0/test_ownlib.py"
+               (("'cc testownlib") "'gcc testownlib"))
+             (invoke "py.test" "-v" "c/" "testing/")
+             #t))
+         (add-before 'check 'disable-failing-test
+           ;; This is assumed to be a libffi issue:
+           ;; https://bitbucket.org/cffi/cffi/issues/312/tests-failed-with-armv8
+           (lambda _
+             (substitute* "testing/cffi0/test_ownlib.py"
+               (("ret.left") "ownlib.left"))
+             #t))
+         (add-after 'install 'install-doc
+           (lambda* (#:key outputs (make-flags '())  #:allow-other-keys)
+             (let* ((doc (string-append (assoc-ref outputs "doc")
+                                        "/share/doc/" ,name "-" ,version))
+                    (html (string-append doc "/html")))
+               (with-directory-excursion "doc"
+                 (apply invoke "make" "html" make-flags)
+                 (mkdir-p html)
+                 (copy-recursively "build/html" html))
+               #t))))))
+    (home-page "https://cffi.readthedocs.org")
+    (synopsis "Foreign function interface for Python")
+    (description
+     "Foreign Function Interface for Python calling C code.")
+    (license expat)))
+
+(define-public python2-cffi
+  (package-with-python2 python-cffi))
+
+(define-public ruby-ffi
+  (package
+    (name "ruby-ffi")
+    (version "1.9.23")
+    (source (origin
+              (method url-fetch)
+              (uri (rubygems-uri "ffi" version))
+              (sha256
+               (base32
+                "0zw6pbyvmj8wafdc7l5h7w20zkp1vbr2805ql5d941g2b20pk4zr"))))
+    (build-system ruby-build-system)
+    ;; FIXME: Before running tests the build system attempts to build libffi
+    ;; from sources.
+    (arguments `(#:tests? #f))
+    (native-inputs
+     `(("ruby-rake-compiler" ,ruby-rake-compiler)
+       ("ruby-rspec" ,ruby-rspec)
+       ("ruby-rubygems-tasks" ,ruby-rubygems-tasks)))
+    (inputs
+     `(("libffi" ,libffi)))
+    (synopsis "Ruby foreign function interface library")
+    (description "Ruby-FFI is a Ruby extension for programmatically loading
+dynamic libraries, binding functions within them, and calling those functions
+from Ruby code.  Moreover, a Ruby-FFI extension works without changes on Ruby
+and JRuby.")
+    (home-page "http://wiki.github.com/ffi/ffi")
+    (license bsd-3)))

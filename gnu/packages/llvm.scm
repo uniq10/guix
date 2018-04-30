@@ -1,10 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2015, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2015, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Dennis Mungai <dmngaie@gmail.com>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2018 Marius Bakke <mbakke@fastmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -40,7 +41,7 @@
 (define-public llvm
   (package
     (name "llvm")
-    (version "3.8.1")
+    (version "6.0.0")
     (source
      (origin
       (method url-fetch)
@@ -48,7 +49,7 @@
                           version "/llvm-" version ".src.tar.xz"))
       (sha256
        (base32
-        "1ybmnid4pw2hxn12ax5qa5kl1ldfns0njg8533y3mzslvd5cx0kf"))))
+        "0224xvfg6h40y5lrbnb9qaq3grmdc5rg00xq03s1wxjfbf8krx8z"))))
     (build-system cmake-build-system)
     (native-inputs
      `(("python" ,python-2) ;bytes->str conversion in clang>=3.7 needs python-2
@@ -76,7 +77,7 @@
                       (setenv "LD_LIBRARY_PATH"
                               (string-append (getcwd) "/lib"))
                       #t)))))
-    (home-page "http://www.llvm.org")
+    (home-page "https://www.llvm.org")
     (synopsis "Optimizing compiler infrastructure")
     (description
      "LLVM is a compiler infrastructure designed for compile-time, link-time,
@@ -98,7 +99,8 @@ of programming tools as well as libraries with equivalent functionality.")
                    "-DLLVM_REQUIRES_RTTI=1")
                  ,flags))))))
 
-(define (clang-runtime-from-llvm llvm hash)
+(define* (clang-runtime-from-llvm llvm hash
+                                  #:optional (patches '()))
   (package
     (name "clang-runtime")
     (version (package-version llvm))
@@ -107,7 +109,8 @@ of programming tools as well as libraries with equivalent functionality.")
        (method url-fetch)
        (uri (string-append "http://llvm.org/releases/"
                            version "/compiler-rt-" version ".src.tar.xz"))
-       (sha256 (base32 hash))))
+       (sha256 (base32 hash))
+       (patches (map search-patch patches))))
     (build-system cmake-build-system)
     (native-inputs (package-native-inputs llvm))
     (inputs
@@ -116,7 +119,7 @@ of programming tools as well as libraries with equivalent functionality.")
      `(;; Don't use '-g' during the build to save space.
        #:build-type "Release"
        #:tests? #f))                    ; Tests require gtest
-    (home-page "http://compiler-rt.llvm.org")
+    (home-page "https://compiler-rt.llvm.org")
     (synopsis "Runtime library for Clang/LLVM")
     (description
      "The \"clang-runtime\" library provides the implementations of run-time
@@ -125,11 +128,11 @@ and C++ source code to interface with the \"sanitization\" passes of the clang
 compiler.  In LLVM this library is called \"compiler-rt\".")
     (license license:ncsa)
 
-    ;; <http://compiler-rt.llvm.org/> doesn't list MIPS as supported.
+    ;; <https://compiler-rt.llvm.org/> doesn't list MIPS as supported.
     (supported-systems (delete "mips64el-linux" %supported-systems))))
 
 (define* (clang-from-llvm llvm clang-runtime hash
-                          #:key (patches '("clang-libc-search-path.patch")))
+                          #:key (patches '()))
   (package
     (name "clang")
     (version (package-version llvm))
@@ -174,22 +177,50 @@ compiler.  In LLVM this library is called \"compiler-rt\".")
                    (lambda* (#:key inputs #:allow-other-keys)
                      (let ((libc (assoc-ref inputs "libc"))
                            (compiler-rt (assoc-ref inputs "clang-runtime")))
-                       (substitute* "lib/Driver/Tools.cpp"
-                         ;; Patch the 'getLinuxDynamicLinker' function to that
-                         ;; it uses the right dynamic linker file name.
-                         (("/lib64/ld-linux-x86-64.so.2")
-                          (string-append libc
-                                         ,(glibc-dynamic-linker)))
+                       (case (string->number ,(version-major
+                                               (package-version clang-runtime)))
+                         ((6)
+                          ;; Link to libclang_rt files from clang-runtime.
+                          (substitute* "lib/Driver/ToolChain.cpp"
+                            (("getDriver\\(\\)\\.ResourceDir")
+                             (string-append "\"" compiler-rt "\"")))
 
-                         ;; Link to libclang_rt files from clang-runtime.
-                         (("TC\\.getDriver\\(\\)\\.ResourceDir")
-                          (string-append "\"" compiler-rt "\"")))
+                          ;; Make "LibDir" refer to <glibc>/lib so that it
+                          ;; uses the right dynamic linker file name.
+                          (substitute* "lib/Driver/ToolChains/Linux.cpp"
+                            (("(^[[:blank:]]+LibDir = ).*" _ declaration)
+                             (string-append declaration "\"" libc "/lib\";\n"))
 
-                       ;; Same for libc's libdir, to allow crt1.o & co. to be
-                       ;; found.
-                       (substitute* "lib/Driver/ToolChains.cpp"
-                         (("@GLIBC_LIBDIR@")
-                          (string-append libc "/lib")))))))))
+                            ;; Make sure libc's libdir is on the search path, to
+                            ;; allow crt1.o & co. to be found.
+                            (("@GLIBC_LIBDIR@")
+                             (string-append libc "/lib"))))
+                         ((3)
+                          (substitute* "lib/Driver/Tools.cpp"
+                            ;; Patch the 'getLinuxDynamicLinker' function so that
+                            ;; it uses the right dynamic linker file name.
+                            (("/lib64/ld-linux-x86-64.so.2")
+                             (string-append libc
+                                            ,(glibc-dynamic-linker))))
+
+                          ;; Link to libclang_rt files from clang-runtime.
+                          ;; This substitution needed slight adjustment in 3.8.
+                          (if (< 3.8 (string->number ,(version-major+minor
+                                                       (package-version
+                                                        clang-runtime))))
+                              (substitute* "lib/Driver/Tools.cpp"
+                                (("TC\\.getDriver\\(\\)\\.ResourceDir")
+                                 (string-append "\"" compiler-rt "\"")))
+                              (substitute* "lib/Driver/ToolChain.cpp"
+                                (("getDriver\\(\\)\\.ResourceDir")
+                                 (string-append "\"" compiler-rt "\""))))
+
+                          ;; Make sure libc's libdir is on the search path, to
+                          ;; allow crt1.o & co. to be found.
+                          (substitute* "lib/Driver/ToolChains.cpp"
+                            (("@GLIBC_LIBDIR@")
+                             (string-append libc "/lib")))))
+                       #t))))))
 
     ;; Clang supports the same environment variables as GCC.
     (native-search-paths
@@ -200,7 +231,7 @@ compiler.  In LLVM this library is called \"compiler-rt\".")
             (variable "LIBRARY_PATH")
             (files '("lib" "lib64")))))
 
-    (home-page "http://clang.llvm.org")
+    (home-page "https://clang.llvm.org")
     (synopsis "C language family frontend for LLVM")
     (description
      "Clang is a compiler front end for the C, C++, Objective-C and
@@ -212,12 +243,12 @@ code analysis tools.")
 (define-public clang-runtime
   (clang-runtime-from-llvm
    llvm
-   "0p0y85c7izndbpg2l816z7z7558axq11d5pwkm4h11sdw7d13w0d"))
+   "16m7rvh3w6vq10iwkjrr1nn293djld3xm62l5zasisaprx117k6h"))
 
 (define-public clang
   (clang-from-llvm llvm clang-runtime
-                   "1prc72xmkgx8wrzmrr337776676nhsp1qd3mw2bvb22bzdnq7lsc"
-                   #:patches '("clang-3.8-libc-search-path.patch")))
+                   "0cnznvfyl3hgbg8gj58pmwf0pvd2sv5k3ccbivy6q6ggv7c6szg0"
+                   #:patches '("clang-6.0-libc-search-path.patch")))
 
 (define-public llvm-3.9.1
   (package (inherit llvm)
@@ -235,12 +266,38 @@ code analysis tools.")
 (define-public clang-runtime-3.9.1
   (clang-runtime-from-llvm
    llvm-3.9.1
-   "16gc2gdmp5c800qvydrdhsp0bzb97s8wrakl6i8a4lgslnqnf2fk"))
+   "16gc2gdmp5c800qvydrdhsp0bzb97s8wrakl6i8a4lgslnqnf2fk"
+   '("clang-runtime-asan-build-fixes.patch"
+     "clang-runtime-esan-build-fixes.patch")))
 
 (define-public clang-3.9.1
   (clang-from-llvm llvm-3.9.1 clang-runtime-3.9.1
                    "0qsyyb40iwifhhlx9a3drf8z6ni6zwyk3bvh0kx2gs6yjsxwxi76"
-                   #:patches '()))
+                   #:patches '("clang-3.8-libc-search-path.patch")))
+
+(define-public llvm-3.8
+  (package (inherit llvm)
+    (name "llvm")
+    (version "3.8.1")
+    (source
+     (origin
+      (method url-fetch)
+      (uri (string-append "https://llvm.org/releases/"
+                          version "/llvm-" version ".src.tar.xz"))
+      (sha256
+       (base32
+        "1ybmnid4pw2hxn12ax5qa5kl1ldfns0njg8533y3mzslvd5cx0kf"))))))
+
+(define-public clang-runtime-3.8
+  (clang-runtime-from-llvm
+   llvm-3.8
+   "0p0y85c7izndbpg2l816z7z7558axq11d5pwkm4h11sdw7d13w0d"
+   '("clang-runtime-asan-build-fixes.patch")))
+
+(define-public clang-3.8
+  (clang-from-llvm llvm-3.8 clang-runtime-3.8
+                   "1prc72xmkgx8wrzmrr337776676nhsp1qd3mw2bvb22bzdnq7lsc"
+                   #:patches '("clang-3.8-libc-search-path.patch")))
 
 (define-public llvm-3.7
   (package (inherit llvm)
@@ -257,11 +314,13 @@ code analysis tools.")
 (define-public clang-runtime-3.7
   (clang-runtime-from-llvm
    llvm-3.7
-   "10c1mz2q4bdq9bqfgr3dirc6hz1h3sq8573srd5q5lr7m7j6jiwx"))
+   "10c1mz2q4bdq9bqfgr3dirc6hz1h3sq8573srd5q5lr7m7j6jiwx"
+   '("clang-runtime-asan-build-fixes.patch")))
 
 (define-public clang-3.7
   (clang-from-llvm llvm-3.7 clang-runtime-3.7
-                   "0x065d0w9b51xvdjxwfzjxng0gzpbx45fgiaxpap45ragi61dqjn"))
+                   "0x065d0w9b51xvdjxwfzjxng0gzpbx45fgiaxpap45ragi61dqjn"
+                   #:patches '("clang-3.5-libc-search-path.patch")))
 
 (define-public llvm-3.6
   (package (inherit llvm)
@@ -278,11 +337,13 @@ code analysis tools.")
 (define-public clang-runtime-3.6
   (clang-runtime-from-llvm
    llvm-3.6
-   "11qx8d3pbfqjaj2x207pvlvzihbs1z2xbw4crpz7aid6h1yz6bqg"))
+   "11qx8d3pbfqjaj2x207pvlvzihbs1z2xbw4crpz7aid6h1yz6bqg"
+   '("clang-runtime-asan-build-fixes.patch")))
 
 (define-public clang-3.6
   (clang-from-llvm llvm-3.6 clang-runtime-3.6
-                   "1wwr8s6lzr324hv4s1k6na4j5zv6n9kdhi14s4kb9b13d93814df"))
+                   "1wwr8s6lzr324hv4s1k6na4j5zv6n9kdhi14s4kb9b13d93814df"
+                   #:patches '("clang-3.5-libc-search-path.patch")))
 
 (define-public llvm-3.5
   (package (inherit llvm)
@@ -301,11 +362,13 @@ code analysis tools.")
 (define-public clang-runtime-3.5
   (clang-runtime-from-llvm
    llvm-3.5
-   "1hsdnzzdr5kglz6fnv3lcsjs222zjsy14y8ax9dy6zqysanplbal"))
+   "1hsdnzzdr5kglz6fnv3lcsjs222zjsy14y8ax9dy6zqysanplbal"
+   '("clang-runtime-asan-build-fixes.patch")))
 
 (define-public clang-3.5
   (clang-from-llvm llvm-3.5 clang-runtime-3.5
-                   "0846h8vn3zlc00jkmvrmy88gc6ql6014c02l4jv78fpvfigmgssg"))
+                   "0846h8vn3zlc00jkmvrmy88gc6ql6014c02l4jv78fpvfigmgssg"
+                   #:patches '("clang-3.5-libc-search-path.patch")))
 
 (define-public llvm-for-extempore
   (package (inherit llvm-3.7)

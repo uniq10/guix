@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2012 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2014, 2015, 2016 Mark H Weaver <mhw@netris.org>
@@ -7,7 +7,12 @@
 ;;; Copyright © 2014, 2015 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
+;;; Copyright © 2016 Alex Vong <alexvong1995@gmail.com>
+;;; Copyright © 2017 Rene Saavedra <rennes@openmailbox.org>
+;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2018 Ricardo Wurmus <rekado@elephly.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,6 +41,7 @@
   #:use-module (gnu packages compression)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages linux)
+  #:use-module (gnu packages pcre)
   #:use-module (gnu packages texinfo)
   #:use-module (gnu packages hurd)
   #:use-module (gnu packages pkg-config)
@@ -79,17 +85,18 @@ command-line arguments, multiple languages, and so on.")
 (define-public grep
   (package
    (name "grep")
-   (version "3.0")
+   (version "3.1")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/grep/grep-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "1dcasjp3a578nrvzrcn38mpizb8w1q6mvfzhjmcqqgkf0nsivj72"))
+              "0zm0ywmyz9g8vn1plw14mn8kj74yipx5qsljndbyfgmvndx5qqnv"))
             (patches (search-patches "grep-timing-sensitive-test.patch"))))
    (build-system gnu-build-system)
    (native-inputs `(("perl" ,perl)))             ;some of the tests require it
+   (inputs `(("pcre" ,pcre)))
    (arguments
     `(#:phases
       (modify-phases %standard-phases
@@ -228,14 +235,15 @@ differences.")
 (define-public diffutils
   (package
    (name "diffutils")
-   (version "3.5")
+   (version "3.6")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/diffutils/diffutils-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "0csmqfz8ks23kdjsq0v2ll1acqiz8lva06dj19mwmymrsp69ilys"))))
+              "1mivg0fy3a6fcn535ln8nkgfj6vxh5hsxxs5h6692wxmsjyyh8fn"))
+            (patches (search-patches "diffutils-getopt.patch"))))
    (build-system gnu-build-system)
    (synopsis "Comparing and merging files")
    (description
@@ -258,8 +266,19 @@ interactive means to merge two files.")
             (sha256
              (base32
               "178nn4dl7wbcw499czikirnkniwnx36argdnqgz4ik9i6zvwkm6y"))
-            (patches (search-patches "findutils-localstatedir.patch"
-                                     "findutils-test-xargs.patch"))))
+            (patches (search-patches
+                      "findutils-localstatedir.patch"
+                      "findutils-test-xargs.patch"))
+            (modules '((guix build utils)))
+            (snippet
+             '(begin
+                ;; The gnulib test-lock test is prone to writer starvation
+                ;; with our glibc@2.25, which prefers readers, so disable it.
+                ;; The gnulib commit b20e8afb0b2 should fix this once
+                ;; incorporated here.
+                (substitute* "tests/Makefile.in"
+                  (("test-lock\\$\\(EXEEXT\\) ") ""))
+                #t))))
    (build-system gnu-build-system)
    (arguments
     `(#:configure-flags (list
@@ -285,15 +304,14 @@ used to apply commands with arbitrarily long arguments.")
 (define-public coreutils
   (package
    (name "coreutils")
-   (version "8.26")
+   (version "8.28")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/coreutils/coreutils-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "13lspazc7xkviy93qz7ks9jv4sldvgmwpq36ghrbrqpq93br8phm"))
-            (patches (search-patches "coreutils-fix-cross-compilation.patch"))))
+              "0r8c1bgm68kl70j1lgd0rv12iykw6143k4m9a56xip9rc2hv25qi"))))
    (build-system gnu-build-system)
    (inputs `(("acl"  ,acl)                        ; TODO: add SELinux
              ("gmp"  ,gmp)                        ;bignums in 'expr', yay!
@@ -308,51 +326,30 @@ used to apply commands with arbitrarily long arguments.")
     ;; copy of help2man.  However, don't pass it when cross-compiling since
     ;; that would lead it to try to run programs to get their '--help' output
     ;; for help2man.
-    `(,@(if (%current-target-system)
-            '()
-            `(("perl" ,perl)))
-
-      ;; Apply this patch only on ARM to avoid a full rebuild.
-      ;; TODO: Move to 'patches' in the next update cycle.
-      ,@(if (string-prefix? "arm" (or (%current-target-system)
-                                      (%current-system)))
-            `(("cut-test.patch"
-               ,(search-patch "coreutils-cut-huge-range-test.patch")))
-            '())))
+    (if (%current-target-system)
+        '()
+        `(("perl" ,perl))))
    (outputs '("out" "debug"))
    (arguments
     `(#:parallel-build? #f            ; help2man may be called too early
-      #:parallel-tests? #f            ; race condition fixed after 8.26
-      #:phases (alist-cons-before
-                'build 'patch-shell-references
-                (lambda* (#:key inputs #:allow-other-keys)
-                  (let ((bash (assoc-ref inputs "bash")))
-                    ;; 'split' uses either $SHELL or /bin/sh.  Set $SHELL so
-                    ;; that tests pass, since /bin/sh isn't in the chroot.
-                    (setenv "SHELL" (which "sh"))
+      #:phases (modify-phases %standard-phases
+                 (add-before 'build 'patch-shell-references
+                   (lambda _
+                     ;; 'split' uses either $SHELL or /bin/sh.  Set $SHELL so
+                     ;; that tests pass, since /bin/sh isn't in the chroot.
+                     (setenv "SHELL" (which "sh"))
 
-                    (substitute* (find-files "gnulib-tests" "\\.c$")
-                      (("/bin/sh")
-                       (format #f "~a/bin/sh" bash)))
-                    (substitute* (find-files "tests" "\\.sh$")
-                      (("#!/bin/sh")
-                       (format #f "#!~a/bin/sh" bash)))))
+                     (substitute* (find-files "gnulib-tests" "\\.c$")
+                       (("/bin/sh") (which "sh")))
+                     (substitute* (find-files "tests" "\\.sh$")
+                       (("#!/bin/sh") (which "sh")))
+                     #t)))
 
-                ,@(if (string-prefix? "arm" (or (%current-target-system)
-                                                (%current-system)))
-                      '((alist-cons-before
-                         'build 'patch-cut-test
-                         (lambda* (#:key inputs native-inputs
-                                   #:allow-other-keys)
-                           (let ((patch (or (assoc-ref inputs
-                                                       "cut-test.patch")
-                                            (assoc-ref native-inputs
-                                                       "cut-test.patch"))))
-                             (zero?
-                              (system* "patch" "-p1" "--force"
-                                       "--input" patch))))
-                         %standard-phases))
-                      '(%standard-phases)))))
+      ;; Work around a cross-compilation bug whereby libcoreutils.a would
+      ;; provide '__mktime_internal', which conflicts with the one in libc.a.
+      ,@(if (%current-target-system)
+            `(#:configure-flags '("gl_cv_func_working_mktime=yes"))
+            '())))
    (synopsis "Core GNU utilities (file, text, shell)")
    (description
     "GNU Coreutils includes all of the basic command-line tools that are
@@ -361,29 +358,6 @@ manipulation functions of the GNU system.  Most of these tools offer extended
 functionality beyond that which is outlined in the POSIX standard.")
    (license gpl3+)
    (home-page "https://www.gnu.org/software/coreutils/")))
-
-;; We add version 8.27 here for use in (gnu system) due to a time
-;; zone bug in `date' versions 8.25 - 8.26.
-;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=23035
-;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=26238
-(define-public coreutils-8.27
-  (package
-    (inherit coreutils)
-    (version "8.27")
-    (source (origin
-              (method url-fetch)
-              (uri (string-append "mirror://gnu/coreutils/coreutils-"
-                                  version ".tar.xz"))
-              (sha256
-               (base32
-                "0sv547572iq8ayy8klir4hnngnx92a9nsazmf1wgzfc7xr4x74c8"))))
-    (arguments
-     (if (string-prefix? "arm" (or (%current-target-system)
-                                   (%current-system)))
-         (substitute-keyword-arguments (package-arguments coreutils)
-           ((#:phases phases)
-            `(alist-delete 'patch-cut-test ,phases)))
-         (package-arguments coreutils)))))
 
 (define-public coreutils-minimal
   ;; Coreutils without its optional dependencies.
@@ -434,17 +408,16 @@ change.  GNU make offers many powerful extensions over the standard utility.")
 (define-public binutils
   (package
    (name "binutils")
-   (version "2.27")
+   (version "2.28.1")
    (source (origin
             (method url-fetch)
             (uri (string-append "mirror://gnu/binutils/binutils-"
                                 version ".tar.bz2"))
             (sha256
              (base32
-              "125clslv17xh1sab74343fg6v31msavpmaa1c1394zsqa773g5rn"))
+              "1sj234nd05cdgga1r36zalvvdkvpfbr12g5mir2n8i1dwsdrj939"))
             (patches (search-patches "binutils-ld-new-dtags.patch"
-                                     "binutils-loongson-workaround.patch"
-                                     "binutils-mips-bash-bug.patch"))))
+                                     "binutils-loongson-workaround.patch"))))
    (build-system gnu-build-system)
 
    ;; TODO: Add dependency on zlib + those for Gold.
@@ -455,10 +428,6 @@ change.  GNU make offers many powerful extensions over the standard utility.")
 
                           ;; Don't search under /usr/lib & co.
                           "--with-lib-path=/no-ld-lib-path"
-
-                          ;; Glibc 2.17 has a "comparison of unsigned
-                          ;; expression >= 0 is always true" in wchar.h.
-                          "--disable-werror"
 
                           ;; Install BFD.  It ends up in a hidden directory,
                           ;; but it's here.
@@ -482,7 +451,7 @@ included.")
 (define* (make-ld-wrapper name #:key
                           (target (const #f))
                           binutils
-                          (guile (canonical-package guile-2.0))
+                          (guile (canonical-package guile-2.2))
                           (bash (canonical-package bash))
                           (guile-for-build guile))
   "Return a package called NAME that contains a wrapper for the 'ld' program
@@ -557,15 +526,27 @@ store.")
 (define-public glibc/linux
   (package
    (name "glibc")
-   (version "2.25")
-   (replacement glibc-2.25-patched)
+   ;; Glibc has stable branches that continuously pick fixes for each supported
+   ;; release.  Unfortunately they do not do point-releases, so we are stuck
+   ;; with copying almost all patches, or use a snapshot of the release branch.
+   ;;
+   ;; This version number corresponds to the output of `git describe` and the
+   ;; archive can be generated by checking out the commit ID and running:
+   ;;  git archive --prefix=$(git describe)/ HEAD | xz > $(git describe).tar.xz
+   ;; See <https://bugs.gnu.org/29406> for details.
+   ;;
+   ;; Note: Always use a dot after the minor version since various places rely
+   ;; on "version-major+minor" to determine where locales are found.
+   (version "2.26.105-g0890d5379c")
+   (replacement glibc-2.26-patched)
    (source (origin
             (method url-fetch)
-            (uri (string-append "mirror://gnu/glibc/glibc-"
-                                version ".tar.xz"))
+            (uri (string-append "https://alpha.gnu.org/gnu/guix/mirror/"
+                                "glibc-" (version-major+minor version) "-"
+                                (caddr (string-split version #\.)) ".tar.xz"))
             (sha256
              (base32
-              "1813dzkgw6v8q8q1m4v96yfis7vjqc9pslqib6j9mrwh6fxxjyq6"))
+              "1jck0c1i248sn02rvsfjykk77qncma34bjq89dyy2irwm50d7s3g"))
             (snippet
              ;; Disable 'ldconfig' and /etc/ld.so.cache.  The latter is
              ;; required on LFS distros to avoid loading the distro's libc.so
@@ -583,20 +564,22 @@ store.")
    ;; users should automatically pull Linux headers as well.
    (propagated-inputs `(("kernel-headers" ,linux-libre-headers)))
 
-   (outputs '("out" "debug"))
+   (outputs '("out" "debug"
+              "static"))                          ;9 MiB of .a files
 
    (arguments
     `(#:out-of-source? #t
-
-      ;; In version 2.21, there a race in the 'elf' directory, see
-      ;; <http://lists.gnu.org/archive/html/guix-devel/2015-02/msg00709.html>.
-      #:parallel-build? #f
 
       ;; The libraries have an empty RUNPATH, but some, such as the versioned
       ;; libraries (libdl-2.24.so, etc.) have ld.so marked as NEEDED.  Since
       ;; these libraries are always going to be found anyway, just skip
       ;; RUNPATH checks.
       #:validate-runpath? #f
+
+      #:modules ((ice-9 ftw)
+                 (srfi srfi-26)
+                 (guix build utils)
+                 (guix build gnu-build-system))
 
       #:configure-flags
       (list "--enable-add-ons"
@@ -618,7 +601,7 @@ store.")
             ;; `--localedir' is not honored, so work around it.
             ;; See <http://sourceware.org/ml/libc-alpha/2013-03/msg00093.html>.
             (string-append "libc_cv_complocaledir=/run/current-system/locale/"
-                           ,version)
+                           ,(version-major+minor version))
 
             (string-append "--with-headers="
                            (assoc-ref ,(if (%current-target-system)
@@ -627,10 +610,10 @@ store.")
                                       "kernel-headers")
                            "/include")
 
-            ;; This is the default for most architectures as of GNU libc 2.21,
+            ;; This is the default for most architectures as of GNU libc 2.26,
             ;; but we specify it explicitly for clarity and consistency.  See
             ;; "kernel-features.h" in the GNU libc for details.
-            "--enable-kernel=2.6.32"
+            "--enable-kernel=3.2.0"
 
             ;; Use our Bash instead of /bin/sh.
             (string-append "BASH_SHELL="
@@ -667,19 +650,6 @@ store.")
                         ;; 4.7.1.
                         ((" -lgcc_s") ""))
 
-                      ;; Apply patch only on i686.
-                      ;; TODO: Move the patch to 'patches' in the next update cycle.
-                      ,@(if (string-prefix? "i686" (or (%current-target-system)
-                                                       (%current-system)))
-                            `((unless (zero? (system* "patch" "-p1" "--force"
-                                                      "--input"
-                                                      (or (assoc-ref native-inputs
-                                                                     "glibc-memchr-overflow-i686.patch")
-                                                          (assoc-ref inputs
-                                                                     "glibc-memchr-overflow-i686.patch"))))
-                                (error "patch failed for glibc-memchr-overflow-i686.patch")))
-                            '())
-
                       ;; Have `system' use that Bash.
                       (substitute* "sysdeps/posix/system.c"
                         (("#define[[:blank:]]+SHELL_PATH.*$")
@@ -715,7 +685,46 @@ store.")
                          ;; "bilingual" eval/exec magic at the top of the file.
                          "")
                         (("exec @PERL@")
-                         "exec perl"))))))))
+                         "exec perl")))))
+
+                 (add-after 'install 'move-static-libs
+                   (lambda* (#:key outputs #:allow-other-keys)
+                     ;; Move static libraries to the "static" output.
+                     (define (static-library? file)
+                       ;; Return true if FILE is a static library.  The
+                       ;; "_nonshared.a" files are referred to by libc.so,
+                       ;; libpthread.so, etc., which are in fact linker
+                       ;; scripts.
+                       (and (string-suffix? ".a" file)
+                            (not (string-contains file "_nonshared"))))
+
+                     (define (linker-script? file)
+                       ;; Guess whether FILE, a ".a" file, is actually a
+                       ;; linker script.
+                       (and (not (ar-file? file))
+                            (not (elf-file? file))))
+
+                     (let* ((out    (assoc-ref outputs "out"))
+                            (lib    (string-append out "/lib"))
+                            (files  (scandir lib static-library?))
+                            (static (assoc-ref outputs "static"))
+                            (slib   (string-append static "/lib")))
+                       (mkdir-p slib)
+                       (for-each (lambda (base)
+                                   (rename-file (string-append lib "/" base)
+                                                (string-append slib "/" base)))
+                                 files)
+
+                       ;; Usually libm.a is a linker script so we need to
+                       ;; change the file names in there to refer to STATIC
+                       ;; instead of OUT.
+                       (for-each (lambda (ld-script)
+                                   (substitute* ld-script
+                                     ((out) static)))
+                                 (filter linker-script?
+                                         (map (cut string-append slib "/" <>)
+                                              files)))
+                       #t))))))
 
    (inputs `(("static-bash" ,static-bash)))
 
@@ -723,15 +732,7 @@ store.")
    ;; install the message catalogs, with 'msgfmt'.
    (native-inputs `(("texinfo" ,texinfo)
                     ("perl" ,perl)
-                    ("gettext" ,gettext-minimal)
-
-                    ;; Apply this patch only on i686 to avoid a full rebuild.
-                    ;; TODO: Move to 'patches' in the next update cycle.
-                    ,@(if (string-prefix? "i686" (or (%current-target-system)
-                                                     (%current-system)))
-                          `(("glibc-memchr-overflow-i686.patch"
-                             ,(search-patch "glibc-memchr-overflow-i686.patch")))
-                          '())))
+                    ("gettext" ,gettext-minimal)))
 
    (native-search-paths
     ;; Search path for packages that provide locale data.  This is useful
@@ -780,71 +781,6 @@ with the Linux kernel.")
         ;; Add libmachuser.so and libhurduser.so to libc.so's search path.
         ;; See <http://lists.gnu.org/archive/html/bug-hurd/2015-07/msg00051.html>.
         `(modify-phases ,original-phases
-           ;; TODO: This is almost an exact copy of the phase of the same name
-           ;; in glibc/linux.  The only difference is that the i686 patch is
-           ;; not applied here.  In the next update cycle the patch moves to
-           ;; the patches field and this overwritten phase won't be needed any
-           ;; more.
-           (replace 'pre-configure
-             (lambda* (#:key inputs native-inputs outputs
-                       #:allow-other-keys)
-               (let* ((out  (assoc-ref outputs "out"))
-                      (bin  (string-append out "/bin"))
-                      ;; FIXME: Normally we would look it up only in INPUTS
-                      ;; but cross-base uses it as a native input.
-                      (bash (or (assoc-ref inputs "static-bash")
-                                (assoc-ref native-inputs "static-bash"))))
-                 ;; Install the rpc data base file under `$out/etc/rpc'.
-                 ;; FIXME: Use installFlags = [ "sysconfdir=$(out)/etc" ];
-                 (substitute* "sunrpc/Makefile"
-                   (("^\\$\\(inst_sysconfdir\\)/rpc(.*)$" _ suffix)
-                    (string-append out "/etc/rpc" suffix "\n"))
-                   (("^install-others =.*$")
-                    (string-append "install-others = " out "/etc/rpc\n")))
-
-                 (substitute* "Makeconfig"
-                   ;; According to
-                   ;; <http://www.linuxfromscratch.org/lfs/view/stable/chapter05/glibc.html>,
-                   ;; linking against libgcc_s is not needed with GCC
-                   ;; 4.7.1.
-                   ((" -lgcc_s") ""))
-
-                 ;; Have `system' use that Bash.
-                 (substitute* "sysdeps/posix/system.c"
-                   (("#define[[:blank:]]+SHELL_PATH.*$")
-                    (format #f "#define SHELL_PATH \"~a/bin/bash\"\n"
-                            bash)))
-
-                 ;; Same for `popen'.
-                 (substitute* "libio/iopopen.c"
-                   (("/bin/sh")
-                    (string-append bash "/bin/sh")))
-
-                 ;; Same for the shell used by the 'exec' functions for
-                 ;; scripts that lack a shebang.
-                 (substitute* (find-files "." "^paths\\.h$")
-                   (("#define[[:blank:]]+_PATH_BSHELL[[:blank:]].*$")
-                    (string-append "#define _PATH_BSHELL \""
-                                   bash "/bin/sh\"\n")))
-
-                 ;; Nscd uses __DATE__ and __TIME__ to create a string to
-                 ;; make sure the client and server come from the same
-                 ;; libc.  Use something deterministic instead.
-                 (substitute* "nscd/nscd_stat.c"
-                   (("static const char compilation\\[21\\] =.*$")
-                    (string-append
-                     "static const char compilation[21] = \""
-                     (string-take (basename out) 20) "\";\n")))
-
-                 ;; Make sure we don't retain a reference to the
-                 ;; bootstrap Perl.
-                 (substitute* "malloc/mtrace.pl"
-                   (("^#!.*")
-                    ;; The shebang can be omitted, because there's the
-                    ;; "bilingual" eval/exec magic at the top of the file.
-                    "")
-                   (("exec @PERL@")
-                    "exec perl")))))
            (add-after 'install 'augment-libc.so
              (lambda* (#:key outputs #:allow-other-keys)
                (let* ((out (assoc-ref outputs "out")))
@@ -902,11 +838,28 @@ GLIBC/HURD for a Hurd host"
 (define-syntax glibc
   (identifier-syntax (glibc-for-target)))
 
-(define glibc-2.25-patched
+;; Below are old libc versions, which we use mostly to build locale data in
+;; the old format (which the new libc cannot cope with.)
+
+(define glibc-2.26-patched
   (package
     (inherit glibc)
     (source (origin
               (inherit (package-source glibc))
+              (patches (cons (search-patch "glibc-allow-kernel-2.6.32.patch")
+                             (origin-patches (package-source glibc))))))))
+
+(define-public glibc-2.25
+  (package
+    (inherit glibc)
+    (version "2.25")
+    (source (origin
+              (inherit (package-source glibc))
+              (uri (string-append "mirror://gnu/glibc/glibc-"
+                                  version ".tar.xz"))
+              (sha256
+               (base32
+                "1813dzkgw6v8q8q1m4v96yfis7vjqc9pslqib6j9mrwh6fxxjyq6"))
               (patches (search-patches "glibc-ldd-x86_64.patch"
                                        "glibc-versioned-locpath.patch"
                                        "glibc-o-largefile.patch"
@@ -914,9 +867,6 @@ GLIBC/HURD for a Hurd host"
                                        "glibc-CVE-2017-1000366-pt1.patch"
                                        "glibc-CVE-2017-1000366-pt2.patch"
                                        "glibc-CVE-2017-1000366-pt3.patch"))))))
-
-;; Below are old libc versions, which we use mostly to build locale data in
-;; the old format (which the new libc cannot cope with.)
 
 (define-public glibc-2.24
   (package
@@ -933,6 +883,7 @@ GLIBC/HURD for a Hurd host"
                                        "glibc-versioned-locpath.patch"
                                        "glibc-o-largefile.patch"
                                        "glibc-vectorized-strcspn-guards.patch"
+                                       "glibc-CVE-2015-5180.patch"
                                        "glibc-CVE-2017-1000366-pt1.patch"
                                        "glibc-CVE-2017-1000366-pt2.patch"
                                        "glibc-CVE-2017-1000366-pt3.patch"))))))
@@ -952,6 +903,10 @@ GLIBC/HURD for a Hurd host"
                                        "glibc-versioned-locpath.patch"
                                        "glibc-o-largefile.patch"
                                        "glibc-vectorized-strcspn-guards.patch"
+                                       "glibc-CVE-2015-5180.patch"
+                                       "glibc-CVE-2016-3075.patch"
+                                       "glibc-CVE-2016-3706.patch"
+                                       "glibc-CVE-2016-4429.patch"
                                        "glibc-CVE-2017-1000366-pt1.patch"
                                        "glibc-CVE-2017-1000366-pt2.patch"
                                        "glibc-CVE-2017-1000366-pt3.patch"))))))
@@ -969,6 +924,11 @@ GLIBC/HURD for a Hurd host"
                 "0j49682pm2nh4qbdw35bas82p1pgfnz4d2l7iwfyzvrvj0318wzb"))
               (patches (search-patches "glibc-ldd-x86_64.patch"
                                        "glibc-vectorized-strcspn-guards.patch"
+                                       "glibc-CVE-2015-5180.patch"
+                                       "glibc-CVE-2015-7547.patch"
+                                       "glibc-CVE-2016-3075.patch"
+                                       "glibc-CVE-2016-3706.patch"
+                                       "glibc-CVE-2016-4429.patch"
                                        "glibc-CVE-2017-1000366-pt1.patch"
                                        "glibc-CVE-2017-1000366-pt2.patch"
                                        "glibc-CVE-2017-1000366-pt3.patch"))))
@@ -1002,19 +962,21 @@ the 'share/locale' sub-directory of this package.")
                    ,@(package-arguments glibc))))
        (substitute-keyword-arguments args
          ((#:phases phases)
-          `(alist-replace
-            'build
-            (lambda* (#:key outputs #:allow-other-keys)
-              (zero? (system* "make" "localedata/install-locales"
-                              "-j" (number->string (parallel-job-count)))))
-            (alist-delete 'install ,phases)))
+          `(modify-phases ,phases
+             (replace 'build
+               (lambda _
+                 (zero? (system* "make" "localedata/install-locales"
+                                 "-j" (number->string (parallel-job-count))))))
+             (delete 'install)
+             (delete 'move-static-libs)))
          ((#:configure-flags flags)
           `(append ,flags
                    ;; Use $(libdir)/locale/X.Y as is the case by default.
                    (list (string-append "libc_cv_complocaledir="
                                         (assoc-ref %outputs "out")
                                         "/lib/locale/"
-                                        ,(package-version glibc))))))))))
+                                        ,(version-major+minor
+                                          (package-version glibc)))))))))))
 
 (define-public glibc-utf8-locales
   (package
@@ -1032,7 +994,7 @@ the 'share/locale' sub-directory of this package.")
                           (gzip      (assoc-ref %build-inputs "gzip"))
                           (out       (assoc-ref %outputs "out"))
                           (localedir (string-append out "/lib/locale/"
-                                                    ,version)))
+                                                    ,(version-major+minor version))))
                      ;; 'localedef' needs 'gzip'.
                      (setenv "PATH" (string-append libc "/bin:" gzip "/bin"))
 
@@ -1129,7 +1091,7 @@ command.")
 (define-public tzdata
   (package
     (name "tzdata")
-    (version "2017b")
+    (version "2018c")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -1137,8 +1099,81 @@ command.")
                    version ".tar.gz"))
              (sha256
               (base32
-               "11l0s43vx33dcs78p80122i8s5s9l1sjwkzzwh66njd35r92l97q"))))
+               "1xik57rdi7kqa0wb5jbz7vyjyxpr88lw1g4kscj0ylpgnzjc6998"))))
     (build-system gnu-build-system)
+    (arguments
+     '(#:tests? #f
+       #:make-flags (let ((out (assoc-ref %outputs "out"))
+                          (tmp (getenv "TMPDIR")))
+                      (list (string-append "TOPDIR=" out)
+                            (string-append "TZDIR=" out "/share/zoneinfo")
+                            (string-append "TZDEFAULT=" out
+                                           "/share/zoneinfo/localtime")
+
+                            ;; Likewise for the C library routines.
+                            (string-append "LIBDIR=" tmp "/lib")
+                            (string-append "MANDIR=" tmp "/man")
+
+                            "AWK=awk"
+                            "CC=gcc"))
+       #:modules ((guix build utils)
+                  (guix build gnu-build-system)
+                  (srfi srfi-1))
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'unpack
+           (lambda* (#:key source inputs #:allow-other-keys)
+             (and (zero? (system* "tar" "xvf" source))
+                  (zero? (system* "tar" "xvf" (assoc-ref inputs "tzcode"))))))
+         (add-after 'install 'post-install
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Move data in the right place.
+             (let ((out (assoc-ref outputs "out")))
+               ;; Discard zic, dump, and tzselect, already
+               ;; provided by glibc.
+               (delete-file-recursively (string-append out "/usr"))
+               (symlink (string-append out "/share/zoneinfo")
+                        (string-append out "/share/zoneinfo/posix"))
+               (delete-file-recursively
+                (string-append out "/share/zoneinfo-posix"))
+               (copy-recursively (string-append out "/share/zoneinfo-leaps")
+                                 (string-append out "/share/zoneinfo/right"))
+               (delete-file-recursively
+                (string-append out "/share/zoneinfo-leaps")))))
+         (delete 'configure))))
+    (inputs `(("tzcode" ,(origin
+                          (method url-fetch)
+                          (uri (string-append
+                                "http://www.iana.org/time-zones/repository/releases/tzcode"
+                                version ".tar.gz"))
+                          (sha256
+                           (base32
+                            "0rg6s1vlgwd8sjhla55hx2h5m2xbx0shm347pkbg4vsaz707zyii"))))))
+    (home-page "https://www.iana.org/time-zones")
+    (synopsis "Database of current and historical time zones")
+    (description "The Time Zone Database (often called tz or zoneinfo)
+contains code and data that represent the history of local time for many
+representative locations around the globe.  It is updated periodically to
+reflect changes made by political bodies to time zone boundaries, UTC offsets,
+and daylight-saving rules.")
+    (license public-domain)))
+
+;;; A "fixed" version of tzdata, which is used in the test suites of glib and R
+;;; and a few other places. We can update this whenever we are able to rebuild
+;;; thousands of packages (for example, in a core-updates rebuild). This package
+;;; will typically be obsolete and should never be referred to by a built
+;;; package.
+(define-public tzdata-for-tests
+  (hidden-package (package (inherit tzdata)
+    (version "2017c")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (string-append "https://www.iana.org/time-zones/repository"
+                            "/releases/tzdata" version ".tar.gz"))
+        (sha256
+         (base32
+          "02yrrfj0p7ar885ja41ylijzbr8wc6kz6kzlw8c670i9m693ym6n"))))
     (arguments
      '(#:tests? #f
        #:make-flags (let ((out (assoc-ref %outputs "out"))
@@ -1185,40 +1220,7 @@ command.")
                                 version ".tar.gz"))
                           (sha256
                            (base32
-                            "0h1d567gn8l3iqgyadcswwdy2yh07nhz3lfl8ds8saz2ajxka5sd"))))))
-    (home-page "https://www.iana.org/time-zones")
-    (synopsis "Database of current and historical time zones")
-    (description "The Time Zone Database (often called tz or zoneinfo)
-contains code and data that represent the history of local time for many
-representative locations around the globe.  It is updated periodically to
-reflect changes made by political bodies to time zone boundaries, UTC offsets,
-and daylight-saving rules.")
-    (license public-domain)))
-
-;;; A "fixed" version of tzdata, which is used in the test suites of
-;;; glib and R. We can update this whenever we are able to rebuild
-;;; thousands of packages (for example, in a core-updates rebuild).
-(define-public tzdata-2017a
-  (package
-    (inherit tzdata)
-    (version "2017a")
-    (source
-      (origin
-        (method url-fetch)
-        (uri (string-append "https://www.iana.org/time-zones/repository"
-                            "/releases/tzdata" version ".tar.gz"))
-        (sha256
-         (base32
-          "1mmv4rvcs12lrvgghw4fidczvb69yv69cmzknghcvw1c196mqfnz"))))
-    (inputs `(("tzcode" ,(origin
-                          (method url-fetch)
-                          (uri (string-append
-                                "http://www.iana.org/time-zones/repository/releases/tzcode"
-                                version ".tar.gz"))
-                          (sha256
-                           (base32
-                            "1b1q7gnlsh5hjgs5065pvajd37rmbc3k9b8cgzad1vcrifswdwh2"))))))))
-
+                            "1dvrq0b2hz7cjqdyd7x21wpy4qcng3rvysr61ij0c2g64fyb9s41")))))))))
 
 (define-public libiconv
   (package

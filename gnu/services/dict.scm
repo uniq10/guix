@@ -1,6 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 Sou Bunnbu <iyzsong@gmail.com>
-;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2017 Huang Ying <huang.ying.caritas@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -21,6 +21,7 @@
 (define-module (gnu services dict)
   #:use-module (guix gexp)
   #:use-module (guix records)
+  #:use-module (guix modules)
   #:use-module (gnu services)
   #:use-module (gnu services shepherd)
   #:use-module (gnu system shadow)
@@ -144,14 +145,24 @@ database {
   (let ((dicod      (file-append (dicod-configuration-dico config)
                                  "/bin/dicod"))
         (dicod.conf (dicod-configuration-file config)))
-    (list (shepherd-service
-           (provision '(dicod))
-           (documentation "Run the dicod daemon.")
-           (start #~(make-forkexec-constructor
-                     (list #$dicod "--foreground"
-                           (string-append "--config=" #$dicod.conf))
-                     #:user "dicod" #:group "dicod"))
-          (stop #~(make-kill-destructor))))))
+    (with-imported-modules (source-module-closure
+                            '((gnu build shepherd)
+                              (gnu system file-systems)))
+      (list (shepherd-service
+             (provision '(dicod))
+             (requirement '(user-processes))
+             (documentation "Run the dicod daemon.")
+             (modules '((gnu build shepherd)
+                        (gnu system file-systems)))
+             (start #~(make-forkexec-constructor/container
+                       (list #$dicod "--foreground"
+                             (string-append "--config=" #$dicod.conf))
+                       #:user "dicod" #:group "dicod"
+                       #:mappings (list (file-system-mapping
+                                         (source "/var/run/dicod")
+                                         (target source)
+                                         (writable? #t)))))
+             (stop #~(make-kill-destructor)))))))
 
 (define dicod-service-type
   (service-type

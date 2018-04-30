@@ -1,0 +1,14 @@
+diff -rpu4 libusb-1.0.22.orig/libusb/descriptor.c libusb-1.0.22/libusb/descriptor.c
+--- libusb-1.0.22.orig/libusb/descriptor.c	2018-03-17 08:23:37.000000000 +0100
++++ libusb-1.0.22/libusb/descriptor.c	2018-03-29 10:36:09.968429473 +0200
+@@ -1173,9 +1173,9 @@ int API_EXPORTED libusb_get_string_descr
+ 	if (tbuf[1] != LIBUSB_DT_STRING)
+ 		return LIBUSB_ERROR_IO;
+ 
+ 	if (tbuf[0] > r)
+-		return LIBUSB_ERROR_IO;
++		tbuf[0] = r;
+ 
+ 	di = 0;
+ 	for (si = 2; si < tbuf[0]; si += 2) {
+ 		if (di >= (length - 1))

@@ -4,7 +4,8 @@
 ;;; Copyright © 2014 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Jan Nieuwenhuizen <janneke@gnu.org>
-;;; Copyright © 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -38,35 +39,32 @@
 (define-public tcl
   (package
     (name "tcl")
-    (version "8.6.6")
+    (version "8.6.7")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/tcl/Tcl/"
                                   version "/tcl" version "-src.tar.gz"))
               (sha256
                (base32
-                "01zypqhy57wvh1ikk28bg733sk5kf4q568pq9v6fvcz4h6bl0rd2"))
-              (patches (search-patches "tcl-mkindex-deterministic.patch"))))
+                "19bb09l55alz4jb38961ikd5116q80s51bjvzqy44ckkwf28ysvw"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-cons-before
-                 'configure 'pre-configure
-                 (lambda _
-                   (chdir "unix"))
-                 (alist-cons-after
-                  'install 'install-private-headers
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    ;; Private headers are needed by Expect.
-                    (and (zero? (system* "make"
-                                         "install-private-headers"))
-                         (let ((bin (string-append (assoc-ref outputs "out")
-                                                   "/bin")))
-                           ;; Create a tclsh -> tclsh8.6 symlink.
-                           ;; Programs such as Ghostscript rely on it.
-                           (with-directory-excursion bin
-                             (symlink (car (find-files "." "tclsh"))
-                                      "tclsh")))))
-                  %standard-phases))
+     '(#:phases (modify-phases %standard-phases
+                  (add-before 'configure 'pre-configure
+                    (lambda _ (chdir "unix") #t))
+                 (add-after 'install 'install-private-headers
+                   (lambda* (#:key outputs #:allow-other-keys)
+                     ;; Private headers are needed by Expect.
+                     (and (zero? (system* "make"
+                                          "install-private-headers"))
+                          (let ((bin (string-append (assoc-ref outputs "out")
+                                                    "/bin")))
+                            ;; Create a tclsh -> tclsh8.6 symlink.
+                            ;; Programs such as Ghostscript rely on it.
+                            (with-directory-excursion bin
+                              (symlink (car (find-files "." "tclsh"))
+                                       "tclsh"))
+                            #t)))))
 
        ;; By default, man pages are put in PREFIX/man, but we want them in
        ;; PREFIX/share/man.  The 'validate-documentation-location' phase is
@@ -89,7 +87,7 @@
 (define-public expect
   (package
     (name "expect")
-    (version "5.45")
+    (version "5.45.4")
     (source
      (origin
       (method url-fetch)
@@ -97,7 +95,7 @@
                           version "/expect" version ".tar.gz"))
       (sha256
        (base32
-        "0h60bifxj876afz4im35rmnbnxjx4lbdqp2ja3k30fwa8a8cm3dj"))))
+        "0d1cp5hggjl93xwc8h1y6adbnrvpkk0ywkd00inz9ndxn21xm9s9"))))
     (build-system gnu-build-system)
     (inputs
      `(;; TODO: Add these optional dependencies.
@@ -114,16 +112,17 @@
                (string-append "--exec-prefix=" out)
                (string-append "--mandir=" out "/share/man")))
 
-       #:phases (alist-cons-before
-                 'configure 'set-path-to-stty
-                 (lambda _
-                   (substitute* "configure"
-                     (("STTY_BIN=/bin/stty")
-                      (string-append "STTY_BIN=" (which "stty")))))
-                 %standard-phases)
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'set-path-to-stty
+           (lambda _
+             (substitute* "configure"
+               (("STTY_BIN=/bin/stty")
+                (string-append "STTY_BIN=" (which "stty"))))
+             #t)))
 
        #:test-target "test"))
-    (home-page "http://expect.nist.gov/")
+    (home-page "http://expect.sourceforge.net/")
     (synopsis "Tool for automating interactive applications")
     (description
      "Expect is a tool for automating interactive applications such as
@@ -136,14 +135,14 @@ X11 GUIs.")
 (define-public tk
   (package
     (name "tk")
-    (version "8.6.6")
+    (version "8.6.7")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://sourceforge/tcl/Tcl/"
                                  version "/tk" version "-src.tar.gz"))
              (sha256
               (base32
-               "17diivcfcwdhp4v5zi6j9nkxncccjqkivhp363c4wx5lf4d3fb6n"))
+               "1aipcf6qmbgi15av8yrpp2hx6vdwr684r6739p8cgdzrajiy4786"))
              (patches (search-patches "tk-find-library.patch"))))
     (build-system gnu-build-system)
     (arguments
@@ -190,7 +189,7 @@ interfaces (GUIs) in the Tcl language.")
 (define-public perl-tk
   (package
     (name "perl-tk")
-    (version "804.033")
+    (version "804.034")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -198,7 +197,7 @@ interfaces (GUIs) in the Tcl language.")
                    version ".tar.gz"))
              (sha256
               (base32
-               "1bc8bacsf95598yimrxijymb3advrgan73pqxj75qmd20ydnwxc4"))))
+               "1qiz55dmw7hm1wgpjdzf2jffwcj0hisr3kf80qi8lli3qx2b39py"))))
     (build-system perl-build-system)
     (native-inputs `(("pkg-config" ,pkg-config)))
     (inputs `(("libx11" ,libx11)
@@ -247,6 +246,51 @@ interfaces (GUIs) in the Tcl language.")
 utility functions and modules all written in high-level Tcl.")
     (license (package-license tcl))))
 
+(define-public tklib
+  (package
+    (name "tklib")
+    (version "0.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://core.tcl.tk/tklib/tarball/tklib-"
+                                  version ".tar.gz?uuid=tklib-0-6"))
+              (sha256
+               (base32
+                "03y0bzgwbh7nnyqkh8n00bbkq2fyblq39s3bdb6mawna0bbn0wwg"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("tcl" ,tcl)))
+    (propagated-inputs
+     `(("tcllib" ,tcllib)
+       ("tk" ,tk))) ; for "wish"
+    (native-search-paths
+     (list (search-path-specification
+            (variable "TCLLIBPATH")
+            (separator " ")
+            (files (list (string-append "lib/tklib" version))))))
+    (home-page "https://www.tcl.tk/software/tklib/")
+    (synopsis "Tk utility modules for Tcl")
+    (description "Tklib is a collection of common utility functions and
+modules for Tk, all written in high-level Tcl.  Examples of provided widgets:
+@enumerate
+@item @code{chatwidget}
+@item @code{datefield}
+@item @code{tooltip}
+@item @code{cursor}
+@item @code{ipentry}
+@item @code{tablelist}
+@item @code{history}
+@item @code{tkpiechart}
+@item @code{ico}
+@item @code{crosshair}
+@item @code{ntext}
+@item @code{plotchart}
+@item @code{ctext}
+@item @code{autosscroll}
+@item @code{canvas}
+@end enumerate")
+    (license (package-license tcl))))
+
 (define-public tclxml
   (package
     (name "tclxml")
@@ -262,9 +306,10 @@ utility functions and modules all written in high-level Tcl.")
     (build-system gnu-build-system)
     (native-inputs
      `(("tcl" ,tcl)
-       ("tcllib" ,tcllib)
        ("libxml2" ,libxml2)
        ("libxslt" ,libxslt)))
+    (propagated-inputs
+     `(("tcllib" ,tcllib))) ; uri
     (native-search-paths
      (list (search-path-specification
             (variable "TCLLIBPATH")

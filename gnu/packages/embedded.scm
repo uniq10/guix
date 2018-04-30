@@ -1,7 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2016, 2017, 2018 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2016, 2017 Theodoros Foradis <theodoros@foradis.org>
 ;;; Copyright © 2016 David Craven <david@craven.ch>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,7 +44,10 @@
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages python)
+  #:use-module (gnu packages swig)
   #:use-module (gnu packages texinfo)
+  #:use-module (gnu packages xorg)
   #:use-module (srfi srfi-1))
 
 ;; We must not use the released GCC sources here, because the cross-compiler
@@ -290,8 +295,8 @@ languages are C and C++.")
 
 (define-public libjaylink
   ;; No release tarballs available.
-  (let ((commit "faa2a433fdd3de211728f3da5921133214af9dd3")
-        (revision "1"))
+  (let ((commit "699b7001d34a79c8e7064503dde1bede786fd7f0")
+        (revision "2"))
     (package
       (name "libjaylink")
       (version (string-append "0.1.0-" revision "."
@@ -299,12 +304,12 @@ languages are C and C++.")
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
-                      (url "git://git.zapb.de/libjaylink.git")
+                      (url "https://git.zapb.de/libjaylink.git")
                       (commit commit)))
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
                  (base32
-                  "02crr56csz8whq3q4mrmdzzgwp5b0qvxm0fb18drclc3zj44yxl2"))))
+                  "034872d44myycnzn67v5b8ixrgmg8sk32aqalvm5x7108w2byww1"))))
       (build-system gnu-build-system)
       (native-inputs
        `(("autoconf" ,autoconf)
@@ -316,7 +321,7 @@ languages are C and C++.")
       (arguments
        `(#:phases
          (modify-phases %standard-phases
-           (add-before 'configure 'autoreconf
+           (add-after 'unpack 'autoreconf
              (lambda _
                (zero? (system* "autoreconf" "-vfi")))))))
       (home-page "http://repo.or.cz/w/libjaylink.git")
@@ -355,67 +360,76 @@ language.")
     (license license:bsd-2)))
 
 (define-public openocd
-  ;; FIXME: Use tarball release after nrf52 patch is merged.
-  (let ((commit "674141e8a7a6413cb803d90c2a20150260015f81")
-        (revision "1"))
-    (package
-      (name "openocd")
-      (version (string-append "0.9.0-" revision "."
-                              (string-take commit 7)))
-      (source (origin
-                (method git-fetch)
-                (uri (git-reference
-                      (url "git://git.code.sf.net/p/openocd/code.git")
-                      (commit commit)))
-                (sha256
-                 (base32
-                  "1i86jp0wawq78d73z8hp7q1pn7lmlvhjjr19f7299h4w40a5jf8j"))
-                (file-name (string-append name "-" version "-checkout"))
-                (patches
-                 (search-patches "openocd-nrf52.patch"))))
-      (build-system gnu-build-system)
-      (native-inputs
-       `(("autoconf" ,autoconf)
-         ("automake" ,automake)
-         ("libtool" ,libtool)
-         ("pkg-config" ,pkg-config)))
-      (inputs
-       `(("hidapi" ,hidapi)
-         ("jimtcl" ,jimtcl)
-         ("libftdi" ,libftdi)
-         ("libjaylink" ,libjaylink)
-         ("libusb-compat" ,libusb-compat)))
-      (arguments
-       '(#:configure-flags
-         (append (list "--disable-werror"
-                       "--disable-internal-jimtcl"
-                       "--disable-internal-libjaylink")
-                 (map (lambda (programmer)
-                        (string-append "--enable-" programmer))
-                      '("amtjtagaccel" "armjtagew" "buspirate" "ftdi"
-                        "gw16012" "jlink" "oocd_trace" "opendous" "osbdm"
-                        "parport" "aice" "cmsis-dap" "dummy" "jtag_vpi"
-                        "remote-bitbang" "rlink" "stlink" "ti-icdi" "ulink"
-                        "usbprog" "vsllink" "usb-blaster-2" "usb_blaster"
-                        "presto" "openjtag")))
-         #:phases
-         (modify-phases %standard-phases
-           (add-before 'configure 'autoreconf
-             (lambda _
-               (zero? (system* "autoreconf" "-vfi")))))))
-      (home-page "http://openocd.org")
-      (synopsis "On-Chip Debugger")
-      (description "OpenOCD provides on-chip programming and debugging support
+  (package
+    (name "openocd")
+    (version "0.10.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://sourceforge/openocd/openocd/"
+                                  version "/openocd-" version ".tar.gz"))
+              (sha256
+               (base32
+                "09p57y3c2spqx4vjjlz1ljm1lcd0j9q8g76ywxqgn3yc34wv18zd"))
+              ;; FIXME: Remove after nrf52 patch is merged.
+              (patches
+               (search-patches "openocd-nrf52.patch"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("hidapi" ,hidapi)
+       ("jimtcl" ,jimtcl)
+       ("libftdi" ,libftdi)
+       ("libjaylink" ,libjaylink)
+       ("libusb-compat" ,libusb-compat)))
+    (arguments
+     '(#:configure-flags
+       (append (list "--disable-werror"
+                     "--enable-sysfsgpio"
+                     "--disable-internal-jimtcl"
+                     "--disable-internal-libjaylink")
+               (map (lambda (programmer)
+                      (string-append "--enable-" programmer))
+                    '("amtjtagaccel" "armjtagew" "buspirate" "ftdi"
+                      "gw16012" "jlink" "opendous" "osbdm"
+                      "parport" "aice" "cmsis-dap" "dummy" "jtag_vpi"
+                      "remote-bitbang" "rlink" "stlink" "ti-icdi" "ulink"
+                      "usbprog" "vsllink" "usb-blaster-2" "usb_blaster"
+                      "presto" "openjtag")))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'autoreconf
+           (lambda _
+             (zero? (system* "autoreconf" "-vfi"))))
+         (add-after 'autoreconf 'change-udev-group
+           (lambda _
+             (substitute* "contrib/60-openocd.rules"
+               (("plugdev") "dialout"))
+             #t))
+         (add-after 'install 'install-udev-rules
+           (lambda* (#:key outputs #:allow-other-keys)
+             (install-file "contrib/60-openocd.rules"
+                           (string-append
+                            (assoc-ref outputs "out")
+                            "/lib/udev/rules.d/")))))))
+    (home-page "http://openocd.org")
+    (synopsis "On-Chip Debugger")
+    (description "OpenOCD provides on-chip programming and debugging support
 with a layered architecture of JTAG interface and TAP support.")
-      (license license:gpl2+))))
+    (license license:gpl2+)))
 
-;; The commits for all propeller tools are the latest versions as published
-;; here: https://github.com/dbetz/propeller-gcc
+;; The commits for all propeller tools are the stable versions published at
+;; https://github.com/propellerinc/propgcc in the release_1_0.  According to
+;; personal correspondence with the developers in July 2017, more recent
+;; versions are currently incompatible with the "Simple Libraries".
 
 (define propeller-binutils
   (let ((xbinutils (cross-binutils "propeller-elf"))
-        (commit "3bfba30076f8ce160a2f42914fdb68f24445fd44")
-        (revision "1"))
+        (commit "4c46ecbe79ffbecd2ce918497ace5b956736b5a3")
+        (revision "2"))
     (package
       (inherit xbinutils)
       (name "propeller-binutils")
@@ -423,31 +437,27 @@ with a layered architecture of JTAG interface and TAP support.")
       (source (origin (inherit (package-source xbinutils))
                 (method git-fetch)
                 (uri (git-reference
-                      (url "https://github.com/totalspectrum/binutils-propeller.git")
+                      (url "https://github.com/parallaxinc/propgcc.git")
                       (commit commit)))
                 (file-name (string-append name "-" commit "-checkout"))
                 (sha256
                  (base32
-                  "1v3rgxwj7b8817wy5ccf8621v75qcxvcxygk4acr3hbc6yqybr8h"))))
+                  "0w0dff3s7wv2d9m78a4jhckiik58q38wx6wpbba5hzbs4yxz35ck"))
+                (patch-flags (list "-p1" "--directory=binutils"))))
       (arguments
-       `(;; FIXME: For some reason there are many test failures.  Some of them
-         ;; appear to be due to regular expression mismatch, but it's not
+       `(;; FIXME: For some reason there are many test failures.  It's not
          ;; obvious how to fix the failures.
          #:tests? #f
          #:phases
          (modify-phases %standard-phases
-           (add-after 'unpack 'patch-/bin/sh-in-tests
-             (lambda _
-               (substitute* '("sim/testsuite/Makefile.in"
-                              "sim/testsuite/mips64el-elf/Makefile.in"
-                              "sim/testsuite/d10v-elf/Makefile.in"
-                              "sim/testsuite/sim/cris/asm/badarch1.ms")
-                 (("/bin/sh") (which "sh")))
-               #t)))
-         ,@(package-arguments xbinutils)))
+           (add-after 'unpack 'chdir
+             (lambda _ (chdir "binutils") #t)))
+         ,@(substitute-keyword-arguments (package-arguments xbinutils)
+            ((#:configure-flags flags)
+             `(cons "--disable-werror" ,flags)))))
       (native-inputs
        `(("bison" ,bison)
-         ("flex" ,flex-2.6.1) ; needed because of yywrap error
+         ("flex" ,flex)
          ("texinfo" ,texinfo)
          ("dejagnu" ,dejagnu)
          ,@(package-native-inputs xbinutils))))))
@@ -490,49 +500,62 @@ with a layered architecture of JTAG interface and TAP support.")
 
 (define-public propeller-gcc-4
   (let ((xgcc propeller-gcc-6)
-        (commit "f1b01001b760d691a91ff1db4830d41bb712557f")
-        (revision "1"))
+        (commit "4c46ecbe79ffbecd2ce918497ace5b956736b5a3")
+        (revision "2"))
     (package (inherit xgcc)
       (name "propeller-gcc")
       (version (string-append "4.6.1-" revision "." (string-take commit 9)))
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
-                      (url "https://github.com/dbetz/propgcc-gcc.git")
+                      (url "https://github.com/parallaxinc/propgcc.git")
                       (commit commit)))
                 (file-name (string-append name "-" commit "-checkout"))
                 (sha256
                  (base32
-                  "15mxrhk2v4vqmdkvcqy33ag1wrg9x9q20kx2w33kkw8pkrijknbi"))
+                  "0w0dff3s7wv2d9m78a4jhckiik58q38wx6wpbba5hzbs4yxz35ck"))
+                (patch-flags (list "-p1" "--directory=gcc"))
                 (patches
                  (append
                   (origin-patches (package-source gcc-4.7))
                   (search-patches "gcc-4.6-gnu-inline.patch"
                                   "gcc-cross-environment-variables.patch")))))
-      (home-page "https://github.com/dbetz/propgcc-gcc"))))
+      (arguments
+       (substitute-keyword-arguments (package-arguments propeller-gcc-6)
+         ((#:phases phases)
+          `(modify-phases ,phases
+             (add-after 'unpack 'chdir
+               (lambda _ (chdir "gcc") #t))))))
+      (native-inputs
+       `(("gcc-4" ,gcc-4.9)
+         ,@(package-native-inputs propeller-gcc-6)))
+      (home-page "https://github.com/parallaxinc/propgcc")
+      (supported-systems (delete "aarch64-linux" %supported-systems)))))
 
 ;; Version 6 is experimental and may not work correctly.  This is why we
 ;; default to version 4, which is also used in the binary toolchain bundle
 ;; provided by Parallax Inc.
 (define-public propeller-gcc propeller-gcc-4)
 
-;; There is no release, so we take the latest version as referenced from here:
-;; https://github.com/dbetz/propeller-gcc
+
+;; FIXME: We do not build the tiny library because that would require C++
+;; headers, which are not available.  This may require adding a propeller-elf
+;; variant of the libstdc++ package.
 (define-public proplib
-  (let ((commit "844741fe0ceb140ab2fdf9d0667f68c1c39c31da")
-        (revision "1"))
+  (let ((commit "4c46ecbe79ffbecd2ce918497ace5b956736b5a3")
+        (revision "2"))
     (package
       (name "proplib")
       (version (string-append "0.0.0-" revision "." (string-take commit 9)))
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
-                      (url "https://github.com/totalspectrum/proplib.git")
+                      (url "https://github.com/parallaxinc/propgcc.git")
                       (commit commit)))
                 (file-name (string-append name "-" commit "-checkout"))
                 (sha256
                  (base32
-                  "0q7irf1x8iqx07n7lzksax9armrdkizs49swsz76nbks0mw67wiv"))))
+                  "0w0dff3s7wv2d9m78a4jhckiik58q38wx6wpbba5hzbs4yxz35ck"))))
       (build-system gnu-build-system)
       (arguments
        `(#:tests? #f ; no tests
@@ -542,12 +565,11 @@ with a layered architecture of JTAG interface and TAP support.")
          #:phases
          (modify-phases %standard-phases
            (delete 'configure)
-           (add-after 'unpack 'fix-Makefile
+           (add-after 'unpack 'chdir
+             (lambda _ (chdir "lib") #t))
+           (add-after 'chdir 'fix-Makefile
              (lambda _
                (substitute* "Makefile"
-                 ;; The GCC sources are not part of this package, so we cannot
-                 ;; install the out-of-tree license file.
-                 (("cp \\.\\..*") "")
                  ;; Control the installation time of the headers.
                  ((" install-includes") ""))
                #t))
@@ -567,23 +589,14 @@ with a layered architecture of JTAG interface and TAP support.")
                                       "/propeller-elf/include:"
                                       (or (getenv "CROSS_C_INCLUDE_PATH") "")))
                #t))
-           (add-after 'build 'build-tiny
+           (add-before 'install 'install-includes
              (lambda* (#:key make-flags #:allow-other-keys)
-               (zero? (apply system* "make" "tiny" make-flags))))
-           ;; The build of the tiny libraries depends on the includes to be
-           ;; available.  Since we set CROSS_C_INCLUDE_PATH to the output
-           ;; directory, we have to install the includes first.
-           (add-before 'build-tiny 'install-includes
-             (lambda* (#:key make-flags #:allow-other-keys)
-               (zero? (apply system* "make" "install-includes" make-flags))))
-           (add-after 'install 'install-tiny
-             (lambda* (#:key make-flags #:allow-other-keys)
-               (zero? (apply system* "make" "install-tiny" make-flags)))))))
+               (zero? (apply system* "make" "install-includes" make-flags)))))))
       (native-inputs
        `(("propeller-gcc" ,propeller-gcc)
          ("propeller-binutils" ,propeller-binutils)
          ("perl" ,perl)))
-      (home-page "https://github.com/totalspectrum/proplib")
+      (home-page "https://github.com/parallaxinc/propgcc")
       (synopsis "C library for the Parallax Propeller")
       (description "This is a C library for the Parallax Propeller
 micro-controller.")
@@ -647,20 +660,20 @@ code.")
     (license license:expat)))
 
 (define-public propeller-load
-  (let ((commit "ba9c0a7251cf751d8d292ae19ffa03132097c0c0")
-        (revision "1"))
+  (let ((commit "4c46ecbe79ffbecd2ce918497ace5b956736b5a3")
+        (revision "2"))
     (package
       (name "propeller-load")
       (version "3.4.0")
       (source (origin
                 (method git-fetch)
                 (uri (git-reference
-                      (url "https://github.com/dbetz/propeller-load.git")
+                      (url "https://github.com/parallaxinc/propgcc.git")
                       (commit commit)))
                 (file-name (string-append name "-" commit "-checkout"))
                 (sha256
                  (base32
-                  "1qv3xaapl9fmj3zn58b60sprp4rnvnlpci8ci0pdrzkw6fhvx3pg"))))
+                  "0w0dff3s7wv2d9m78a4jhckiik58q38wx6wpbba5hzbs4yxz35ck"))))
       (build-system gnu-build-system)
       (arguments
        `(#:tests? #f ; no tests
@@ -669,11 +682,13 @@ code.")
                (string-append "TARGET=" (assoc-ref %outputs "out")))
          #:phases
          (modify-phases %standard-phases
+           (add-after 'unpack 'chdir
+             (lambda _ (chdir "loader") #t))
            (delete 'configure))))
       (native-inputs
        `(("openspin" ,openspin)
          ("propeller-toolchain" ,propeller-toolchain)))
-      (home-page "https://github.com/dbetz/propeller-load")
+      (home-page "https://github.com/parallaxinc/propgcc")
       (synopsis "Loader for Parallax Propeller micro-controllers")
       (description "This package provides the tool @code{propeller-load} to
 upload binaries to a Parallax Propeller micro-controller.")
@@ -682,7 +697,7 @@ upload binaries to a Parallax Propeller micro-controller.")
 (define-public spin2cpp
   (package
     (name "spin2cpp")
-    (version "3.6.3")
+    (version "3.6.4")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/totalspectrum/spin2cpp/"
@@ -690,7 +705,7 @@ upload binaries to a Parallax Propeller micro-controller.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0v5vzh69bp1r2byrpz12rql1w24ff2v9msr31596zq6hd6n82lnh"))))
+                "05qak187sn0xg7vhrxw27b19xhmid1b8ab8kax3gv0faavzablfw"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ;; The tests assume that a micro-controller is connected.
@@ -827,7 +842,7 @@ simulator.")
                  (base32
                   "14b3h2ji740s8zq5vwm4qdcxs4aa4wxi6wb9di3bv1h39x14nyr9"))))
          ("texinfo" ,texinfo)
-         ("flex" ,flex-2.6.1) ; A bug in flex prevents building with flex-2.6.3.
+         ("flex" ,flex)
          ("bison" ,bison)
          ("guile-1.8" ,guile-1.8)
          ("which" ,base:which)))
@@ -860,3 +875,222 @@ the Raspberry Pi chip.")
       (synopsis "GCC for VC4")
       (description "This package provides @code{gcc} for VideoCore IV,
 the Raspberry Pi chip."))))
+
+(define-public python2-libmpsse
+  (package
+    (name "python2-libmpsse")
+    (version "1.3")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (string-append "https://storage.googleapis.com/"
+                            "google-code-archive-downloads/v2/"
+                            "code.google.com/libmpsse/"
+                            "libmpsse-" version ".tar.gz"))
+        (sha256
+          (base32
+            "0jq7nhqq3na8675jnpfcar3pd3dp3adhhc4lw900swkla01a1wh8"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("libftdi" ,libftdi)
+       ("python" ,python-2)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("swig" ,swig)
+       ("which" ,base:which)))
+    (arguments
+     `(#:tests? #f ; No tests exist.
+       #:make-flags
+       (list (string-append "CFLAGS=-Wall -fPIC -fno-strict-aliasing -g -O2 "
+                            "$(shell pkg-config --cflags libftdi1)"))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'set-environment-up
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (chdir "src")
+             (setenv "PYDEV" (string-append (assoc-ref inputs "python")
+                             "/include/python2.7"))
+             #t))
+         (add-after 'unpack 'patch-global-variable
+           (lambda _
+             ;; fast_rw_buf was defined in a header file which was making
+             ;; the build not reproducible.
+             (substitute* "src/fast.c"
+               (("^int fast_build_block_buffer") "
+
+unsigned char fast_rw_buf[SPI_RW_SIZE + CMD_SIZE];
+int fast_build_block_buffer"))
+             (substitute* "src/mpsse.h"
+               (("unsigned char fast_rw_buf.*") "
+"))
+             #t))
+         (replace 'install
+           (lambda* (#:key outputs make-flags #:allow-other-keys #:rest args)
+             (let* ((out (assoc-ref outputs "out"))
+                    (out-python (string-append out
+                                               "/lib/python2.7/site-packages"))
+                    (install (assoc-ref %standard-phases 'install)))
+               (install #:make-flags (cons (string-append "PYLIB=" out-python)
+                                           make-flags))))))))
+    (home-page "https://code.google.com/archive/p/libmpsse/")
+    (synopsis "Python library for MPSSE SPI I2C JTAG adapter by FTDI")
+    (description "This package provides a library in order to support the
+MPSSE (Multi-Protocol Synchronous Serial Engine) adapter by FTDI that can do
+SPI, I2C, JTAG.")
+    (license license:gpl2+)))
+
+(define-public picprog
+  (package
+    (name "picprog")
+    (version "1.9.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://www.iki.fi/hyvatti/pic/picprog-"
+                                  version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1r04hg1n3v2jf915qr05la3q9cxy7a5jnh9cc98j04lh6c9p4x85"))
+              (patches (search-patches "picprog-non-intel-support.patch"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f                      ; No tests exist.
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-paths
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* "Makefile"
+               (("/usr/local") (assoc-ref outputs "out"))
+               ((" -o 0 -g 0 ") " ")
+               (("testport") ""))
+             #t))
+         (add-before 'install 'mkdir
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (mkdir-p (string-append out "/bin"))
+               (mkdir-p (string-append out "/man/man1"))
+               #t)))
+         (delete 'configure))))
+    (synopsis "Programs Microchip's PIC microcontrollers")
+    (description "This program programs Microchip's PIC microcontrollers.")
+    (home-page "http://hyvatti.iki.fi/~jaakko/pic/picprog.html")
+    (license license:gpl3+)))
+
+(define-public fc-host-tools
+  (package
+    (name "fc-host-tools")
+    (version "8")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "ftp://ftp.freecalypso.org/pub/GSM/"
+                                  "FreeCalypso/fc-host-tools-r" version ".tar.bz2"))
+              (sha256
+               (base32
+                "00kl9442maaxnsjvl5qc4c6fzjkgr3hac9ax1z2k6ry6byfknj6z"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f                      ; No tests exist.
+       #:make-flags
+       (list (string-append "INSTBIN=" %output "/bin")
+             (string-append "INCLUDE_INSTALL_DIR=" %output "include/rvinterf"))
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (add-after 'unpack 'handle-tarbomb
+           (lambda _
+             (chdir "..") ; url-fetch/tarbomb doesn't work for some reason.
+             #t))
+         (add-after 'handle-tarbomb 'patch-installation-paths
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* '("Makefile"
+                            "rvinterf/libasync/launchrvif.c"
+                            "loadtools/defpath.c"
+                            "loadtools/Makefile"
+                            "miscutil/c139explore"
+                            "miscutil/pirexplore")
+               (("/opt/freecalypso/loadtools")
+                (string-append (assoc-ref outputs "out") "/lib/freecalypso/loadtools"))
+               (("/opt/freecalypso")
+                (assoc-ref outputs "out")))
+             #t)))))
+    (inputs
+     `(("libx11" ,libx11)))
+    (synopsis "Freecalypso host tools")
+    (description "This package provides some tools for debugging Freecalypso phones.
+
+@enumerate
+@item fc-e1decode: Decodes a binary Melody E1 file into an ASCII source file.
+@item fc-e1gen: Encodes an ASCII Melody E1 file into a binary Melody E1 file.
+@item fc-fr2tch: Converts a GSM 06.10 speech recording from libgsm to hex
+strings of TCH bits to be fed to the GSM 05.03 channel encoder of a TI
+Calypso GSM device.
+@item fc-tch2fr: Converts hex strings of TCH bits to libgsm.
+@item fc-gsm2vm: utility converts a GSM 06.10 speech sample from the libgsm
+source format into a voice memo file that can be uploaded into the FFS of a
+FreeCalypso device and played with the audio_vm_play_start() API or the
+AT@@VMP command that invokes the latter.
+@item fc-rgbconv: Convers RGB 5:6:5 to RGB 8:8:8 and vice versa.
+@item rvinterf: Communicates with a TI Calypso GSM device via RVTMUX.
+@item rvtdump: produces a human-readable dump of all output emitted by a
+TI-based GSM fw on the RVTMUX binary packet interface.
+@item fc-shell: FreeCalypso firmwares have a feature of our own invention
+(not present in any pre-existing ones) to accept AT commands over the RVTMUX
+interface.  It is useful when no second UART is available for a dedicated
+standard AT command interface.  fc-shell is the tool that allows you to send
+AT commands to the firmware in this manner.
+@item fc-memdump: Captures a memory dump from a GSM device.
+@item fc-serterm: Trivial serial terminal.  Escapes binary chars.
+@item fc-fsio: Going through rvinterf, this tool connects to GSM devices and
+allows you to manipulate the device's flash file system.
+@item tiaud-compile: Compiles an audio mode configuration table for TI's
+Audio Service from our own ASCII source format into the binary format for
+uploading into FreeCalypso GSM device FFS with fc-fsio.
+@item tiaud-decomp: Decodes TI's audio mode configuration files read out of
+FFS into our own ASCII format.
+@item tiaud-mkvol: Generates the *.vol binary files which need to accompany
+the main *.cfg ones.
+@item fc-compalram: Allows running programs on the device without writing
+them to flash storage.
+@item fc-xram: Allows running programs on the device without writing them
+to flash storage.
+@item fc-iram: Allows running programs on the device without writing them
+to flash storage.
+@item fc-loadtool: Writes programs to the device's flash storage.
+@item pirffs: Allows listing and extracting FFS content captured as a raw
+flash image from Pirelli phones.
+@item mokoffs: Allows listing and extracting FFS content captured as a raw
+flash image from OpenMoko phones.
+@item tiffs: Allows listing and extracting FFS content captured as a raw
+flash image from TI phones.
+@item c139explore: Run-from-RAM program for C139 phones that
+exercises their peripheral hardware: LCD, keypad backlight, buzzer, vibrator.
+@item pirexplore: Run-from-RAM program for Pirelli DP-L10 phones that
+exercises their peripheral hardware, primarily their LCD.
+@item tfc139: Breaks into Mot C1xx phones via shellcode injection, allowing
+you to reflash locked phones with new firmware with fc-loadtool.
+@item ctracedec: GSM firmwares built in TI's Windows environment have a
+compressed trace misfeature whereby many of the ASCII strings
+in debug trace messages get replaced with numeric indices at
+build time, and these numeric indices are all that gets emitted
+on the RVTMUX serial channel.  This tools decodes these numeric indices
+back to strings in trace output.
+@item fc-cal2text: This utility takes a dump of TI's /gsm/rf flash file system
+directory subtree as input (either extracted in vitro with tiffs
+or read out in vivo with fc-fsio) and converts all RF tables
+found therein into a readable ASCII format.
+@item imei-luhn: Computes or verifies the Luhn check digit of an IMEI number.
+@item fc-dspapidump: Reads and dumps the contents of the DSP API RAM in a
+target Calypso GSM device.
+@item fc-vm2hex: Converts the old-fashioned (non-AMR) voice memo files read
+out of FFS into hex strings.
+@item fc-buzplay: Plays piezoelectic buzzer melodies on an actual
+Calypso device equipped with such a buzzer (Mot C1xx, TI's D-Sample board,
+our planned future HSMBP) by loading a buzplayer agent onto the target and
+feeding melodies to be played to it.
+@item fc-tmsh: TI-based GSM firmwares provide a rich set of Test Mode commands
+that can be issued through the RVTMUX (debug trace) serial channel.
+This program is our test mode shell for sending Test Mode commands to targets
+and displaying decoded target responses.
+@end enumerate")
+    (home-page "https://www.freecalypso.org/")
+    (license license:public-domain)))

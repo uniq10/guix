@@ -1,12 +1,16 @@
 # GNU Guix --- Functional package management for GNU
-# Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+# Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 # Copyright © 2013 Andreas Enge <andreas@enge.fr>
 # Copyright © 2015, 2017 Alex Kost <alezost@gmail.com>
-# Copyright © 2016 Mathieu Lirzin <mthl@gnu.org>
-# Copyright © 2016, 2017 Mark H Weaver <mhw@netris.org>
+# Copyright © 2016, 2018 Mathieu Lirzin <mthl@gnu.org>
+# Copyright © 2016, 2017, 2018 Mark H Weaver <mhw@netris.org>
 # Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
 # Copyright © 2017 Leo Famulari <leo@famulari.name>
 # Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+# Copyright © 2017 Jan Nieuwenhuizen <janneke@gnu.org>
+# Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
+# Copyright © 2018 Nils Gillmann <ng0@n0.is>
+# Copyright © 2018 Julien Lepiller <julien@lepiller.eu>
 #
 # This file is part of GNU Guix.
 #
@@ -23,8 +27,22 @@
 # You should have received a copy of the GNU General Public License
 # along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
-bin_SCRIPTS =					\
-  scripts/guix
+MSGMERGE_UPDATE = @MSGMERGE@ --update
+
+bin_SCRIPTS = scripts/guix
+
+# Handle substitution of fully-expanded Autoconf variables.
+do_subst = $(SED)					\
+  -e 's,[@]GUILE[@],$(GUILE),g'				\
+  -e 's,[@]guilemoduledir[@],$(guilemoduledir),g'	\
+  -e 's,[@]guileobjectdir[@],$(guileobjectdir),g'	\
+  -e 's,[@]localedir[@],$(localedir),g'
+
+scripts/guix: scripts/guix.in Makefile
+	$(AM_V_at)rm -f $@ $@-t
+	$(AM_V_at)$(MKDIR_P) "$(@D)"
+	$(AM_V_GEN)$(do_subst) < "$(srcdir)/$@.in" > "$@-t"
+	$(AM_V_at)chmod a+x,a-w "$@-t" && mv -f "$@-t" "$@"
 
 nodist_noinst_SCRIPTS =				\
   pre-inst-env					\
@@ -32,9 +50,11 @@ nodist_noinst_SCRIPTS =				\
 
 # Modules that are not compiled but are installed nonetheless, such as
 # build-side modules with unusual dependencies.
-MODULES_NOT_COMPILED =
+MODULES_NOT_COMPILED =				\
+  guix/man-db.scm
 
 include gnu/local.mk
+include po/doc/local.mk
 
 MODULES =					\
   guix/base16.scm				\
@@ -46,6 +66,7 @@ MODULES =					\
   guix/hash.scm					\
   guix/pk-crypto.scm				\
   guix/pki.scm					\
+  guix/progress.scm				\
   guix/combinators.scm				\
   guix/memoization.scm				\
   guix/utils.scm				\
@@ -64,8 +85,11 @@ MODULES =					\
   guix/derivations.scm				\
   guix/grafts.scm				\
   guix/gnu-maintenance.scm			\
+  guix/self.scm					\
   guix/upstream.scm				\
   guix/licenses.scm				\
+  guix/glob.scm					\
+  guix/git.scm					\
   guix/graph.scm				\
   guix/cache.scm				\
   guix/cve.scm					\
@@ -78,6 +102,9 @@ MODULES =					\
   guix/build-system/dub.scm			\
   guix/build-system/emacs.scm			\
   guix/build-system/font.scm			\
+  guix/build-system/go.scm			\
+  guix/build-system/meson.scm			\
+  guix/build-system/minify.scm			\
   guix/build-system/asdf.scm			\
   guix/build-system/glib-or-gtk.scm		\
   guix/build-system/gnu.scm			\
@@ -88,23 +115,30 @@ MODULES =					\
   guix/build-system/waf.scm			\
   guix/build-system/r.scm			\
   guix/build-system/ruby.scm			\
+  guix/build-system/scons.scm			\
   guix/build-system/texlive.scm			\
   guix/build-system/trivial.scm			\
   guix/ftp-client.scm				\
   guix/http-client.scm				\
   guix/gnupg.scm				\
   guix/elf.scm					\
+  guix/profiling.scm				\
   guix/store.scm				\
   guix/cvs-download.scm				\
   guix/svn-download.scm				\
+  guix/i18n.scm					\
   guix/ui.scm					\
   guix/build/ant-build-system.scm		\
   guix/build/download.scm			\
+  guix/build/download-nar.scm			\
   guix/build/cargo-build-system.scm		\
   guix/build/cmake-build-system.scm		\
   guix/build/dub-build-system.scm		\
   guix/build/emacs-build-system.scm		\
+  guix/build/meson-build-system.scm		\
+  guix/build/minify-build-system.scm		\
   guix/build/font-build-system.scm		\
+  guix/build/go-build-system.scm		\
   guix/build/asdf-build-system.scm		\
   guix/build/git.scm				\
   guix/build/hg.scm				\
@@ -116,6 +150,7 @@ MODULES =					\
   guix/build/ocaml-build-system.scm		\
   guix/build/r-build-system.scm			\
   guix/build/ruby-build-system.scm		\
+  guix/build/scons-build-system.scm		\
   guix/build/texlive-build-system.scm		\
   guix/build/waf-build-system.scm		\
   guix/build/haskell-build-system.scm		\
@@ -123,6 +158,7 @@ MODULES =					\
   guix/build/utils.scm				\
   guix/build/union.scm				\
   guix/build/profiles.scm			\
+  guix/build/compile.scm			\
   guix/build/pull.scm				\
   guix/build/rpath.scm				\
   guix/build/cvs.scm				\
@@ -138,6 +174,7 @@ MODULES =					\
   guix/build/make-bootstrap.scm			\
   guix/search-paths.scm				\
   guix/packages.scm				\
+  guix/import/print.scm				\
   guix/import/utils.scm				\
   guix/import/gnu.scm				\
   guix/import/snix.scm				\
@@ -161,6 +198,7 @@ MODULES =					\
   guix/scripts/authenticate.scm			\
   guix/scripts/refresh.scm			\
   guix/scripts/system.scm			\
+  guix/scripts/system/search.scm		\
   guix/scripts/lint.scm				\
   guix/scripts/challenge.scm			\
   guix/scripts/import/cran.scm			\
@@ -182,18 +220,22 @@ MODULES =					\
 if HAVE_GUILE_JSON
 
 MODULES +=					\
+  guix/ci.scm					\
   guix/docker.scm	   			\
   guix/import/cpan.scm				\
   guix/import/crate.scm				\
   guix/import/gem.scm				\
   guix/import/github.scm   			\
+  guix/import/gnome.scm				\
   guix/import/json.scm				\
   guix/import/pypi.scm				\
   guix/import/stackage.scm			\
   guix/scripts/import/crate.scm			\
   guix/scripts/import/gem.scm			\
+  guix/scripts/import/json.scm  		\
   guix/scripts/import/pypi.scm			\
-  guix/scripts/import/stackage.scm
+  guix/scripts/import/stackage.scm		\
+  guix/scripts/weather.scm
 
 endif
 
@@ -205,13 +247,6 @@ MODULES +=					\
   guix/store/ssh.scm
 
 endif HAVE_GUILE_SSH
-
-if HAVE_GUILE_GIT
-
-MODULES +=					\
-  guix/git.scm
-
-endif HAVE_GUILE_GIT
 
 if BUILD_DAEMON_OFFLOAD
 
@@ -226,8 +261,12 @@ dist_noinst_DATA = guix/tests.scm guix/tests/http.scm
 # Auxiliary files for packages.
 AUX_FILES =						\
   gnu/packages/aux-files/emacs/guix-emacs.el		\
-  gnu/packages/aux-files/linux-libre/4.12-i686.conf	\
-  gnu/packages/aux-files/linux-libre/4.12-x86_64.conf	\
+  gnu/packages/aux-files/linux-libre/4.16-arm.conf	\
+  gnu/packages/aux-files/linux-libre/4.16-i686.conf	\
+  gnu/packages/aux-files/linux-libre/4.16-x86_64.conf	\
+  gnu/packages/aux-files/linux-libre/4.14-arm.conf	\
+  gnu/packages/aux-files/linux-libre/4.14-i686.conf	\
+  gnu/packages/aux-files/linux-libre/4.14-x86_64.conf	\
   gnu/packages/aux-files/linux-libre/4.9-i686.conf	\
   gnu/packages/aux-files/linux-libre/4.9-x86_64.conf	\
   gnu/packages/aux-files/linux-libre/4.4-i686.conf	\
@@ -238,6 +277,7 @@ AUX_FILES =						\
 # Templates, examples.
 EXAMPLES =					\
   gnu/system/examples/bare-bones.tmpl		\
+  gnu/system/examples/beaglebone-black.tmpl	\
   gnu/system/examples/desktop.tmpl		\
   gnu/system/examples/lightweight-desktop.tmpl	\
   gnu/system/examples/vm-image.tmpl
@@ -274,12 +314,14 @@ SCM_TESTS =					\
   tests/hash.scm				\
   tests/pk-crypto.scm				\
   tests/pki.scm					\
+  tests/print.scm				\
   tests/sets.scm				\
   tests/modules.scm				\
   tests/gnu-maintenance.scm			\
   tests/substitute.scm				\
   tests/builders.scm				\
   tests/derivations.scm				\
+  tests/glob.scm				\
   tests/grafts.scm				\
   tests/ui.scm					\
   tests/records.scm				\
@@ -315,6 +357,7 @@ SCM_TESTS =					\
   tests/workers.scm				\
   tests/zlib.scm				\
   tests/file-systems.scm			\
+  tests/uuid.scm				\
   tests/system.scm				\
   tests/services.scm				\
   tests/scripts-build.scm			\
@@ -337,6 +380,7 @@ SH_TESTS =					\
   tests/guix-download.sh			\
   tests/guix-gc.sh				\
   tests/guix-hash.sh				\
+  tests/guix-pack.sh				\
   tests/guix-package.sh				\
   tests/guix-package-net.sh			\
   tests/guix-system.sh				\
@@ -391,7 +435,7 @@ check-local:
 
 endif !CAN_RUN_TESTS
 
-check-system: $(GOBJECTS) $(BOOTSTRAP_GUILE_TARBALLS)
+check-system: $(GOBJECTS)
 	$(AM_V_at)$(top_builddir)/pre-inst-env			\
 	   $(GUILE) --no-auto-compile				\
 	   -e '(@@ (run-system-tests) run-system-tests)'	\
@@ -400,7 +444,7 @@ check-system: $(GOBJECTS) $(BOOTSTRAP_GUILE_TARBALLS)
 # Public key used to sign substitutes from hydra.gnu.org & co.
 dist_pkgdata_DATA =				\
   hydra.gnu.org.pub				\
-  bayfront.guixsd.org.pub
+  berlin.guixsd.org.pub
 
 # Bash completion file.
 dist_bashcompletion_DATA = etc/completion/bash/guix
@@ -408,20 +452,32 @@ dist_bashcompletion_DATA = etc/completion/bash/guix
 # Zsh completion file.
 dist_zshcompletion_DATA = etc/completion/zsh/_guix
 
-EXTRA_DIST =						\
+# Fish completion file.
+dist_fishcompletion_DATA = etc/completion/fish/guix.fish
+
+# SELinux policy
+dist_selinux_policy_DATA = etc/guix-daemon.cil
+
+EXTRA_DIST +=						\
   HACKING						\
   ROADMAP						\
   TODO							\
   CODE-OF-CONDUCT					\
   .dir-locals.el					\
+  scripts/guix.in					\
+  etc/guix-install.sh					\
   build-aux/build-self.scm				\
   build-aux/compile-all.scm				\
   build-aux/hydra/evaluate.scm				\
   build-aux/hydra/gnu-system.scm			\
   build-aux/hydra/guix.scm				\
+  build-aux/hydra/guix-modular.scm			\
+  build-aux/cuirass/gnu-system.scm			\
+  build-aux/cuirass/guix-modular.scm			\
+  build-aux/cuirass/hydra-to-cuirass.scm		\
   build-aux/check-available-binaries.scm		\
   build-aux/check-final-inputs-self-contained.scm	\
-  build-aux/download.scm				\
+  build-aux/compile-as-derivation.scm			\
   build-aux/generate-authors.scm			\
   build-aux/test-driver.scm				\
   build-aux/update-guix-package.scm			\
@@ -449,6 +505,7 @@ endif !BUILD_DAEMON_OFFLOAD
 
 
 CLEANFILES =					\
+  $(bin_SCRIPTS)				\
   $(GOBJECTS)					\
   $(SCM_TESTS:tests/%.scm=%.log)
 
@@ -486,6 +543,13 @@ $(guix_install_go_files): install-nobase_dist_guilemoduleDATA
 install-data-hook: set-bootstrap-executable-permissions
 	touch "$(DESTDIR)$(guileobjectdir)/guix/config.go"
 
+# Assuming Guix is already installed and the daemon is up and running, this
+# rule builds from $(srcdir), creating and building derivations.
+as-derivation:
+	$(AM_V_at)echo "Building Guix in Guix..." ;		\
+	$(GUILE) --no-auto-compile				\
+	  "$(top_srcdir)/build-aux/compile-as-derivation.scm"	\
+	  "$(abs_top_srcdir)"
 
 SUBDIRS = po/guix po/packages
 BUILT_SOURCES =
@@ -567,7 +631,7 @@ SOURCE_TARBALLS =					\
   $(foreach ext,tar.gz,$(PACKAGE_FULL_TARNAME).$(ext))
 
 # Systems supported by Guix.
-SUPPORTED_SYSTEMS ?= x86_64-linux i686-linux armhf-linux
+SUPPORTED_SYSTEMS ?= x86_64-linux i686-linux armhf-linux aarch64-linux
 
 # Guix binary tarballs.
 BINARY_TARBALLS =							\
@@ -580,13 +644,10 @@ GUIXSD_SUPPORTED_SYSTEMS ?= x86_64-linux i686-linux
 GUIXSD_VM_SYSTEMS ?= x86_64-linux
 
 # Prefix of the GuixSD installation image file name.
-GUIXSD_IMAGE_BASE = guixsd-usb-install-$(PACKAGE_VERSION)
+GUIXSD_IMAGE_BASE = guixsd-install-$(PACKAGE_VERSION)
 
 # Prefix of the GuixSD VM image file name.
 GUIXSD_VM_IMAGE_BASE = guixsd-vm-image-$(PACKAGE_VERSION)
-
-# Size of the VM image (for x86_64 typically).
-GUIXSD_VM_IMAGE_SIZE ?= 2GiB
 
 # The release process works in several phases:
 #
@@ -631,21 +692,21 @@ release: dist
 	for system in $(GUIXSD_SUPPORTED_SYSTEMS) ; do					\
 	  image=`$(top_builddir)/pre-inst-env						\
 	    guix system disk-image							\
+	    --file-system-type=iso9660							\
             --system=$$system								\
 	    gnu/system/install.scm` ;							\
 	  if [ ! -f "$$image" ] ; then							\
 	    echo "failed to produced GuixSD installation image for $$system" >&2 ;	\
 	    exit 1 ;									\
 	  fi ;										\
-	  xz < "$$image" > "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.xz.tmp" ;	\
-	  mv "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.xz.tmp"			\
-	     "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.xz" ;				\
+	  xz < "$$image" > "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.iso.xz.tmp" ;	\
+	  mv "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.iso.xz.tmp"			\
+	     "$(releasedir)/$(GUIXSD_IMAGE_BASE).$$system.iso.xz" ;			\
 	done
 	for system in $(GUIXSD_VM_SYSTEMS) ; do						\
 	  image=`$(top_builddir)/pre-inst-env						\
 	    guix system vm-image							\
 	    --system=$$system								\
-	    --image-size=$(GUIXSD_VM_IMAGE_SIZE)					\
 	    gnu/system/examples/vm-image.tmpl` ;					\
 	  if [ ! -f "$$image" ] ; then							\
 	    echo "failed to produced GuixSD VM image for $$system" >&2 ;		\
@@ -679,6 +740,7 @@ assert-no-store-file-names: $(distdir)/ChangeLog
 	$(AM_V_at)if grep -r --exclude=*.texi --exclude=*.info			\
 	     --exclude=*.info-[0-9] --exclude=*.dot				\
 	     --exclude=*.eps --exclude-dir=bootstrap				\
+		 --exclude=guix-manual.pot --exclude=guix-manual.*.po		\
 	     --exclude=guix-prettify.el						\
 	     --exclude=ChangeLog						\
 	     -E "$(storedir)/[a-z0-9]{32}-" $(distdir) ;			\
@@ -705,10 +767,19 @@ hydra-jobs.scm: $(GOBJECTS)
 	  "$(top_srcdir)/build-aux/hydra/gnu-system.scm" > "$@.tmp"
 	$(AM_V_at)mv "$@.tmp" "$@"
 
+# Compute the Cuirass jobs and write them in the target file.
+cuirass-jobs.scm: $(GOBJECTS)
+	$(AM_V_at)$(MKDIR_P) "`dirname "$@"`"
+	$(AM_V_GEN)$(top_builddir)/pre-inst-env "$(GUILE)"		\
+	  "$(top_srcdir)/build-aux/hydra/evaluate.scm"			\
+	  "$(top_srcdir)/build-aux/cuirass/gnu-system.scm" 		\
+	  cuirass > "$@.tmp"
+	$(AM_V_at)mv "$@.tmp" "$@"
+
 .PHONY: gen-ChangeLog gen-AUTHORS gen-tarball-version
 .PHONY: assert-no-store-file-names assert-binaries-available
 .PHONY: assert-final-inputs-self-contained
-.PHONY: clean-go make-go
+.PHONY: clean-go make-go as-derivation
 .PHONY: update-guix-package update-NEWS release
 
 ## -------------- ##
@@ -726,3 +797,11 @@ AM_V_DOT_0 = @echo "  DOT     " $@;
 AM_V_HELP2MAN = $(AM_V_HELP2MAN_$(V))
 AM_V_HELP2MAN_ = $(AM_V_HELP2MAN_$(AM_DEFAULT_VERBOSITY))
 AM_V_HELP2MAN_0 = @echo "  HELP2MAN" $@;
+
+AM_V_PO4A = $(AM_V_PO4A_$(V))
+AM_V_PO4A_ = $(AM_V_PO4A_$(AM_DEFAULT_VERBOSITY))
+AM_V_PO4A_0 = @echo "  PO4A" $@;
+
+AM_V_POXREF = $(AM_V_POXREF_$(V))
+AM_V_POXREF_ = $(AM_V_POXREF_$(AM_DEFAULT_VERBOSITY))
+AM_V_POXREF_0 = @echo "  POXREF" $@;

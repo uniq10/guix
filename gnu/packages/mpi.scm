@@ -1,8 +1,10 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015 Eric Bavier <bavier@member.fsf.org>
-;;; Copyright © 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014 Ian Denhardt <ian@zenhack.net>
 ;;; Copyright © 2016 Andreas Enge <andreas@enge.fr>
+;;; Copyright © 2017 Dave Love <fx@gnu.org>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,12 +38,16 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages ncurses)
   #:use-module (gnu packages pkg-config)
-  #:use-module (gnu packages valgrind))
+  #:use-module (gnu packages valgrind)
+  #:use-module (srfi srfi-1)
+  #:use-module (ice-9 match))
 
 (define-public hwloc
+  ;; Note: For now we keep 1.x as the default because many packages have yet
+  ;; to migrate to 2.0.
   (package
     (name "hwloc")
-    (version "1.11.7")
+    (version "1.11.10")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://www.open-mpi.org/software/hwloc/v"
@@ -49,7 +55,7 @@
                                   "/downloads/hwloc-" version ".tar.bz2"))
               (sha256
                (base32
-                "0acph1mf7588hfx8ds26ncr6nw5fd9x92adm11fwin7f93i10sdb"))))
+                "1ryibcng40xcq22lsj85fn2vcvrksdx9rr3wwxpq8dw37lw0is1b"))))
     (build-system gnu-build-system)
     (outputs '("out"           ;'lstopo' & co., depends on Cairo, libx11, etc.
                "lib"           ;small closure
@@ -73,6 +79,14 @@
      `(#:configure-flags '("--localstatedir=/var")
        #:phases
        (modify-phases %standard-phases
+         (add-before 'check 'skip-linux-libnuma-test
+           (lambda _
+             ;; Arrange to skip 'tests/linux-libnuma', which fails on some
+             ;; machines: <https://github.com/open-mpi/hwloc/issues/213>.
+             (substitute* "tests/linux-libnuma.c"
+               (("numa_available\\(\\)")
+                "-1"))
+             #t))
          (add-after 'install 'refine-libnuma
            ;; Give -L arguments for libraries to avoid propagation
            (lambda* (#:key inputs outputs #:allow-other-keys)
@@ -107,10 +121,39 @@ a powerful programming interface to gather information about the hardware,
 bind processes, and much more.")
     (license bsd-3)))
 
+(define-public hwloc-2.0
+  ;; Note: 2.0 isn't the default yet, see above.
+  (package
+    (inherit hwloc)
+    (version "2.0.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://www.open-mpi.org/software/hwloc/v"
+                                  (version-major+minor version)
+                                  "/downloads/hwloc-" version ".tar.bz2"))
+              (sha256
+               (base32
+                "0jf0krj1h95flmb784ifv9vnkdnajjz00p4zbhmja7vm4v67axdr"))))
+
+    ;; libnuma is no longer needed.
+    (inputs (alist-delete "numactl" (package-inputs hwloc)))
+    (arguments
+     (substitute-keyword-arguments (package-arguments hwloc)
+       ((#:phases phases)
+        `(modify-phases ,phases
+           (replace 'skip-linux-libnuma-test
+             (lambda _
+               ;; Arrange to skip 'tests/hwloc/linux-libnuma', which fails on
+               ;; some machines: <https://github.com/open-mpi/hwloc/issues/213>.
+               (substitute* "tests/hwloc/linux-libnuma.c"
+                 (("numa_available\\(\\)")
+                  "-1"))
+               #t))))))))
+
 (define-public openmpi
   (package
     (name "openmpi")
-    (version "1.10.3")
+    (version "1.10.7")
     (source
      (origin
       (method url-fetch)
@@ -119,29 +162,53 @@ bind processes, and much more.")
                           "/downloads/openmpi-" version ".tar.bz2"))
       (sha256
        (base32
-        "0k95ri9f8kzx5vhzrdbzn59rn2324fs4a96w5v8jy20j8dkbp13l"))))
+        "142s1vny9gllkq336yafxayjgcirj2jv0ddabj879jgya7hyr2d0"))))
     (build-system gnu-build-system)
     (inputs
      `(("hwloc" ,hwloc "lib")
        ("gfortran" ,gfortran)
+       ("libfabric" ,libfabric)
+       ,@(match (%current-system)
+                ((member (package-supported-systems psm))
+                 `(("psm" ,psm)))
+                (_ `()))
+       ("rdma-core" ,rdma-core)
        ("valgrind" ,valgrind)))
     (native-inputs
      `(("pkg-config" ,pkg-config)
        ("perl" ,perl)))
+    (outputs '("out" "debug"))
     (arguments
-     `(#:configure-flags `("--enable-static"
-
-                           "--enable-mpi-thread-multiple"
-                           "--enable-builtin-atomics"
-
-                           "--enable-mpi-ext=all"
-                           "--with-devel-headers"
+     `(#:configure-flags `("--enable-mpi-ext=affinity" ;cr doesn't work
                            "--enable-memchecker"
+                           "--with-sge"
+
+                           ;; VampirTrace is obsoleted by scorep and disabling
+                           ;; it reduces the closure size considerably.
+                           "--disable-vt"
+
                            ,(string-append "--with-valgrind="
                                            (assoc-ref %build-inputs "valgrind"))
                            ,(string-append "--with-hwloc="
                                            (assoc-ref %build-inputs "hwloc")))
        #:phases (modify-phases %standard-phases
+                  (add-before 'build 'remove-absolute
+                    (lambda _
+                      ;; Remove compiler absolute file names (OPAL_FC_ABSOLUTE
+                      ;; etc.) to reduce the closure size.  See
+                      ;; <https://lists.gnu.org/archive/html/guix-devel/2017-07/msg00388.html>
+                      ;; and
+                      ;; <https://www.mail-archive.com/users@lists.open-mpi.org//msg31397.html>.
+                      (substitute* '("orte/tools/orte-info/param.c"
+                                     "oshmem/tools/oshmem_info/param.c"
+                                     "ompi/tools/ompi_info/param.c")
+                        (("_ABSOLUTE") ""))
+                      ;; Avoid valgrind (which pulls in gdb etc.).
+                      (substitute*
+                          '("./ompi/mca/io/romio/src/io_romio_component.c")
+                        (("MCA_io_romio_COMPLETE_CONFIGURE_FLAGS")
+                         "\"[elided to reduce closure]\""))
+                      #t))
                   (add-before 'build 'scrub-timestamps ;reproducibility
                     (lambda _
                       (substitute* '("ompi/tools/ompi_info/param.c"
@@ -155,9 +222,9 @@ bind processes, and much more.")
                         (for-each delete-file (find-files out "config.log"))
                         #t))))))
     (home-page "http://www.open-mpi.org")
-    (synopsis "MPI-2 implementation")
+    (synopsis "MPI-3 implementation")
     (description
-     "The Open MPI Project is an MPI-2 implementation that is developed and
+     "The Open MPI Project is an MPI-3 implementation that is developed and
 maintained by a consortium of academic, research, and industry partners.  Open
 MPI is therefore able to combine the expertise, technologies, and resources
 from all across the High Performance Computing community in order to build the
@@ -165,3 +232,17 @@ best MPI library available.  Open MPI offers advantages for system and
 software vendors, application developers and computer science researchers.")
     ;; See file://LICENSE
     (license bsd-2)))
+
+(define-public openmpi-thread-multiple
+  (package
+    (inherit openmpi)
+    (name "openmpi-thread-multiple")
+    (arguments
+     (substitute-keyword-arguments (package-arguments openmpi)
+       ((#:configure-flags flags)
+        `(cons "--enable-mpi-thread-multiple" ,flags))))
+    (description " This version of Open@tie{}MPI has an implementation of
+@code{MPI_Init_thread} that provides @code{MPI_THREAD_MULTIPLE}.  This won't
+work correctly with all transports (such as @code{openib}), and the
+performance is generally worse than the vanilla @code{openmpi} package, which
+only provides @code{MPI_THREAD_FUNNELED}.")))

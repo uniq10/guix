@@ -53,8 +53,8 @@
   ;; Alist of default option values.
   `((system . ,(%current-system))
     (substitutes? . #t)
+    (build-hook? . #t)
     (graft? . #t)
-    (max-silent-time . 3600)
     (verbosity . 0)))
 
 (define (show-help)

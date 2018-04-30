@@ -1,9 +1,11 @@
 # List of source files which contain translatable strings.
 # This should be source files of the various tools, and not package modules.
+gnu.scm
 gnu/packages.scm
 gnu/services.scm
 gnu/system.scm
 gnu/services/shepherd.scm
+gnu/system/mapped-devices.scm
 gnu/system/shadow.scm
 guix/scripts.scm
 guix/scripts/build.scm
@@ -19,6 +21,7 @@ guix/scripts/pull.scm
 guix/scripts/substitute.scm
 guix/scripts/authenticate.scm
 guix/scripts/system.scm
+guix/scripts/system/search.scm
 guix/scripts/lint.scm
 guix/scripts/publish.scm
 guix/scripts/edit.scm
@@ -27,6 +30,7 @@ guix/scripts/graph.scm
 guix/scripts/challenge.scm
 guix/scripts/copy.scm
 guix/scripts/pack.scm
+guix/scripts/weather.scm
 guix/gnu-maintenance.scm
 guix/scripts/container.scm
 guix/scripts/container/exec.scm

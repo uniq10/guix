@@ -1,6 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
-;;; Copyright © 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -61,9 +61,14 @@ exists."
     (const #t)
     (lambda ()
       (thunk)
-      (primitive-exit 0))
+
+      ;; XXX: Somehow we sometimes get EBADF from write(2) or close(2) upon
+      ;; exit (coming from fd finalizers) when used by the Shepherd.  To work
+      ;; around that, exit forcefully so fd finalizers don't have a chance to
+      ;; run and fail.
+      (primitive-_exit 0))
     (lambda ()
-      (primitive-exit 1))))
+      (primitive-_exit 1))))
 
 (define (purify-environment)
   "Unset all environment variables."
@@ -157,8 +162,7 @@ for the process."
 
   ;; Mount user-specified file systems.
   (for-each (lambda (file-system)
-              (mount-file-system (file-system->spec file-system)
-                                 #:root root))
+              (mount-file-system file-system #:root root))
             mounts)
 
   ;; Jail the process inside the container's root file system.
@@ -354,7 +358,8 @@ return the exit status."
      (match (container-excursion pid
               (lambda ()
                 (close-port in)
-                (write (thunk) out)))
+                (write (thunk) out)
+                (close-port out)))
        (0
         (close-port out)
         (let ((result (read in)))

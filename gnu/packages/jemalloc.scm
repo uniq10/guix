@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Sou Bunnbu <iyzsong@gmail.com>
 ;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,14 +24,15 @@
   #:use-module ((guix licenses) #:select (bsd-2))
   #:use-module (guix packages)
   #:use-module (guix download)
-  #:use-module (gnu packages base)
-  #:use-module (gnu packages gcc)
+  #:use-module (guix utils)
+  #:use-module (gnu packages)
+  #:use-module (gnu packages perl)
   #:use-module (guix build-system gnu))
 
 (define-public jemalloc
   (package
     (name "jemalloc")
-    (version "4.5.0")
+    (version "5.0.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -38,7 +40,8 @@
                     version "/jemalloc-" version ".tar.bz2"))
               (sha256
                (base32
-                "10373xhpc10pgmai9fkc1z0rs029qlcb3c0qfnvkbwdlcibdh2cl"))))
+                "1sf3lzgb0y8nnyzmp4zrca3sngdxw3kfh20sna9z03jv74fph528"))
+              (patches (search-patches "jemalloc-arm-address-bits.patch"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -56,9 +59,24 @@
            ;; Transparent huge pages are only enabled by default on Intel processors
            '()
            '(#:configure-flags (list "--disable-thp")))))
+    (inputs `(("perl" ,perl)))
     (home-page "http://jemalloc.net/")
     (synopsis "General-purpose scalable concurrent malloc implementation")
     (description
      "This library providing a malloc(3) implementation that emphasizes
 fragmentation avoidance and scalable concurrency support.")
     (license bsd-2)))
+
+(define-public jemalloc-4.5.0
+  (package
+    (inherit jemalloc)
+    (version "4.5.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/jemalloc/jemalloc/releases/download/"
+                    version "/jemalloc-" version ".tar.bz2"))
+              (sha256
+               (base32
+                "10373xhpc10pgmai9fkc1z0rs029qlcb3c0qfnvkbwdlcibdh2cl"))))
+    (inputs '())))

@@ -1,7 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014, 2016 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,23 +26,21 @@
   #:use-module (guix build-system gnu)
   #:use-module (gnu packages)
   #:use-module (gnu packages compression)
-  #:use-module (gnu packages perl)
-  #:use-module (gnu packages linux)
-  #:use-module (gnu packages ncurses))
+  #:use-module (gnu packages ncurses)
+  #:use-module (gnu packages perl))
 
 (define-public texinfo
   (package
     (name "texinfo")
-    (version "6.3")
+    (version "6.5")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://gnu/texinfo/texinfo-"
                                   version ".tar.xz"))
               (sha256
                (base32
-                "0fpr9kdjjl6nj2pc50k2zr7134hvqz8bi8pfqa7131a9lpzz6v14"))))
+                "0qjzvbvnv9003xdrcpi3jp7y68j4hq2ciw9frh2hghh698zlnxvp"))))
     (build-system gnu-build-system)
-    (native-inputs `(("procps" ,procps)))  ;one of the tests needs pgrep
     (inputs `(("ncurses" ,ncurses)
               ("perl" ,perl)))
 
@@ -151,7 +150,7 @@ is on expressing the content semantically, avoiding physical markup commands.")
      ;; texi2html.pl to avoid the warnings seems non-trivial, so we simply
      ;; disable the tests.
      '(#:tests? #f))
-    (home-page "http://www.nongnu.org/texi2html/")
+    (home-page "https://www.nongnu.org/texi2html/")
     (synopsis "Convert Texinfo to HTML")
     (description
      "Texi2HTML is a Perl script which converts Texinfo source files to HTML

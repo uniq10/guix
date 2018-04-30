@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 John Darrington <jmd@gnu.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -20,6 +21,7 @@
   #:use-module (guix packages)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix download)
+  #:use-module (guix utils)
   #:use-module (gnu packages image)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages gettext)
@@ -33,16 +35,18 @@
 (define-public cfitsio
   (package
     (name "cfitsio")
-    (version "3390")
+    (version "3.420")
     (source
      (origin
        (method url-fetch)
        (uri (string-append
-             "http://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/" name version
-             ".tar.gz"))
+             "http://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/"
+             name (string-replace-substring version "." "") ".tar.gz"))
        (sha256
-        (base32 "02gllydm63irwbqqisa3mrskw1fphm5rlplglz3mq9whi3rxilv2"))))
+        (base32 "1f0nmki45h9kw7vxpxiav9cb6vs3qqi6zrp2lpci5yhqc5isl43c"))))
     (build-system gnu-build-system)
+    ;; XXX Building with curl currently breaks wcslib.  It doesn't use
+    ;; pkg-config and hence won't link with -lcurl.
     (arguments
      `(#:tests? #f ; no tests
        #:phases
@@ -51,10 +55,10 @@
            (lambda _
              (substitute* "Makefile.in" (("/bin/") ""))
              #t)))))
-    (home-page "http://heasarc.gsfc.nasa.gov/fitsio/fitsio.html")
+    (home-page "https://heasarc.gsfc.nasa.gov/fitsio/fitsio.html")
     (synopsis "Library for reading and writing FITS files")
     (description "CFITSIO provides simple high-level routines for reading and
-writing FITS (Flexible Image Transport System) files that insulate the
+writing @dfn{FITS} (Flexible Image Transport System) files that insulate the
 programmer from the internal complexities of the FITS format. CFITSIO also
 provides many advanced features for manipulating and filtering the information
 in FITS files.")
@@ -64,7 +68,7 @@ in FITS files.")
 (define-public wcslib
   (package
     (name "wcslib")
-    (version "5.16")
+    (version "5.18")
     (source
      (origin
        (method url-fetch)
@@ -72,7 +76,7 @@ in FITS files.")
              "ftp://ftp.atnf.csiro.au/pub/software/wcslib/" name "-" version
              ".tar.bz2"))
        (sha256
-        (base32 "1vwrzkznpig2q40m11j12hsfqvsjz8z44l66pz5fkh6fy461w0zd"))))
+        (base32 "16jh568k99c9p0y3qzcgps2rii933x9wlay7q1xm0lr59zqzp4xn"))))
     (inputs
      `(("cfitsio" ,cfitsio)))
     (build-system gnu-build-system)
@@ -83,17 +87,18 @@ in FITS files.")
                       (substitute* "makedefs.in"
                         (("/bin/sh") "sh"))
                       #t)))))
-    (home-page "http://www.atnf.csiro.au/people/mcalabre/WCS")
+    (home-page "https://www.atnf.csiro.au/people/mcalabre/WCS")
     (synopsis "Library which implements the FITS WCS standard")
-    (description "The FITS \"World Coordinate System\" (WCS) standard defines
-keywords and usage that provide for the description of astronomical coordinate
-systems in a FITS image header.")
+    (description "The FITS \"World Coordinate System\" (@dfn{WCS}) standard
+defines keywords and usage that provide for the description of astronomical
+coordinate systems in a @dfn{FITS} (Flexible Image Transport System) image
+header.")
     (license license:lgpl3+)))
 
 (define-public gnuastro
   (package
     (name "gnuastro")
-    (version "0.3")
+    (version "0.5")
     (source
      (origin
        (method url-fetch)
@@ -101,17 +106,13 @@ systems in a FITS image header.")
                            version ".tar.gz"))
        (sha256
         (base32
-         "109xjwbs36gbkx5sd5yzf6ailfcldc5d28vl1n19z0ylfzww4nwa"))))
+         "10lxzxyrf30hj3bqdgprvaj9phzdi816khjmr0vmjf8pmsr8bqqr"))))
     (inputs
      `(("cfitsio" ,cfitsio)
        ("gsl" ,gsl)
-       ("libjpeg" ,libjpeg-8)
+       ("libjpeg" ,libjpeg)
        ("wcslib" ,wcslib)))
     (build-system gnu-build-system)
-    (arguments
-     ;; Reduce the number of required type conversions by enabling arithmetic
-     ;; with all the supported types.
-     `(#:configure-flags '("--enable-bin-op-alltypes")))
     (home-page "https://www.gnu.org/software/gnuastro/")
     (synopsis "Astronomy utilities")
     (description "The GNU Astronomy Utilities (Gnuastro) is a suite of
@@ -121,15 +122,16 @@ programs for the manipulation and analysis of astronomical data.")
 (define-public stellarium
   (package
     (name "stellarium")
-    (version "0.16.0")
+    (version "0.17.0")
     (source (origin
              (method url-fetch)
-             (uri (string-append "mirror://sourceforge/stellarium/"
-                                 "Stellarium-sources/"
-                                 version "/stellarium-" version ".tar.gz"))
+             (uri (string-append "https://github.com/Stellarium/" name
+                                 "/releases/download/v" version
+                                 "/" name "-" version ".tar.gz"))
+             (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "1krxj51lix096xbz64lys166a8zdwhill5vvs7dlxdn14amc8d98"))))
+               "0d6b3fs5aify7i1lwgkcickppnj73cbh24g8qschnfs3ypdf48fc"))))
     (build-system cmake-build-system)
     (inputs
      `(("qtbase" ,qtbase)
@@ -144,19 +146,19 @@ programs for the manipulation and analysis of astronomical data.")
        ("qtbase" ,qtbase) ; Qt MOC is needed at compile time
        ("qttools" ,qttools)))
     (arguments
-      `(#:test-target "tests"
-        #:phases (modify-phases %standard-phases
-                   (add-after 'unpack 'patch-tests
-                     (lambda _
-                       (substitute* "src/tests/testStelSphereGeometry.cpp"
-                         (("Vec3d v[(]0[)]") "Vec3d v(0.0)"))
-                       #t))
-                   (add-before 'check 'set-offscreen-display
-                     (lambda _
-                       ;; make Qt render "offscreen", required for tests
-                       (setenv "QT_QPA_PLATFORM" "offscreen")
-                       (setenv "HOME" "/tmp")
-                       #t)))))
+     `(#:test-target "test"
+       #:configure-flags (list "-DENABLE_TESTING=1"
+                               (string-append
+                                "-DCMAKE_CXX_FLAGS=-isystem "
+                                (assoc-ref %build-inputs "qtserialport")
+                                "/include/qt5"))
+       #:phases (modify-phases %standard-phases
+                  (add-before 'check 'set-offscreen-display
+                    (lambda _
+                      ;; make Qt render "offscreen", required for tests
+                      (setenv "QT_QPA_PLATFORM" "offscreen")
+                      (setenv "HOME" "/tmp")
+                      #t)))))
     (home-page "http://www.stellarium.org/")
     (synopsis "3D sky viewer")
     (description "Stellarium is a planetarium.  It shows a realistic sky in

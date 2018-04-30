@@ -1,13 +1,15 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013, 2014 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2014, 2015, 2016 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;;; Copyright © 2016 Christopher Allan Webber <cwebber@dustycloud.org>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Stefan Reichör <stefan@xsteve.at>
+;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -60,35 +62,40 @@
   #:use-module (srfi srfi-1))
 
 (define-public libssh
-  (package
-    (name "libssh")
-    (version "0.7.5")
-    (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "https://red.libssh.org/attachments/download/218/libssh-"
-                    version ".tar.xz"))
-              (sha256
-               (base32
-                "15bh6dm9c50ndddzh3gqcgw7axp3ghrspjpkb1z3dr90vkanvs2l"))
-              (patches (search-patches "libssh-hostname-parser-bug.patch"))))
-    (build-system cmake-build-system)
-    (outputs '("out" "debug"))
-    (arguments
-     '(#:configure-flags '("-DWITH_GCRYPT=ON")
+  ;; This commit from the 'v0-7' branch contains 7 memory-management-related
+  ;; bug fixes that we'd rather have.
+  (let ((commit "239d0f75b5f909174c2ef7fb08d23bcfa6b20ba0")
+        (revision "0"))
+    (package
+      (name "libssh")
+      (version (git-version "0.7.5" revision commit))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://git.libssh.org/projects/libssh.git")
+                      (commit commit)))
+                (sha256
+                 (base32
+                  "01w72w1jsgs9ilj3n1gp6qkmdxr9n74i5h2nipi3x1vzm7bv8na1"))
+                (patches (search-patches "libssh-hostname-parser-bug.patch"))
+                (file-name (git-file-name name version))))
+      (build-system cmake-build-system)
+      (outputs '("out" "debug"))
+      (arguments
+       '(#:configure-flags '("-DWITH_GCRYPT=ON")
 
-       ;; TODO: Add 'CMockery' and '-DWITH_TESTING=ON' for the test suite.
-       #:tests? #f))
-    (inputs `(("zlib" ,zlib)
-              ("libgcrypt" ,libgcrypt)))
-    (synopsis "SSH client library")
-    (description
-     "libssh is a C library implementing the SSHv2 and SSHv1 protocol for
+         ;; TODO: Add 'CMockery' and '-DWITH_TESTING=ON' for the test suite.
+         #:tests? #f))
+      (inputs `(("zlib" ,zlib)
+                ("libgcrypt" ,libgcrypt)))
+      (synopsis "SSH client library")
+      (description
+       "libssh is a C library implementing the SSHv2 and SSHv1 protocol for
 client and server implementations.  With libssh, you can remotely execute
 programs, transfer files, and use a secure and transparent tunnel for your
 remote applications.")
-    (home-page "https://www.libssh.org")
-    (license license:lgpl2.1+)))
+      (home-page "https://www.libssh.org")
+      (license license:lgpl2.1+))))
 
 (define-public libssh2
   (package
@@ -128,14 +135,14 @@ a server that supports the SSH-2 protocol.")
 (define-public openssh
   (package
    (name "openssh")
-   (version "7.5p1")
+   (version "7.7p1")
    (source (origin
              (method url-fetch)
              (uri (string-append "mirror://openbsd/OpenSSH/portable/"
                                  name "-" version ".tar.gz"))
              (sha256
               (base32
-               "1w7rb5gbrikxdkp8w7zxnci4549gk4bw1lml01s59w5rzb2y6ilq"))))
+               "13vbbrvj3mmfhj83qyrg5c0ipr6bzw5s65dy4k8gr7p9hkkfffyp"))))
    (build-system gnu-build-system)
    (native-inputs `(("groff" ,groff)))
    (inputs `(("openssl" ,openssl)
@@ -145,6 +152,9 @@ a server that supports the SSH-2 protocol.")
              ("xauth" ,xauth)))                   ;for 'ssh -X' and 'ssh -Y'
    (arguments
     `(#:test-target "tests"
+      ;; Otherwise, the test scripts try to use a nonexistent directory and
+      ;; fail.
+      #:make-flags '("REGRESSTMP=\"$${BUILDDIR}/regress\"")
       #:configure-flags  `("--sysconfdir=/etc/ssh"
 
                            ;; Default value of 'PATH' used by sshd.
@@ -215,7 +225,7 @@ Additionally, various channel-specific options can be negotiated.")
 (define-public guile-ssh
   (package
     (name "guile-ssh")
-    (version "0.11.0")
+    (version "0.11.2")
     (home-page "https://github.com/artyom-poptsov/guile-ssh")
     (source (origin
               ;; ftp://memory-heap.org/software/guile-ssh/guile-ssh-VERSION.tar.gz
@@ -227,19 +237,7 @@ Additionally, various channel-specific options can be negotiated.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0r261i8kc3avbmbwgyzak2vnqwssjlgz37g2y2fwm80w9bmn2m7j"))
-              (patches (search-patches "guile-ssh-rexec-bug.patch"
-                                       "guile-ssh-double-free.patch"
-                                       "guile-ssh-channel-finalization.patch"))
-              (modules '((guix build utils)))
-              (snippet
-               ;; 'configure.ac' mistakenly tries to link files from examples/
-               ;; that are not instantiated yet.  Work around it.
-               '(substitute* "configure.ac"
-                  (("AC_CONFIG_LINKS\\(\\[examples/([^:]+):.*" _ file)
-                   (string-append "AC_CONFIG_FILES([examples/" file
-                                  "], [chmod +x examples/"
-                                  file "])\n"))))))
+                "1w0k5s09xj5xycb7lbp5b7rm0xncclms3jwl98lwj8fxwngi1s90"))))
     (build-system gnu-build-system)
     (outputs '("out" "debug"))
     (arguments
@@ -261,8 +259,20 @@ Additionally, various channel-specific options can be negotiated.")
                              (substitute* (find-files "." "\\.scm$")
                                (("\"libguile-ssh\"")
                                 (string-append "\"" libdir "/libguile-ssh\"")))
-                             #t)))))
-
+                             #t))))
+                  (add-after 'install 'remove-bin-directory
+                    (lambda* (#:key outputs #:allow-other-keys)
+                      (let* ((out (assoc-ref outputs "out"))
+                             (bin (string-append out "/bin"))
+                             (examples (string-append
+                                        out "/share/guile-ssh/examples")))
+                        (mkdir-p examples)
+                        (rename-file (string-append bin "/ssshd.scm")
+                                     (string-append examples "/ssshd.scm"))
+                        (rename-file (string-append bin "/sssh.scm")
+                                     (string-append examples "/sssh.scm"))
+                        (delete-file-recursively bin)
+                        #t))))
        ;; Tests are not parallel-safe.
        #:parallel-tests? #f))
     (native-inputs `(("autoconf" ,autoconf)
@@ -413,7 +423,7 @@ TCP, not the SSH protocol.")
 (define-public dropbear
   (package
     (name "dropbear")
-    (version "2017.75")
+    (version "2018.76")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -421,9 +431,9 @@ TCP, not the SSH protocol.")
                     name "-" version ".tar.bz2"))
               (sha256
                (base32
-                "1309cm2aw62n9m3h38prvgsqr8bj85hfasgnvwkd42cp3k5ivg3c"))))
+                "0rgavbzw7jrs5wslxm0dnwx2m409yzxd9hazd92r7kx8xikr3yzj"))))
     (build-system gnu-build-system)
-    (arguments  `(#:tests? #f)) ; There is no "make check" or anything similar
+    (arguments `(#:tests? #f)) ; there is no "make check" or anything similar
     (inputs `(("zlib" ,zlib)))
     (synopsis "Small SSH server and client")
     (description "Dropbear is a relatively small SSH server and
@@ -594,7 +604,7 @@ authentication}.")
 (define-public autossh
   (package
     (name "autossh")
-    (version "1.4e")
+    (version "1.4f")
     (source
      (origin
        (method url-fetch)
@@ -602,7 +612,7 @@ authentication}.")
              "http://www.harding.motd.ca/autossh/autossh-"
              version ".tgz"))
        (sha256
-        (base32 "0mlicw28vq2jxa0jf0dys5ja75v0fxpjavlq9dpif6bnknji13ly"))))
+        (base32 "1wpqwa2872nqgqbhnb6nnkrlzpdawd5k69gh1qp68354pvhyawh1"))))
     (build-system gnu-build-system)
     (arguments `(#:tests? #f)) ; There is no "make check" or anything similar
     (inputs `(("openssh" ,openssh)))
@@ -615,3 +625,61 @@ monitor it, restarting it as necessary should it die or stop passing traffic.")
      ;; copy of this license in their headers, but there's no separate file
      ;; with that information.
      (license:non-copyleft "file://autossh.c"))))
+
+(define-public pdsh
+  (package
+    (name "pdsh")
+    (version "2.33")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/chaos/pdsh/"
+                           "releases/download/pdsh-" version
+                           "/pdsh-" version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32 "0bwlkl9inj66iwvafg00pi3sk9n673phdi0kcc59y9nn55s0hs3k"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:configure-flags
+       (list "--with-ssh")
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-/bin/sh
+           (lambda _
+             (substitute* '("tests/t0006-pdcp.sh"
+                            "tests/t0004-module-loading.sh"
+                            "tests/t2001-ssh.sh"
+                            "tests/t1003-slurm.sh"
+                            "tests/t6036-long-output-lines.sh"
+                            "tests/aggregate-results.sh"
+                            "tests/t2000-exec.sh"
+                            "tests/t0002-internal.sh"
+                            "tests/t1002-dshgroup.sh"
+                            "tests/t5000-dshbak.sh"
+                            "tests/t0001-basic.sh"
+                            "tests/t0005-rcmd_type-and-user.sh"
+                            "tests/test-lib.sh"
+                            "tests/t2002-mrsh.sh"
+                            "tests/t0003-wcoll.sh"
+                            "tests/test-modules/pcptest.c")
+               (("/bin/sh") (which "bash")))
+             #t))
+         (add-after 'unpack 'patch-tests
+           (lambda _
+             (substitute* "tests/t6036-long-output-lines.sh"
+               (("which") (which "which")))
+             #t)))))
+    (inputs
+     `(("openssh" ,openssh)
+       ("mit-krb5" ,mit-krb5)
+       ("perl" ,perl)))
+    (native-inputs
+     `(("which" ,which)))
+    (home-page "https://github.com/chaos/pdsh")
+    (synopsis "Parallel distributed shell")
+    (description "Pdsh is a an efficient, multithreaded remote shell client
+which executes commands on multiple remote hosts in parallel.  Pdsh implements
+dynamically loadable modules for extended functionality such as new remote
+shell services and remote host selection.")
+    (license license:gpl2+)))

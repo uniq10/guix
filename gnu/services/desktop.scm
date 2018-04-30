@@ -3,6 +3,8 @@
 ;;; Copyright © 2015 Andy Wingo <wingo@igalia.com>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Sou Bunnbu <iyzsong@gmail.com>
+;;; Copyright © 2017 Maxim Cournoyer <maxim.cournoyer@gmail.com>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -41,6 +43,7 @@
   #:use-module (gnu packages suckless)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages libusb)
+  #:use-module (gnu packages mate)
   #:use-module (guix records)
   #:use-module (guix packages)
   #:use-module (guix store)
@@ -73,15 +76,25 @@
             elogind-service
             elogind-service-type
 
+            accountsservice-service-type
+            accountsservice-service
+
             gnome-desktop-configuration
             gnome-desktop-configuration?
             gnome-desktop-service
             gnome-desktop-service-type
 
+            mate-desktop-configuration
+            mate-desktop-configuration?
+            mate-desktop-service
+            mate-desktop-service-type
+
             xfce-desktop-configuration
             xfce-desktop-configuration?
             xfce-desktop-service
             xfce-desktop-service-type
+
+            x11-socket-directory-service
 
             %desktop-services))
 
@@ -381,32 +394,67 @@ site} for more information."
 ;;; Bluetooth.
 ;;;
 
-(define (bluetooth-shepherd-service bluez)
+(define-record-type* <bluetooth-configuration>
+  bluetooth-configuration make-bluetooth-configuration
+  bluetooth-configuration?
+  (bluez bluetooth-configuration-bluez (default bluez))
+  (auto-enable? bluetooth-configuration-auto-enable? (default #f)))
+
+(define (bluetooth-configuration-file config)
+  "Return a configuration file for the systemd bluetooth service, as a string."
+  (string-append
+   "[Policy]\n"
+   "AutoEnable=" (bool (bluetooth-configuration-auto-enable?
+                        config))))
+
+(define (bluetooth-directory config)
+  (computed-file "etc-bluetooth"
+                 #~(begin
+                     (mkdir #$output)
+                     (chdir #$output)
+                     (call-with-output-file "main.conf"
+                       (lambda (port)
+                         (display #$(bluetooth-configuration-file config)
+                                  port))))))
+
+(define (bluetooth-shepherd-service config)
   "Return a shepherd service for @command{bluetoothd}."
   (shepherd-service
    (provision '(bluetooth))
    (requirement '(dbus-system udev))
    (documentation "Run the bluetoothd daemon.")
    (start #~(make-forkexec-constructor
-             (string-append #$bluez "/libexec/bluetooth/bluetoothd")))
+             (string-append #$(bluetooth-configuration-bluez config)
+                            "/libexec/bluetooth/bluetoothd")))
    (stop #~(make-kill-destructor))))
 
 (define bluetooth-service-type
   (service-type
    (name 'bluetooth)
    (extensions
-    (list (service-extension dbus-root-service-type list)
-          (service-extension udev-service-type list)
+    (list (service-extension dbus-root-service-type
+                             (compose list bluetooth-configuration-bluez))
+          (service-extension udev-service-type
+                             (compose list bluetooth-configuration-bluez))
+          (service-extension etc-service-type
+                             (lambda (config)
+                               `(("bluetooth"
+                                  ,(bluetooth-directory config)))))
           (service-extension shepherd-root-service-type
                              (compose list bluetooth-shepherd-service))))))
 
-(define* (bluetooth-service #:key (bluez bluez))
+(define* (bluetooth-service #:key (bluez bluez) (auto-enable? #f))
   "Return a service that runs the @command{bluetoothd} daemon, which manages
-all the Bluetooth devices and provides a number of D-Bus interfaces.
+all the Bluetooth devices and provides a number of D-Bus interfaces.  When
+AUTO-ENABLE? is true, the bluetooth controller is powered automatically at
+boot.
 
 Users need to be in the @code{lp} group to access the D-Bus service.
 "
-  (service bluetooth-service-type bluez))
+  (service bluetooth-service-type
+           (bluetooth-configuration
+            (bluez bluez)
+            (auto-enable? auto-enable?))))
 
 
 ;;;
@@ -468,6 +516,15 @@ site} for more information."
   (udisks   udisks-configuration-udisks
             (default udisks)))
 
+(define %udisks-activation
+  (with-imported-modules '((guix build utils))
+    #~(begin
+        (use-modules (guix build utils))
+
+        (let ((run-dir "/var/run/udisks2"))
+          (mkdir-p run-dir)
+          (chmod run-dir #o700)))))
+
 (define udisks-service-type
   (let ((udisks-package (lambda (config)
                           (list (udisks-configuration-udisks config)))))
@@ -479,6 +536,8 @@ site} for more information."
                                             udisks-package)
                          (service-extension udev-service-type
                                             udisks-package)
+                         (service-extension activation-service-type
+                                            (const %udisks-activation))
 
                          ;; Profile 'udisksctl' & co. in the system profile.
                          (service-extension profile-service-type
@@ -693,7 +752,8 @@ seats.)"
 
                        ;; We need /run/user, /run/systemd, etc.
                        (service-extension file-system-service-type
-                                          (const %elogind-file-systems))))))
+                                          (const %elogind-file-systems))))
+                (default-value (elogind-configuration))))
 
 (define* (elogind-service #:key (config (elogind-configuration)))
   "Return a service that runs the @command{elogind} login and seat management
@@ -705,6 +765,33 @@ when they log out."
 
 
 ;;;
+;;; AccountsService service.
+;;;
+
+(define %accountsservice-activation
+  #~(begin
+      (use-modules (guix build utils))
+      (mkdir-p "/var/lib/AccountsService")))
+
+(define accountsservice-service-type
+  (service-type (name 'accountsservice)
+                (extensions
+                 (list (service-extension activation-service-type
+                                          (const %accountsservice-activation))
+                       (service-extension dbus-root-service-type list)
+                       (service-extension polkit-service-type list)))))
+
+(define* (accountsservice-service #:key (accountsservice accountsservice))
+  "Return a service that runs AccountsService, a system service that
+can list available accounts, change their passwords, and so on.
+AccountsService integrates with PolicyKit to enable unprivileged users to
+acquire the capability to modify their system configuration.
+@uref{https://www.freedesktop.org/wiki/Software/AccountsService/, the
+accountsservice web site} for more information."
+  (service accountsservice-service-type accountsservice))
+
+
+;;;
 ;;; GNOME desktop service.
 ;;;
 
@@ -713,15 +800,23 @@ when they log out."
   gnome-desktop-configuration
   (gnome-package gnome-package (default gnome)))
 
+(define (gnome-polkit-settings config)
+  "Return the list of GNOME dependencies that provide polkit actions and
+rules."
+  (let ((gnome (gnome-package config)))
+    (map (lambda (name)
+           ((package-direct-input-selector name) gnome))
+         '("gnome-settings-daemon"
+           "gnome-control-center"
+           "gnome-system-monitor"
+           "gvfs"))))
+
 (define gnome-desktop-service-type
   (service-type
    (name 'gnome-desktop)
    (extensions
     (list (service-extension polkit-service-type
-                             (compose list
-                                      (package-direct-input-selector
-                                       "gnome-settings-daemon")
-                                      gnome-package))
+                             gnome-polkit-settings)
           (service-extension profile-service-type
                              (compose list
                                       gnome-package))))))
@@ -730,6 +825,32 @@ when they log out."
   "Return a service that adds the @code{gnome} package to the system profile,
 and extends polkit with the actions from @code{gnome-settings-daemon}."
   (service gnome-desktop-service-type config))
+
+;; MATE Desktop service.
+;; TODO: Add mate-screensaver.
+
+(define-record-type* <mate-desktop-configuration> mate-desktop-configuration
+  make-mate-desktop-configuration
+  mate-desktop-configuration
+  (mate-package mate-package (default mate)))
+
+(define mate-desktop-service-type
+  (service-type
+   (name 'mate-desktop)
+   (extensions
+    (list (service-extension polkit-service-type
+                             (compose list
+                                      (package-direct-input-selector
+                                       "mate-settings-daemon")
+                                      mate-package))
+          (service-extension profile-service-type
+                             (compose list
+                                      mate-package))))))
+
+(define* (mate-desktop-service #:key (config (mate-desktop-configuration)))
+  "Return a service that adds the @code{mate} package to the system profile,
+and extends polkit with the actions from @code{mate-settings-daemon}."
+  (service mate-desktop-service-type config))
 
 
 ;;;
@@ -763,12 +884,30 @@ with the administrator's password."
 
 
 ;;;
+;;; X11 socket directory service
+;;;
+
+(define x11-socket-directory-service
+  ;; Return a service that creates /tmp/.X11-unix.  When using X11, libxcb
+  ;; takes care of creating that directory.  However, when using XWayland, we
+  ;; need to create beforehand.  Thus, create it unconditionally here.
+  (simple-service 'x11-socket-directory
+                  activation-service-type
+                  (with-imported-modules '((guix build utils))
+                    #~(begin
+                        (use-modules (guix build utils))
+                        (let ((directory "/tmp/.X11-unix"))
+                          (mkdir-p directory)
+                          (chmod directory #o777))))))
+
+
+;;;
 ;;; The default set of desktop services.
 ;;;
 
 (define %desktop-services
   ;; List of services typically useful for a "desktop" use case.
-  (cons* (slim-service)
+  (cons* (service slim-service-type)
 
          ;; Screen lockers are a pretty useful thing and these are small.
          (screen-locker-service slock)
@@ -779,10 +918,12 @@ with the administrator's password."
          (simple-service 'mtp udev-service-type (list libmtp))
 
          ;; The D-Bus clique.
+         (service network-manager-service-type)
+         (service wpa-supplicant-service-type)    ;needed by NetworkManager
          (avahi-service)
-         (wicd-service)
          (udisks-service)
          (upower-service)
+         (accountsservice-service)
          (colord-service)
          (geoclue-service)
          (polkit-service)
@@ -790,6 +931,8 @@ with the administrator's password."
          (dbus-service)
 
          (ntp-service)
+
+         x11-socket-directory-service
 
          %base-services))
 

@@ -8,7 +8,7 @@ AC_INIT([GNU Guix],
   [https://www.gnu.org/software/guix/])
 AC_CONFIG_AUX_DIR([build-aux])
 
-AM_INIT_AUTOMAKE([1.12 gnu silent-rules subdir-objects \
+AM_INIT_AUTOMAKE([1.14 gnu silent-rules subdir-objects \
  color-tests parallel-tests -Woverride -Wno-portability])
 
 # Enable silent rules by default.
@@ -47,12 +47,26 @@ AC_ARG_WITH([zsh-completion-dir],
   [zshcompletiondir='${datadir}/zsh/site-functions'])
 AC_SUBST([zshcompletiondir])
 
+AC_ARG_WITH([fish-completion-dir],
+  AC_HELP_STRING([--with-fish-completion-dir=DIR],
+    [name of the Fish completion directory]),
+  [fishcompletiondir="$withval"],
+  [fishcompletiondir='${datadir}/fish/vendor_completions.d'])
+AC_SUBST([fishcompletiondir])
+
+AC_ARG_WITH([selinux-policy-dir],
+  AC_HELP_STRING([--with-selinux-policy-dir=DIR],
+    [name of the SELinux policy directory]),
+  [selinux_policydir="$withval"],
+  [selinux_policydir='${datadir}/selinux/'])
+AC_SUBST([selinux_policydir])
+
 dnl Better be verbose.
 AC_MSG_CHECKING([for the store directory])
 AC_MSG_RESULT([$storedir])
 
 AC_ARG_ENABLE([daemon],
-  [AS_HELP_STRING([--disable-daemon], [build the Nix daemon (C++)])],
+  [AS_HELP_STRING([--disable-daemon], [do not build the Nix daemon (C++)])],
   [guix_build_daemon="$enableval"],
   [guix_build_daemon="yes"])
 
@@ -84,7 +98,7 @@ if test "x$GUILD" = "x"; then
 fi
 
 if test "x$GUILE_EFFECTIVE_VERSION" = "x2.0"; then
-  PKG_CHECK_MODULES([GUILE], [guile-2.0 >= 2.0.9])
+  PKG_CHECK_MODULES([GUILE], [guile-2.0 >= 2.0.13])
 fi
 
 dnl Installation directories for .scm and .go files.
@@ -100,16 +114,24 @@ if test "x$have_gnutls" != "xyes"; then
   AC_MSG_ERROR([The Guile bindings of GnuTLS are missing; please install them.])
 fi
 
+dnl Check for Guile-Git.
+GUILE_MODULE_AVAILABLE([have_guile_git], [(git)])
+if test "x$have_guile_git" != "xyes"; then
+  AC_MSG_ERROR([Guile-Git is missing; please install it.])
+fi
+
 dnl Guile-JSON is used in various places.
 GUILE_MODULE_AVAILABLE([have_guile_json], [(json)])
 AM_CONDITIONAL([HAVE_GUILE_JSON], [test "x$have_guile_json" = "xyes"])
 
-dnl Check for Guile-Git.
-GUILE_MODULE_AVAILABLE([have_guile_git], [(git)])
-AM_CONDITIONAL([HAVE_GUILE_GIT], [test "x$have_guile_git" = "xyes"])
-
 dnl Make sure we have a full-fledged Guile.
 GUIX_ASSERT_GUILE_FEATURES([regex posix socket net-db threads])
+
+dnl Make sure we don't suffer from the bug in 'equal?' wrt. syntax objects
+dnl found in 2.2.1.  See <https://bugs.gnu.org/29903>.
+GUIX_ASSERT_SYNTAX_OBJECT_EQUAL
+
+AC_PROG_SED
 
 dnl Decompressors, for use by the substituter and other modules.
 AC_PATH_PROG([GZIP], [gzip])
@@ -241,6 +263,10 @@ AM_MISSING_PROG([DOT], [dot])
 dnl Manual pages.
 AM_MISSING_PROG([HELP2MAN], [help2man])
 
+dnl Documentation translation.
+AM_MISSING_PROG([PO4A_TRANSLATE], [po4a-translate])
+AM_MISSING_PROG([PO4A_UPDATEPO], [po4a-updatepo])
+
 dnl Emacs (optional), for 'etc/indent-package.el'.
 AC_PATH_PROG([EMACS], [emacs], [/usr/bin/emacs])
 AC_SUBST([EMACS])
@@ -257,9 +283,9 @@ esac
 AC_CONFIG_FILES([Makefile
                  po/guix/Makefile.in
                  po/packages/Makefile.in
-		 guix/config.scm])
+                 etc/guix-daemon.cil
+                 guix/config.scm])
 
-AC_CONFIG_FILES([scripts/guix], [chmod +x scripts/guix])
 AC_CONFIG_FILES([test-env:build-aux/test-env.in], [chmod +x test-env])
 AC_CONFIG_FILES([pre-inst-env:build-aux/pre-inst-env.in],
   [chmod +x pre-inst-env])

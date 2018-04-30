@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2017 Oleg Pykhalov <go.wigust@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -25,11 +26,13 @@
   #:use-module (guix git-download)
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system trivial)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages audio)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages avahi)
   #:use-module (gnu packages base)
+  #:use-module (gnu packages bash)
   #:use-module (gnu packages cdrom)
   #:use-module (gnu packages cmake)
   #:use-module (gnu packages compression)
@@ -125,7 +128,7 @@ generator library for C++.")
 ;; of the standard build process. To make things easier, we bootstrap
 ;; and patch shebangs here, so we don't have to worry about it later.
 (define libdvdnav/kodi
-  (let ((commit "981488f7f27554b103cca10c1fbeba027396c94a"))
+  (let ((commit "6.0.0-Leia-Alpha-1"))
     (package
       (name "libdvdnav-bootstrapped")
       (version commit)
@@ -137,7 +140,7 @@ generator library for C++.")
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
                  (base32
-                  "089pswc51l3avh95zl4cpsh7gh1innh7b2y4xgx840mcmy46ycr8"))))
+                  "1xiyfgf8v8aknlxlzsvk6pbzkhclz0hbh3s1b0w6ivkng2k310j9"))))
       (build-system gnu-build-system)
       (arguments
        '(#:tests? #f
@@ -162,7 +165,7 @@ generator library for C++.")
       (license license:gpl2+))))
 
 (define libdvdread/kodi
-  (let ((commit "17d99db97e7b8f23077b342369d3c22a6250affd"))
+  (let ((commit "6.0.0-Leia-Alpha-1"))
     (package
       (name "libdvdread-bootstrapped")
       (version commit)
@@ -174,7 +177,7 @@ generator library for C++.")
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
                  (base32
-                  "1gr5aq1cjr3as9mnwrw29cxn4m6f6pfrxdahkdcjy70q3ldg90sl"))))
+                  "1c3g18n2vwhgcfz3dka1pmw58bnv2ram7xjvizfiykb3sgi9zfwp"))))
       (build-system gnu-build-system)
       (arguments
        '(#:tests? #f
@@ -199,7 +202,7 @@ generator library for C++.")
       (license (list license:gpl2+ license:lgpl2.1+)))))
 
 (define libdvdcss/kodi
-  (let ((commit "2f12236bc1c92f73c21e973363f79eb300de603f"))
+  (let ((commit "1.4.1-Leia-Alpha-1"))
     (package
       (name "libdvdcss-bootstrapped")
       (version commit)
@@ -211,7 +214,7 @@ generator library for C++.")
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
                  (base32
-                  "198r0q73i55ga1dvyqq9nfcri0zq08b94hy8671lg14i3izx44dd"))))
+                  "0adafwsawxssj3nilkql447v0l4a2584rdpmy5rfjmznh91lykgh"))))
       (build-system gnu-build-system)
       (arguments
        '(#:tests? #f
@@ -238,20 +241,20 @@ generator library for C++.")
 (define-public kodi
   ;; We package the git version because the current released
   ;; version was cut while the cmake transition was in turmoil.
-  (let ((commit "f22d62dc3f6e811a538dda9c434e1804abb8b95f")
-        (revision "6"))
+  (let ((commit "ec16dbca4dcf2923f53f819695a6d47c52e68d74")
+        (revision "8"))
   (package
     (name "kodi")
-    (version (string-append "18.0_alpha-" revision "-" (string-take commit 7)))
+    (version (git-version "18.0_alpha" revision commit))
     (source (origin
               (method git-fetch)
               (uri (git-reference
                     (url "https://github.com/xbmc/xbmc.git")
                     (commit commit)))
-              (file-name (string-append name "-" version "-checkout"))
+              (file-name (git-file-name name version))
               (sha256
                (base32
-                "0x8fqvid8b8qra327z615r2ygfkdca2p7wccdj5nfb4i5gy0sr09"))
+                "1rxg752cl59124cfpfwmyjldn6qpq5jginxddpzvgagfadf10i4d"))
               (snippet
                '(begin
                   (use-modules (guix build utils))
@@ -264,7 +267,6 @@ generator library for C++.")
                               ;; "tools/depend/native/TexturePacker"
                               ;; "lib/gtest"
                               ;; "lib/cpluff"
-                              ;; "lib/libexif"
                               ;; "lib/libUPnP"
                               "lib/libUPnP/Neptune/ThirdParty"
                               "project/Win32BuildSetup/tools/7z"))
@@ -315,7 +317,7 @@ generator library for C++.")
                ;; to make them writable before the build process starts.
                (("autoreconf -vif") "chmod -R u+w ."))
 
-             (substitute* "xbmc/linux/LinuxTimezone.cpp"
+             (substitute* "xbmc/platform/linux/LinuxTimezone.cpp"
                (("/usr/share/zoneinfo")
                 (string-append (assoc-ref inputs "tzdata")
                                "/share/zoneinfo")))
@@ -417,7 +419,7 @@ generator library for C++.")
     (description "Kodi is a media center application for playing videos,
 music, games, etc.  Kodi is highly customizable and features a theme and
 plug-in system.")
-    (home-page "http://kodi.tv")
+    (home-page "https://kodi.tv")
     ;; XBMC is largely GPL2+, with some library components as LGPL2.1+, but
     ;; there are some other licenses spread throughout.
     (license (list license:gpl2+ license:lgpl2.1+
@@ -426,3 +428,60 @@ plug-in system.")
                    license:public-domain          ;cpluff/examples
                    license:bsd-3                  ;misc, gtest
                    license:bsd-2)))))             ;xbmc/freebsd
+
+(define-public kodi-cli
+  (let ((commit "104dc23b2a993c8e6db8c46f4f8bec24b146549b") ; Add support for
+        (revision "1"))                                     ; `$HOME/.kodirc'.
+    (package
+      (name "kodi-cli")
+      (version (string-append "1.1-" revision "." (string-take commit 7)))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference (url "https://github.com/nawar/kodi-cli")
+                                    (commit commit)))
+                (sha256
+                 (base32
+                  "1xjhasc5gngfxpr1dlzy6q24w0wpdfjx12p43fanjppxw4i49n5p"))
+                (file-name (string-append name "-" version "-checkout"))))
+      (build-system trivial-build-system)
+      (inputs
+       `(("bash"        ,bash)
+         ("curl"        ,curl)
+         ("mps-youtube" ,mps-youtube)))
+      (arguments
+       `(#:modules ((guix build utils))
+         #:builder
+         (begin
+           (use-modules (guix build utils))
+           (copy-recursively (assoc-ref %build-inputs "source") ".")
+           (substitute* "kodi-cli"
+             (("/bin/bash") (string-append (assoc-ref %build-inputs "bash")
+                                           "/bin/bash"))
+             (("output=\\$\\((curl)" all curl)
+              (string-append "output=$("
+                             (assoc-ref %build-inputs "curl")
+                             "/bin/" curl))
+             (("play_youtube `(mpsyt)" all mpsyt)
+              (string-append "play_youtube `"
+                             (assoc-ref %build-inputs "mps-youtube")
+                             "/bin/" mpsyt)))
+           (install-file "kodi-cli" (string-append %output "/bin"))
+           #t)))
+      (home-page "https://github.com/nawar/kodi-cli")
+      (synopsis "Control Kodi from the command line")
+      (description "@code{kodi-cli} is a tool for sending commands to a Kodi
+server using JSON RPC.
+
+Features:
+
+@itemize
+@item Play, pause, stop the currently playing item.
+@item Skip forward or backward in the currently playing item.
+@item Play or queue to the currently list of YouTube videos.
+@item Interactive and noninteractive volume control.
+@item Interactive navigation.
+@item Send text to the Kodi keyboard.
+@item Toggle fullscreen.
+@item Update or clean Kodi libraries.
+@end itemize\n")
+      (license license:gpl2+))))

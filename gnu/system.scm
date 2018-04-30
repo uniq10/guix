@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015, 2016 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2016 Chris Marusich <cmmarusich@gmail.com>
@@ -39,7 +39,6 @@
   #:use-module (gnu packages less)
   #:use-module (gnu packages zile)
   #:use-module (gnu packages nano)
-  #:use-module (gnu packages lsof)
   #:use-module (gnu packages gawk)
   #:use-module (gnu packages man)
   #:use-module (gnu packages texinfo)
@@ -54,6 +53,7 @@
   #:use-module (gnu system locale)
   #:use-module (gnu system pam)
   #:use-module (gnu system linux-initrd)
+  #:use-module (gnu system uuid)
   #:use-module (gnu system file-systems)
   #:use-module (gnu system mapped-devices)
   #:use-module (ice-9 match)
@@ -74,6 +74,7 @@
             operating-system-kernel
             operating-system-kernel-file
             operating-system-kernel-arguments
+            operating-system-initrd-modules
             operating-system-initrd
             operating-system-users
             operating-system-groups
@@ -90,6 +91,7 @@
             operating-system-activation-script
             operating-system-user-accounts
             operating-system-shepherd-service-names
+            operating-system-user-kernel-arguments
 
             operating-system-derivation
             operating-system-profile
@@ -112,7 +114,7 @@
             boot-parameters-initrd
             read-boot-parameters
             read-boot-parameters-file
-            menu-entry->boot-parameters
+            boot-parameters->menu-entry
 
             local-host-aliases
             %setuid-programs
@@ -128,7 +130,14 @@
 (define (bootable-kernel-arguments kernel-arguments system.drv root-device)
   "Prepend extra arguments to KERNEL-ARGUMENTS that allow SYSTEM.DRV to be
 booted from ROOT-DEVICE"
-  (cons* (string-append "--root=" root-device)
+  (cons* (string-append "--root="
+                        (if (uuid? root-device)
+
+                            ;; Note: Always use the DCE format because that's
+                            ;; what (gnu build linux-boot) expects for the
+                            ;; '--root' kernel command-line option.
+                            (uuid->string (uuid-bytevector root-device) 'dce)
+                            root-device))
          #~(string-append "--system=" #$system.drv)
          #~(string-append "--load=" #$system.drv "/boot")
          kernel-arguments))
@@ -146,6 +155,10 @@ booted from ROOT-DEVICE"
 
   (initrd operating-system-initrd                 ; (list fs) -> M derivation
           (default base-initrd))
+  (initrd-modules operating-system-initrd-modules ; list of strings
+                  (thunked)                       ; it's system-dependent
+                  (default %base-initrd-modules))
+
   (firmware operating-system-firmware             ; list of packages
             (default %base-firmware))
 
@@ -223,9 +236,26 @@ directly by the user."
   (kernel-arguments boot-parameters-kernel-arguments)
   (initrd           boot-parameters-initrd))
 
+(define (ensure-not-/dev device)
+  "If DEVICE starts with a slash, return #f.  This is meant to filter out
+Linux device names such as /dev/sda, and to preserve GRUB device names and
+file system labels."
+  (if (and (string? device) (string-prefix? "/" device))
+      #f
+      device))
+
 (define (read-boot-parameters port)
   "Read boot parameters from PORT and return the corresponding
 <boot-parameters> object or #f if the format is unrecognized."
+  (define device-sexp->device
+    (match-lambda
+      (('uuid (? symbol? type) (? bytevector? bv))
+       (bytevector->uuid bv type))
+      ((? bytevector? bv)                         ;old format
+       (bytevector->uuid bv 'dce))
+      ((? string? device)
+       device)))
+
   (match (read port)
     (('boot-parameters ('version 0)
                        ('label label) ('root-device root)
@@ -233,7 +263,7 @@ directly by the user."
                        rest ...)
      (boot-parameters
       (label label)
-      (root-device root)
+      (root-device (device-sexp->device root))
 
       (bootloader-name
        (match (assq 'bootloader-name rest)
@@ -260,15 +290,16 @@ directly by the user."
           file)))
 
       (store-device
-       (match (assq 'store rest)
-         (('store ('device device) _ ...)
-          device)
-         (_                                       ;the old format
-          ;; Root might be a device path like "/dev/sda1", which is not a
-          ;; suitable GRUB device identifier.
-          (if (string-prefix? "/" root)
-              #f
-              root))))
+       ;; Linux device names like "/dev/sda1" are not suitable GRUB device
+       ;; identifiers, so we just filter them out.
+       (ensure-not-/dev
+        (match (assq 'store rest)
+          (('store ('device #f) _ ...)
+           root-device)
+          (('store ('device device) _ ...)
+           (device-sexp->device device))
+          (_                                      ;the old format
+           root-device))))
 
       (store-mount-point
        (match (assq 'store rest)
@@ -289,29 +320,23 @@ The object has its kernel-arguments extended in order to make it bootable."
   (let* ((file (string-append system "/parameters"))
          (params (call-with-input-file file read-boot-parameters))
          (root (boot-parameters-root-device params))
-         (root-device (if (bytevector? root)
-                          (uuid->string root)
-                          root))
          (kernel-arguments (boot-parameters-kernel-arguments params)))
     (if params
       (boot-parameters
         (inherit params)
         (kernel-arguments (bootable-kernel-arguments kernel-arguments
-                                                     system
-                                                     root-device)))
+                                                     system root)))
       #f)))
 
-(define (menu-entry->boot-parameters menu-entry)
-  "Convert a <menu-entry> instance to a corresponding <boot-parameters>."
-  (boot-parameters
-   (label (menu-entry-label menu-entry))
-   (root-device #f)
-   (bootloader-name 'custom)
-   (store-device #f)
-   (store-mount-point #f)
-   (kernel (menu-entry-linux menu-entry))
-   (kernel-arguments (menu-entry-linux-arguments menu-entry))
-   (initrd (menu-entry-initrd menu-entry))))
+(define (boot-parameters->menu-entry conf)
+  (menu-entry
+   (label (boot-parameters-label conf))
+   (device (boot-parameters-store-device conf))
+   (device-mount-point (boot-parameters-store-mount-point conf))
+   (linux (boot-parameters-kernel conf))
+   (linux-arguments (boot-parameters-kernel-arguments conf))
+   (initrd (boot-parameters-initrd conf))))
+
 
 
 ;;;
@@ -428,9 +453,8 @@ a container or that of a \"bare metal\" system."
   (let* ((mappings  (device-mapping-services os))
          (root-fs   (root-file-system-service))
          (other-fs  (non-boot-file-system-service os))
-         (unmount   (user-unmount-service known-fs))
          (swaps     (swap-services os))
-         (procs     (user-processes-service))
+         (procs     (service user-processes-service-type))
          (host-name (host-name-service (operating-system-host-name os)))
          (entries   (operating-system-directory-base-entries
                      os #:container? container?)))
@@ -453,7 +477,7 @@ a container or that of a \"bare metal\" system."
            (service fstab-service-type '())
            (session-environment-service
             (operating-system-environment-variables os))
-           host-name procs root-fs unmount
+           host-name procs root-fs
            (service setuid-program-service-type
                     (operating-system-setuid-programs os))
            (service profile-service-type
@@ -472,8 +496,9 @@ a container or that of a \"bare metal\" system."
 (define* (operating-system-services os #:key container?)
   "Return all the services of OS, including \"internal\" services that do not
 explicitly appear in OS."
-  (append (operating-system-user-services os)
-          (essential-services os #:container? container?)))
+  (instantiate-missing-services
+   (append (operating-system-user-services os)
+           (essential-services os #:container? container?))))
 
 
 ;;;
@@ -489,14 +514,15 @@ explicitly appear in OS."
   ;; Default set of packages globally visible.  It should include anything
   ;; required for basic administrator tasks.
   (cons* procps psmisc which less zile nano
-         lsof                                 ;for Guix's 'list-runtime-roots'
          pciutils usbutils
-         util-linux inetutils isc-dhcp
+         ;; temporary package to fix CVE-2018-7738 without a graft
+         util-linux-2.31.1
+         inetutils isc-dhcp
          (@ (gnu packages admin) shadow)          ;for 'passwd'
 
          ;; wireless-tools is deprecated in favor of iw, but it's still what
          ;; many people are familiar with, so keep it around.
-         iw wireless-tools rfkill
+         iw wireless-tools
 
          iproute
          net-tools                        ; XXX: remove when Inetutils suffices
@@ -516,10 +542,16 @@ explicitly appear in OS."
 
          bash-completion
 
+         ;; XXX: We don't use (canonical-package guile-2.2) here because that
+         ;; would create a collision in the global profile between the GMP
+         ;; variant propagated by 'guile-final' and the GMP variant propagated
+         ;; by 'gnutls', itself propagated by 'guix'.
+         guile-2.2
+
          ;; The packages below are also in %FINAL-INPUTS, so take them from
          ;; there to avoid duplication.
          (map canonical-package
-              (list guile-2.2 bash coreutils-8.27 findutils grep sed
+              (list bash coreutils findutils grep sed
                     diffutils patch gawk tar gzip bzip2 xz lzip))))
 
 (define %default-issue
@@ -539,7 +571,16 @@ This is the GNU system.  Welcome.\n")
 (define* (operating-system-etc-service os)
   "Return a <service> that builds containing the static part of the /etc
 directory."
-  (let ((login.defs (plain-file "login.defs" "# Empty for now.\n"))
+  (let ((login.defs
+          (plain-file "login.defs"
+                      (string-append
+                        "# Default paths for non-login shells started by su(1).\n"
+                        "ENV_PATH    /run/setuid-programs:"
+                        "/run/current-system/profile/bin:"
+                        "/run/current-system/profile/sbin\n"
+                        "ENV_SUPATH  /run/setuid-programs:"
+                        "/run/current-system/profile/bin:"
+                        "/run/current-system/profile/sbin\n")))
 
         (issue      (plain-file "issue" (operating-system-issue os)))
         (nsswitch   (plain-file "nsswitch.conf"
@@ -557,11 +598,14 @@ export INFOPATH=$HOME/.guix-profile/share/info:/run/current-system/profile/share
 export XDG_DATA_DIRS=$HOME/.guix-profile/share:/run/current-system/profile/share
 export XDG_CONFIG_DIRS=$HOME/.guix-profile/etc/xdg:/run/current-system/profile/etc/xdg
 
+# Make sure libXcursor finds cursors installed into user or system profiles.  See <http://bugs.gnu.org/24445>
+export XCURSOR_PATH=$HOME/.icons:$HOME/.guix-profile/share/icons:/run/current-system/profile/share/icons
+
 # Ignore the default value of 'PATH'.
 unset PATH
 
 # Load the system profile's settings.
-GUIX_PROFILE=/run/current-system/profile \\
+GUIX_PROFILE=/run/current-system/profile ; \\
 . /run/current-system/profile/etc/profile
 
 # Prepend setuid programs.
@@ -581,7 +625,7 @@ fi
 if [ -f \"$HOME/.guix-profile/etc/profile\" ]
 then
   # Load the user profile's settings.
-  GUIX_PROFILE=\"$HOME/.guix-profile\" \\
+  GUIX_PROFILE=\"$HOME/.guix-profile\" ; \\
   . \"$HOME/.guix-profile/etc/profile\"
 else
   # At least define this one so that basic things just work
@@ -592,6 +636,10 @@ fi
 # Set the umask, notably for users logging in via 'lsh'.
 # See <http://bugs.gnu.org/22650>.
 umask 022
+
+# Allow Hunspell-based applications (IceCat, LibreOffice, etc.) to
+# find dictionaries.
+export DICPATH=\"$HOME/.guix-profile/share/hunspell:/run/current-system/profile/share/hunspell\"
 
 # Allow GStreamer-based applications to find plugins.
 export GST_PLUGIN_PATH=\"$HOME/.guix-profile/lib/gstreamer-1.0\"
@@ -625,6 +673,11 @@ fi\n")))
        ("bashrc" ,#~#$bashrc)
        ("hosts" ,#~#$(or (operating-system-hosts-file os)
                          (default-/etc/hosts (operating-system-host-name os))))
+       ;; Write the operating-system-host-name to /etc/hostname to prevent
+       ;; NetworkManager from changing the system's hostname when connecting
+       ;; to certain networks.  Some discussion at
+       ;; https://lists.gnu.org/archive/html/help-guix/2017-09/msg00037.html
+       ("hostname" ,(plain-file "hostname" (operating-system-host-name os)))
        ("localtime" ,(file-append tzdata "/share/zoneinfo/"
                                   (operating-system-timezone os)))
        ("sudoers" ,(operating-system-sudoers-file os))))))
@@ -689,7 +742,8 @@ use 'plain-file' instead~%")
   "Return the environment variables of OS for
 @var{session-environment-service-type}, to be used in @file{/etc/environment}."
   `(("LANG" . ,(operating-system-locale os))
-    ("TZ" . ,(operating-system-timezone os))
+    ;; Note: No need to set 'TZ' since (1) we provide /etc/localtime, and (2)
+    ;; it doesn't work for setuid binaries.  See <https://bugs.gnu.org/29212>.
     ("TZDIR" . ,(file-append tzdata "/share/zoneinfo"))
     ;; Tell 'modprobe' & co. where to look for modules.
     ("LINUX_MODULE_DIRECTORY" . "/run/booted-system/kernel/lib/modules")
@@ -807,6 +861,8 @@ hardware-related operations as necessary when booting a Linux container."
 
   (mlet %store-monad ((initrd (make-initrd boot-file-systems
                                            #:linux (operating-system-kernel os)
+                                           #:linux-modules
+                                           (operating-system-initrd-modules os)
                                            #:mapped-devices mapped-devices)))
     (return (file-append initrd "/initrd"))))
 
@@ -866,15 +922,14 @@ listed in OS.  The C library expects to find it under
   (store-file-system (operating-system-file-systems os)))
 
 (define* (operating-system-bootcfg os #:optional (old-entries '()))
-  "Return the bootloader configuration file for OS.  Use OLD-ENTRIES to
-populate the \"old entries\" menu."
+  "Return the bootloader configuration file for OS.  Use OLD-ENTRIES
+(which is a list of <menu-entry>) to populate the \"old entries\" menu."
   (mlet* %store-monad
       ((system      (operating-system-derivation os))
        (root-fs ->  (operating-system-root-file-system os))
-       (root-device -> (if (eq? 'uuid (file-system-title root-fs))
-                           (uuid->string (file-system-device root-fs))
-                           (file-system-device root-fs)))
-       (entry (operating-system-boot-parameters os system root-device))
+       (root-device -> (file-system-device root-fs))
+       (params (operating-system-boot-parameters os system root-device))
+       (entry -> (boot-parameters->menu-entry params))
        (bootloader-conf -> (operating-system-bootloader os)))
     ((bootloader-configuration-file-generator
       (bootloader-configuration-bootloader bootloader-conf))
@@ -884,8 +939,7 @@ populate the \"old entries\" menu."
   "Given FS, a <file-system> object, return a value suitable for use as the
 device in a <menu-entry>."
   (case (file-system-title fs)
-    ((uuid) (file-system-device fs))
-    ((label) (file-system-device fs))
+    ((uuid label device) (file-system-device fs))
     (else #f)))
 
 (define (operating-system-boot-parameters os system.drv root-device)
@@ -909,8 +963,16 @@ kernel arguments for that derivation to <boot-parameters>."
                 (operating-system-user-kernel-arguments os)))
              (initrd initrd)
              (bootloader-name bootloader-name)
-             (store-device (fs->boot-device store))
+             (store-device (ensure-not-/dev (fs->boot-device store)))
              (store-mount-point (file-system-mount-point store))))))
+
+(define (device->sexp device)
+  "Serialize DEVICE as an sexp (really, as an object with a read syntax.)"
+  (match device
+    ((? uuid? uuid)
+     `(uuid ,(uuid-type uuid) ,(uuid-bytevector uuid)))
+    (_
+     device)))
 
 (define* (operating-system-boot-parameters-file os #:optional (system.drv #f))
    "Return a file that describes the boot parameters of OS.  The primary use of
@@ -929,15 +991,28 @@ being stored into the \"parameters\" file)."
                  #~(boot-parameters
                     (version 0)
                     (label #$(boot-parameters-label params))
-                    (root-device #$(boot-parameters-root-device params))
+                    (root-device
+                     #$(device->sexp
+                        (boot-parameters-root-device params)))
                     (kernel #$(boot-parameters-kernel params))
                     (kernel-arguments
                      #$(boot-parameters-kernel-arguments params))
                     (initrd #$(boot-parameters-initrd params))
                     (bootloader-name #$(boot-parameters-bootloader-name params))
                     (store
-                     (device #$(boot-parameters-store-device params))
+                     (device
+                      #$(device->sexp (boot-parameters-store-device params)))
                      (mount-point #$(boot-parameters-store-mount-point params))))
                  #:set-load-path? #f)))
+
+(define-gexp-compiler (operating-system-compiler (os <operating-system>)
+                                                 system target)
+  ((store-lift
+    (lambda (store)
+      ;; XXX: This is not super elegant but we can't pass SYSTEM and TARGET to
+      ;; 'operating-system-derivation'.
+      (run-with-store store (operating-system-derivation os)
+                      #:system system
+                      #:target target)))))
 
 ;;; system.scm ends here

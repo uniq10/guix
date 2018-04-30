@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 Danny Milosavljevic <dannym@scratchpost.org>
-;;; Copyright © 2016 Theodoros Foradis <theodoros.for@openmailbox.org>
+;;; Copyright © 2016, 2017 Theodoros Foradis <theodoros@foradis.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,6 +37,7 @@
   #:use-module (gnu packages graphviz)
   #:use-module (gnu packages libffi)
   #:use-module (gnu packages linux)
+  #:use-module (gnu packages maths)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages ghostscript)
   #:use-module (gnu packages gperf)
@@ -82,7 +84,7 @@ formal verification.")
 (define-public iverilog
   (package
     (name "iverilog")
-    (version "10.1.1")
+    (version "10.2")
     (source (origin
               (method url-fetch)
               (uri
@@ -90,7 +92,7 @@ formal verification.")
                               "verilog-" version ".tar.gz"))
               (sha256
                 (base32
-                   "1nnassxvq30rnn0r2p85rkb2zwxk97p109y13x3vr365wzgpbapx"))))
+                   "0075x5nsxwkrgn7b3635il9kw7mslckaji518pdmwdrdn7fxppln"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("flex" ,flex)
@@ -103,7 +105,7 @@ It operates as a compiler, compiling source code written in Verilog
 (IEEE-1364) into some target format.
 For batch simulation, the compiler can generate an intermediate form
 called vvp assembly.
-This intermediate form is executed by the ``vvp'' command.
+This intermediate form is executed by @command{vvp}.
 For synthesis, the compiler generates netlists in the desired format.")
     ;; GPL2 only because of:
     ;; - ./driver/iverilog.man.in
@@ -198,6 +200,8 @@ For synthesis, the compiler generates netlists in the desired format.")
        ("psmisc" ,psmisc)
        ("xdot" ,xdot)
        ("abc" ,abc)))
+    (propagated-inputs
+     `(("z3" ,z3))) ; should be in path for yosys-smtbmc
     (home-page "http://www.clifford.at/yosys/")
     (synopsis "FPGA Verilog RTL synthesizer")
     (description "Yosys synthesizes Verilog-2005.")

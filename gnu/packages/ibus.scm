@@ -2,6 +2,8 @@
 ;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2016 Chris Marusich <cmmarusich@gmail.com>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,7 +44,7 @@
 (define-public ibus
   (package
    (name "ibus")
-   (version "1.5.16")
+   (version "1.5.17")
    (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/ibus/ibus/"
@@ -50,11 +52,12 @@
                                  version "/ibus-" version ".tar.gz"))
              (sha256
               (base32
-               "07py16jb81kd7vkqhcia9cb2avsbg5jswp2kzf0k4bprwkxppd9n"))))
+               "06fj7lawww5d5w73pk249191lvmpz7shlxfxia74bjkpb42shiq3"))))
    (build-system glib-or-gtk-build-system)
    (arguments
     `(#:tests? #f  ; tests fail because there's no connection to dbus
-      #:configure-flags '("--disable-emoji-dict") ; cannot find emoji.json path
+      #:configure-flags '("--disable-emoji-dict" ; cannot find emoji.json path
+                          "--enable-wayland")
       #:make-flags
       (list "CC=gcc"
             (string-append "pyoverridesdir="
@@ -111,6 +114,7 @@
       ("libnotify" ,libnotify)
       ("libx11" ,libx11)
       ("setxkbmap" ,setxkbmap)
+      ("wayland" ,wayland)
       ("xmodmap" ,xmodmap)
       ("iso-codes" ,iso-codes)
       ("pygobject2" ,python2-pygobject)
@@ -135,7 +139,7 @@ may also simplify input method development.")
 (define-public ibus-libpinyin
   (package
    (name "ibus-libpinyin")
-   (version "1.9.0")
+   (version "1.9.2")
    (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/libpinyin/"
@@ -143,15 +147,15 @@ may also simplify input method development.")
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "0gly314z6zn2fv52jw0764k66ry97llk009bk1q1iwf6rr829v68"))))
+               "0wpgs0m62l4zlis9f11b7xknhgnw2xw485nc2xrzk880s17pp1mr"))))
    (build-system glib-or-gtk-build-system)
    (arguments
-     `(#:phases
-       (modify-phases %standard-phases
-         (add-before 'configure 'autogen
+    `(#:phases
+      (modify-phases %standard-phases
+        (add-after 'unpack 'autogen
           (lambda _ (and (zero? (system* "intltoolize"))
                          (zero? (system* "autoreconf" "-vif")))))
-         (add-after 'wrap-program 'wrap-with-additional-paths
+        (add-after 'wrap-program 'wrap-with-additional-paths
           (lambda* (#:key inputs outputs #:allow-other-keys)
             ;; Make sure 'ibus-setup-libpinyin' runs with the correct
             ;; PYTHONPATH and GI_TYPELIB_PATH.
@@ -170,8 +174,8 @@ may also simplify input method development.")
       ("libpinyin" ,libpinyin)
       ("bdb" ,bdb)
       ("sqlite" ,sqlite)
-      ("python" ,python-2)
-      ("pyxdg" ,python2-pyxdg)
+      ("python" ,python)
+      ("pyxdg" ,python-pyxdg)
       ("gtk+" ,gtk+)))
    (native-inputs
     `(("pkg-config" ,pkg-config)
@@ -180,9 +184,9 @@ may also simplify input method development.")
       ("automake" ,automake)
       ("glib" ,glib "bin")
       ("libtool" ,libtool)))
-   (synopsis "Chinese Pinyin and ZhuYin input methods for IBus")
+   (synopsis "Chinese pinyin and ZhuYin input methods for IBus")
    (description
-    "This package includes a Chinese Pinyin input method and a Chinese
+    "This package includes a Chinese pinyin input method and a Chinese
 ZhuYin (Bopomofo) input method based on libpinyin for IBus.")
    (home-page "https://github.com/libpinyin/ibus-libpinyin")
    (license gpl2+)))
@@ -190,7 +194,7 @@ ZhuYin (Bopomofo) input method based on libpinyin for IBus.")
 (define-public libpinyin
   (package
     (name "libpinyin")
-    (version "2.0.0")
+    (version "2.1.91")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -199,7 +203,7 @@ ZhuYin (Bopomofo) input method based on libpinyin for IBus.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "17fibx9psrxfiznm4yw8klgbnh3ksyisx0pm1n59kxkrq61v8y0b"))))
+                "1yr4zyz3rwvmvj6bh8pc54hbp4rd2xk3g06y38z220fshx2l8pwf"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -227,7 +231,7 @@ ZhuYin (Bopomofo) input method based on libpinyin for IBus.")
        ("autoconf" ,autoconf)
        ("automake" ,automake)
        ("libtool" ,libtool)))
-    (synopsis "Library to handle Chinese Pinyin")
+    (synopsis "Library to handle Chinese pinyin")
     (description
      "The libpinyin C++ library provides algorithms needed for sentence-based
 Chinese pinyin input methods.")

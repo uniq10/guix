@@ -3,10 +3,11 @@
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Federico Beffa <beffa@fbengineering.ch>
-;;; Copyright © 2016, 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016, 2017 Andy Patterson <ajpatter@uwaterloo.ca>
 ;;; Copyright © 2017 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -33,6 +34,7 @@
   #:use-module (gnu packages m4)
   #:use-module (guix download)
   #:use-module (guix git-download)
+  #:use-module (guix hg-download)
   #:use-module (guix utils)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system asdf)
@@ -42,6 +44,7 @@
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages maths)
   #:use-module (gnu packages multiprecision)
+  #:use-module (gnu packages ncurses)
   #:use-module (gnu packages bdw-gc)
   #:use-module (gnu packages libffi)
   #:use-module (gnu packages libffcall)
@@ -74,56 +77,102 @@
              ,lisp))))
 
 (define-public gcl
-  (package
-    (name "gcl")
-    (version "2.6.12")
-    (source
-     (origin
-      (method url-fetch)
-      (uri (string-append "mirror://gnu/" name "/" name "-" version ".tar.gz"))
-      (sha256
-       (base32 "1s4hs2qbjqmn9h88l4xvsifq5c3dlc5s74lyb61rdi5grhdlkf4f"))))
-    (build-system gnu-build-system)
-    (arguments
-     `(#:parallel-build? #f  ; The build system seems not to be thread safe.
-       #:tests? #f  ; There does not seem to be make check or anything similar.
-       #:configure-flags '("--enable-ansi") ; required for use by the maxima package
-       #:phases (modify-phases %standard-phases
-                  (add-before 'configure 'pre-conf
-                    (lambda _
-                      (substitute*
-                        (append
-                         '("pcl/impl/kcl/makefile.akcl"
-                           "add-defs"
-                           "unixport/makefile.dos"
-                           "add-defs.bat"
-                           "gcl-tk/makefile.prev"
-                           "add-defs1")
-                         (find-files "h" "\\.defs"))
-                        (("SHELL=/bin/bash")
-                         (string-append "SHELL=" (which "bash")))
-                        (("SHELL=/bin/sh")
-                         (string-append "SHELL=" (which "sh"))))
-                      #t))
-                  ;; drop strip phase to make maxima build, see
-                  ;; https://www.ma.utexas.edu/pipermail/maxima/2008/009769.html
-                  (delete 'strip))))
-    (inputs
-     `(("gmp" ,gmp)
-       ("readline" ,readline)))
-    (native-inputs
-     `(("gcc" ,gcc-4.9)
-       ("m4" ,m4)
-       ("texinfo" ,texinfo)
-       ("texlive" ,texlive)))
-    (home-page "https://www.gnu.org/software/gcl/")
-    (synopsis "A Common Lisp implementation")
-    (description "GCL is an implementation of the Common Lisp language.  It
+  (let ((commit "5956140b1083e2302a59d7ce2054b0b7c2cbb417")
+        (revision "1")) ;Guix package revision
+    (package
+      (name "gcl")
+      (version (string-append "2.6.12-" revision "."
+                              (string-take commit 7)))
+      (source
+       (origin
+         (method git-fetch)
+         (uri (git-reference
+               (url "https://git.savannah.gnu.org/r/gcl.git")
+               (commit commit)))
+         (file-name (string-append "gcl-" version "-checkout"))
+         (sha256
+          (base32 "0mwclf2879mh3d9xqkqhghf58lwy7srsnsq9x0f1cc6j302sy4hb"))))
+      (build-system gnu-build-system)
+      (arguments
+       `(#:parallel-build? #f  ; The build system seems not to be thread safe.
+         #:tests? #f  ; There does not seem to be make check or anything similar.
+         #:configure-flags '("--enable-ansi") ; required for use by the maxima package
+         #:make-flags (list
+                       (string-append "GCL_CC=" (assoc-ref %build-inputs "gcc")
+                                      "/bin/gcc")
+                       (string-append "CC=" (assoc-ref %build-inputs "gcc")
+                                      "/bin/gcc"))
+         #:phases
+         (modify-phases %standard-phases
+           (add-before 'configure 'pre-conf
+             (lambda* (#:key inputs #:allow-other-keys)
+               (chdir "gcl")
+               (substitute*
+                   (append
+                    '("pcl/impl/kcl/makefile.akcl"
+                      "add-defs"
+                      "unixport/makefile.dos"
+                      "add-defs.bat"
+                      "gcl-tk/makefile.prev"
+                      "add-defs1")
+                    (find-files "h" "\\.defs"))
+                 (("SHELL=/bin/bash")
+                  (string-append "SHELL=" (which "bash")))
+                 (("SHELL=/bin/sh")
+                  (string-append "SHELL=" (which "sh"))))
+               (substitute* "h/linux.defs"
+                 (("#CC") "CC")
+                 (("-fwritable-strings") "")
+                 (("-Werror") ""))
+               (substitute* "lsp/gcl_top.lsp"
+                 (("\"cc\"")
+                  (string-append "\"" (assoc-ref %build-inputs "gcc")
+                                 "/bin/gcc\""))
+                 (("\\(or \\(get-path \\*cc\\*\\) \\*cc\\*\\)") "*cc*")
+                 (("\"ld\"")
+                  (string-append "\"" (assoc-ref %build-inputs "binutils")
+                                 "/bin/ld\""))
+                 (("\\(or \\(get-path \\*ld\\*\\) \\*ld\\*\\)") "*ld*")
+                 (("\\(get-path \"objdump --source \"\\)")
+                  (string-append "\"" (assoc-ref %build-inputs "binutils")
+                                 "/bin/objdump --source \"")))
+               #t))
+           (add-after 'install 'wrap
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               (let* ((gcl (assoc-ref outputs "out"))
+                      (input-path (lambda (lib path)
+                                    (string-append
+                                     (assoc-ref inputs lib) path)))
+                      (binaries '("binutils")))
+                 ;; GCC and the GNU binutils are necessary for GCL to be
+                 ;; able to compile Lisp functions and programs (this is
+                 ;; a standard feature in Common Lisp). While the
+                 ;; the location of GCC is specified in the make-flags,
+                 ;; the GNU binutils must be available in GCL's $PATH.
+                 (wrap-program (string-append gcl "/bin/gcl")
+                   `("PATH" prefix ,(map (lambda (binary)
+                                           (input-path binary "/bin"))
+                                         binaries))))
+               #t))
+           ;; drop strip phase to make maxima build, see
+           ;; https://www.ma.utexas.edu/pipermail/maxima/2008/009769.html
+           (delete 'strip))))
+      (inputs
+       `(("gmp" ,gmp)
+         ("readline" ,readline)))
+      (native-inputs
+       `(("gcc" ,gcc-4.9)
+         ("m4" ,m4)
+         ("texinfo" ,texinfo)
+         ("texlive" ,texlive)))
+      (home-page "https://www.gnu.org/software/gcl/")
+      (synopsis "A Common Lisp implementation")
+      (description "GCL is an implementation of the Common Lisp language.  It
 features the ability to compile to native object code and to load native
 object code modules directly into its lisp core.  It also features a
 stratified garbage collection strategy, a source-level debugger and a built-in
 interface to the Tk widget system.")
-    (license license:lgpl2.0+)))
+      (license license:lgpl2.0+))))
 
 (define-public ecl
   (package
@@ -203,21 +252,28 @@ supporting ASDF, Sockets, Gray streams, MOP, and other useful components.")
 (define-public clisp
   (package
     (name "clisp")
-    (version "2.49")
+    (version "2.49-60")
     (source
      (origin
-       (method url-fetch)
-       (uri (string-append "mirror://gnu/clisp/release/" version
-                           "/clisp-" version ".tar.gz"))
+       (method hg-fetch)
+       (uri (hg-reference
+             (url "http://hg.code.sf.net/p/clisp/clisp")
+             (changeset "clisp_2_49_60-2017-06-25")))
+       (file-name (string-append name "-" version "-checkout"))
        (sha256
-        (base32 "0rp82nqp5362isl9i34rwgg04cidz7izljd9d85pqcw1qr964bxx"))))
+        (base32 "0qjv3z274rbdmb941hy03hl63f4z7bmci234f8dyz4skgfr82d3i"))
+       (patches (search-patches "clisp-glibc-2.26.patch"
+                                "clisp-remove-failing-test.patch"))))
     (build-system gnu-build-system)
     (inputs `(("libffcall" ,libffcall)
-              ("readline" ,readline-6.2)
+              ("ncurses" ,ncurses)
+              ("readline" ,readline)
               ("libsigsegv" ,libsigsegv)))
     (arguments
-     '(;; XXX The custom configure script does not cope well when passed
-       ;; --build=<triplet>.
+     '(#:configure-flags '("--enable-portability"
+                           "--with-dynamic-ffi"
+                           "--with-dynamic-modules"
+                           "--with-module=rawsock")
        #:build #f
        #:phases
        (modify-phases %standard-phases
@@ -232,16 +288,6 @@ supporting ASDF, Sockets, Gray streams, MOP, and other useful components.")
                (("/bin/sh") "sh"))
              (substitute* '("src/clisp-link.in")
                (("/bin/pwd") "pwd"))
-             #t))
-         (add-after 'unpack 'remove-timestamps
-           (lambda _
-             (substitute* "src/constobj.d"
-               (("__DATE__ __TIME__") "\"1\""))
-             #t))
-         (add-before 'build 'chdir-to-source
-           (lambda _
-             ;; We are supposed to call make under the src sub-directory.
-             (chdir "src")
              #t)))
        ;; Makefiles seem to have race conditions.
        #:parallel-build? #f))
@@ -251,22 +297,19 @@ supporting ASDF, Sockets, Gray streams, MOP, and other useful components.")
      "GNU CLISP is an implementation of ANSI Common Lisp.  Common Lisp is a
 high-level, object-oriented functional programming language.  CLISP includes
 an interpreter, a compiler, a debugger, and much more.")
-    ;; Website says gpl2+, COPYRIGHT file says gpl2; actual source files have
-    ;; a lot of gpl3+.  (Also some parts are under non-copyleft licenses, such
-    ;; as CLX by Texas Instruments.)  In that case gpl3+ wins out.
-    (license license:gpl3+)))
+    (license license:gpl2+)))
 
 (define-public sbcl
   (package
     (name "sbcl")
-    (version "1.3.7")
+    (version "1.4.4")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "mirror://sourceforge/sbcl/sbcl/" version "/sbcl-"
                            version "-source.tar.bz2"))
        (sha256
-        (base32 "0fjdqnb2rsm2vi9794ywp27jr239ddvzc4xfr0dk49jd4v7p2kc5"))
+        (base32 "1k6v5b8qv7vyxvh8asx6phf2hbapx5pp5p5j47hgnq123fwnh4fa"))
        (modules '((guix build utils)))
        (snippet
         ;; Add sbcl-bundle-systems to 'default-system-source-registry'.
@@ -381,7 +424,7 @@ statistical profiler, a code coverage tool, and many other extensions.")
 (define-public ccl
   (package
     (name "ccl")
-    (version "1.11")
+    (version "1.11.5")
     (source #f)
     (build-system gnu-build-system)
     ;; CCL consists of a "lisp kernel" and "heap image", both of which are
@@ -394,7 +437,7 @@ statistical profiler, a code coverage tool, and many other extensions.")
         ,(origin
            (method url-fetch)
            (uri (string-append
-                 "ftp://ftp.clozure.com/pub/release/" version
+                 "https://github.com/Clozure/ccl/releases/download/v" version
                  "/ccl-" version "-"
                  (match (%current-system)
                    ((or "i686-linux" "x86_64-linux") "linuxx86")
@@ -407,9 +450,9 @@ statistical profiler, a code coverage tool, and many other extensions.")
             (base32
              (match (%current-system)
                ((or "i686-linux" "x86_64-linux")
-                "0w3dmj7q9kqyra3yrf1lxclnjz151yvf5s5q8ayllvmvqbl8bs08")
+                "0hs1f3z7crgzvinpj990kv9gvbsipxvcvwbmk54n51nasvc5025q")
                ("armhf-linux"
-                "1x487aaz2rqcb6k301sy2p39a1m4qdhg6z9p9fb76ssipqgr38b4")
+                "0p0l1dzsygb6i1xxgbipjpxkn46xhq3jm41a34ga1qqp4x8lkr62")
                (_ ""))))))))
     (native-inputs
      `(("m4" ,m4)
@@ -420,36 +463,35 @@ statistical profiler, a code coverage tool, and many other extensions.")
                   (guix build utils)
                   (guix build gnu-build-system))
        #:phases
-       (alist-replace
-        'unpack
-        (lambda* (#:key inputs #:allow-other-keys)
-          (and (zero? (system* "tar" "xzvf" (assoc-ref inputs "ccl")))
-               (begin (chdir "ccl") #t)))
-        (alist-delete
-         'configure
-         (alist-cons-before
-          'build 'pre-build
-          ;; Enter the source directory for the current platform's lisp
-          ;; kernel, and run 'make clean' to remove the precompiled one.
-          (lambda _
-            (chdir (string-append
-                    "lisp-kernel/"
-                    ,(match (or (%current-target-system) (%current-system))
-                       ("i686-linux"   "linuxx8632")
-                       ("x86_64-linux" "linuxx8664")
-                       ("armhf-linux"  "linuxarm")
-                       ;; Prevent errors when querying this package
-                       ;; on unsupported platforms, e.g. when running
-                       ;; "guix package --search="
-                       (_              "UNSUPPORTED"))))
-            (substitute* '("Makefile")
-              (("/bin/rm") "rm"))
-            (setenv "CC" "gcc")
-            (zero? (system* "make" "clean")))
-          ;; XXX Do we need to recompile the heap image as well for Guix?
-          ;; For now just use the one we already got in the tarball.
-          (alist-replace
-           'install
+       (modify-phases %standard-phases
+         (replace 'unpack
+           (lambda* (#:key inputs #:allow-other-keys)
+             (and (zero? (system* "tar" "xzvf" (assoc-ref inputs "ccl")))
+                  (begin (chdir "ccl") #t))))
+         (delete 'configure)
+         (add-before 'build 'pre-build
+           ;; Enter the source directory for the current platform's lisp
+           ;; kernel, and run 'make clean' to remove the precompiled one.
+           (lambda _
+             (substitute* "lisp-kernel/m4macros.m4"
+               (("/bin/pwd") (which "pwd")))
+             (chdir (string-append
+                     "lisp-kernel/"
+                     ,(match (or (%current-target-system) (%current-system))
+                        ("i686-linux"   "linuxx8632")
+                        ("x86_64-linux" "linuxx8664")
+                        ("armhf-linux"  "linuxarm")
+                        ;; Prevent errors when querying this package
+                        ;; on unsupported platforms, e.g. when running
+                        ;; "guix package --search="
+                        (_              "UNSUPPORTED"))))
+             (substitute* '("Makefile")
+               (("/bin/rm") "rm"))
+             (setenv "CC" "gcc")
+             (zero? (system* "make" "clean"))))
+         ;; XXX Do we need to recompile the heap image as well for Guix?
+         ;; For now just use the one we already got in the tarball.
+         (replace 'install
            (lambda* (#:key outputs inputs #:allow-other-keys)
              ;; The lisp kernel built by running 'make' in lisp-kernel/$system
              ;; is put back into the original directory, so go back.  The heap
@@ -488,8 +530,8 @@ statistical profiler, a code coverage tool, and many other extensions.")
                      "CCL_DEFAULT_DIRECTORY=" libdir "\n"
                      "export CCL_DEFAULT_DIRECTORY\n"
                      "exec " libdir kernel "\n"))))
-               (chmod wrapper #o755)))
-           %standard-phases))))))
+               (chmod wrapper #o755))
+             #t)))))
     (supported-systems '("i686-linux" "x86_64-linux" "armhf-linux"))
     (home-page "http://ccl.clozure.com/")
     (synopsis "Common Lisp implementation")
@@ -675,27 +717,29 @@ interactive development model in mind.")
   (sbcl-package->ecl-package sbcl-fiveam))
 
 (define-public sbcl-bordeaux-threads
-  (package
-    (name "sbcl-bordeaux-threads")
-    (version "0.8.5")
-    (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "https://github.com/sionescu/bordeaux-threads/archive/v"
-                    version ".tar.gz"))
-              (sha256
-               (base32 "10ryrcx832fwqdawb6jmknymi7wpdzhi30qzx7cbrk0cpnka71w2"))
-              (file-name
-               (string-append "bordeaux-threads-" version ".tar.gz"))))
-    (inputs `(("alexandria" ,sbcl-alexandria)))
-    (native-inputs `(("fiveam" ,sbcl-fiveam)))
-    (build-system asdf-build-system/sbcl)
-    (synopsis "Portable shared-state concurrency library for Common Lisp")
-    (description "BORDEAUX-THREADS is a proposed standard for a minimal
+  (let ((commit "354abb0ae9f1d9324001e1a8abab3128d7420e0e")
+        (revision "1"))
+    (package
+      (name "sbcl-bordeaux-threads")
+      (version (git-version "0.8.5" revision commit))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "https://github.com/sionescu/bordeaux-threads.git")
+                      (commit commit)))
+                (sha256
+                 (base32 "1hcfp21l6av1xj6z7r77sp6h4mwf9vvx4s745803sysq2qy2mwnq"))
+                (file-name
+                 (git-file-name "bordeaux-threads" version))))
+      (inputs `(("alexandria" ,sbcl-alexandria)))
+      (native-inputs `(("fiveam" ,sbcl-fiveam)))
+      (build-system asdf-build-system/sbcl)
+      (synopsis "Portable shared-state concurrency library for Common Lisp")
+      (description "BORDEAUX-THREADS is a proposed standard for a minimal
 MP/Threading interface.  It is similar to the CLIM-SYS threading and lock
 support.")
-    (home-page "https://common-lisp.net/project/bordeaux-threads/")
-    (license license:x11)))
+      (home-page "https://common-lisp.net/project/bordeaux-threads/")
+      (license license:x11))))
 
 (define-public cl-bordeaux-threads
   (sbcl-package->cl-source-package sbcl-bordeaux-threads))
@@ -738,7 +782,7 @@ thin compatibility layer for gray streams.")
 (define-public sbcl-flexi-streams
   (package
     (name "sbcl-flexi-streams")
-    (version "1.0.12")
+    (version "1.0.16")
     (source
      (origin
        (method url-fetch)
@@ -746,7 +790,7 @@ thin compatibility layer for gray streams.")
              "https://github.com/edicl/flexi-streams/archive/v"
              version ".tar.gz"))
        (sha256
-        (base32 "16grnxvs7vqm5s6myf8a5s7vwblzq1kgwj8i7ahz8vwvihm9gzfi"))
+        (base32 "1fb0jrwxr5c3i2lhy7kn30m1n0vggfzwjm1dacx6y5wf9wfsbamw"))
        (file-name (string-append "flexi-streams-" version ".tar.gz"))))
     (build-system asdf-build-system/sbcl)
     (inputs `(("trivial-gray-streams" ,sbcl-trivial-gray-streams)))
@@ -1315,6 +1359,7 @@ It is similar to the @code{CL:LOOP} macro, with these distinguishing marks:
          (uri (git-reference
                (url "https://github.com/mishoo/cl-uglify-js.git")
                (commit commit)))
+         (file-name (git-file-name name version))
          (sha256
           (base32
            "0k39y3c93jgxpr7gwz7w0d8yknn1fdnxrjhd03057lvk5w8js27a"))))

@@ -5,8 +5,9 @@
 ;;; Copyright © 2014 Sree Harsha Totakura <sreeharsha@totakura.in>
 ;;; Copyright © 2014 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015 Paul van der Walt <paul@denknerd.org>
-;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017, 2018 Marius Bakke <mbakke@fastmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -56,14 +57,14 @@
 (define libogg
   (package
    (name "libogg")
-   (version "1.3.2")
+   (version "1.3.3")
    (source (origin
             (method url-fetch)
             (uri (string-append "http://downloads.xiph.org/releases/ogg/libogg-"
                                 version ".tar.xz"))
             (sha256
              (base32
-              "16z74q422jmprhyvy7c9x909li8cqzmvzyr8cgbm52xcsp6pqs1z"))))
+              "022wjlzn8fx7mfby4pcgyjwx8zir7jr7cizichh3jgaki8bwcgsg"))))
    (build-system gnu-build-system)
    (synopsis "Library for manipulating the ogg multimedia format")
    (description
@@ -74,16 +75,19 @@ multiple data streams, ogg provides packet framing, error detection, and
 periodic timestamps for seeking.")
    (license (license:non-copyleft "file://COPYING"
                                "See COPYING in the distribution."))
-   (home-page "http://xiph.org/ogg/")))
+   (home-page "https://xiph.org/ogg/")))
 
 (define libvorbis
   (package
    (name "libvorbis")
    (version "1.3.5")
+   (replacement libvorbis-1.3.6)
    (source (origin
             (method url-fetch)
             (uri (string-append "http://downloads.xiph.org/releases/vorbis/"
                                 "libvorbis-" version ".tar.xz"))
+            (patches (search-patches "libvorbis-CVE-2017-14633.patch"
+                                     "libvorbis-CVE-2017-14632.patch"))
             (sha256
              (base32
               "1lg1n3a6r41492r7in0fpvzc7909mc5ir9z0gd3qh2pz4yalmyal"))))
@@ -100,7 +104,19 @@ polyphonic) audio and music at fixed and variable bitrates from 16 to
 128 kbps/channel.")
    (license (license:non-copyleft "file://COPYING"
                                "See COPYING in the distribution."))
-   (home-page "http://xiph.org/vorbis/")))
+   (home-page "https://xiph.org/vorbis/")))
+
+;; For CVE-2018-5146.
+(define-public libvorbis-1.3.6
+  (package/inherit libvorbis
+    (version "1.3.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://downloads.xiph.org/releases/vorbis/"
+                                  "libvorbis-" version ".tar.xz"))
+              (sha256
+               (base32
+                "05dlzjkdpv46zb837wysxqyn8l636x3dw8v8ymlrwz2fg1dbn05g"))))))
 
 (define libtheora
   (package
@@ -124,7 +140,7 @@ polyphonic) audio and music at fixed and variable bitrates from 16 to
 a fully open, non-proprietary, patent-and-royalty-free, general-purpose
 compressed video format.")
     (license license:bsd-3)
-    (home-page "http://xiph.org/theora/")))
+    (home-page "https://xiph.org/theora/")))
 
 (define speex
   (package
@@ -139,7 +155,11 @@ compressed video format.")
        (base32
         "150047wnllz4r94whb9r73l5qf0z5z3rlhy98bawfbblmkq8mbpa"))))
     (build-system gnu-build-system)
-    (inputs `(("libogg" ,libogg)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("libogg" ,libogg)
+       ("speexdsp" ,speexdsp)))
     (home-page "https://gnu.org/software/speex")
     (synopsis "Library for patent-free audio compression format")
     (description
@@ -163,6 +183,11 @@ stereo encoding, and voice activity detection.")
                (base32
                 "1wcjyrnwlkayb20zdhp48y260rfyzg925qpjpljd5x9r01h8irja"))))
     (build-system gnu-build-system)
+    (arguments
+     `(#:configure-flags '(,@(if (string=? "aarch64-linux"
+                                           (%current-system))
+                               '("--enable-neon=no") ; neon defaults to armv7-a
+                               '()))))
     (home-page "https://speex.org/")
     (synopsis "Speex processing library")
     (description
@@ -219,7 +244,7 @@ It currently supports:
 @end enumerate
 ")
     (license license:gpl2+)
-    (home-page "http://www.xiph.org/ao/")))
+    (home-page "https://www.xiph.org/ao/")))
 
 (define flac
   (package
@@ -243,7 +268,7 @@ It currently supports:
 meaning that audio is compressed in FLAC without any loss in quality.")
    (license (license:non-copyleft "file://COPYING"
                                "See COPYING in the distribution.")) ; and LGPL and GPL
-   (home-page "http://xiph.org/flac/")))
+   (home-page "https://xiph.org/flac/")))
 
 (define libkate
   (package
@@ -317,20 +342,19 @@ oggdec,  a simple, portable command line decoder (to wav and raw);
 ogginfo, to obtain information (tags, bitrate, length, etc.) about
          an ogg vorbis file.")
    (license license:gpl2)
-   (home-page "http://xiph.org/vorbis/")))
+   (home-page "https://xiph.org/vorbis/")))
 
 (define opus
   (package
     (name "opus")
-    (version "1.2")
+    (version "1.2.1")
     (source (origin
               (method url-fetch)
-              (uri (string-append
-                    "http://downloads.xiph.org/releases/opus/opus-" version
-                    ".tar.gz"))
+              (uri (string-append "https://archive.mozilla.org/pub/opus/opus-"
+                                  version ".tar.gz"))
               (sha256
                (base32
-                "1ad9q2g9vivx409jdsslv1hrh5r616qz2pjm96y8ymsigfl4bnvp"))))
+                "0ch7yzgg4bn1g36bpjsfrgs4n19c84d7wpdida6yzifrrhwx7byg"))))
     (build-system gnu-build-system)
     (synopsis "Versatile audio codec")
     (description
@@ -378,7 +402,7 @@ decoding .opus files.")
 (define opusfile
   (package
     (name "opusfile")
-    (version "0.8")
+    (version "0.10")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -386,7 +410,7 @@ decoding .opus files.")
                     ".tar.gz"))
               (sha256
                (base32
-                "192mp2jgn5s9815h31ybzsfipmbppmdhwx1dymrk26xarz9iw8rc"))))
+                "0bs1376sd131qdh7198jp64vv5d17az5wyy4y7srrvw7p8k3bq28"))))
     (build-system gnu-build-system)
     (propagated-inputs
      `(("opus" ,opus)))
@@ -401,7 +425,7 @@ decoding .opus files.")
 streams in the Ogg container (.opus files) including over http(s) on posix and
 windows systems.")
     (license license:bsd-3)
-    (home-page "http://www.opus-codec.org")))
+    (home-page "https://www.opus-codec.org")))
 
 (define-public icecast
   (package
@@ -432,7 +456,7 @@ windows systems.")
 Ogg (Vorbis and Theora), Opus, WebM and MP3 audio streams.  It can be used to
 create an Internet radio station or a privately running jukebox and many
 things in between.")
-    (home-page "http://icecast.org/")
+    (home-page "https://icecast.org/")
     (license license:gpl2)))
 
 (define-public libshout

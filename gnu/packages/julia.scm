@@ -146,6 +146,12 @@
           (lambda* (#:key inputs #:allow-other-keys)
             (use-modules (ice-9 match))
             (substitute* "src/runtime_ccall.cpp"
+              ;; Patch out invocations of '/sbin/ldconfig' to avoid getting
+              ;; error messages about missing '/sbin/ldconfig' on GuixSD.
+              (("popen\\(.*ldconfig.*\\);")
+               "NULL;\n")
+
+              ;; Populate 'sonameMap'.
               (("jl_read_sonames.*;")
                (string-join
                 (map (match-lambda
@@ -228,6 +234,12 @@
              #t))
          (add-before 'check 'disable-broken-tests
            (lambda _
+             ;; Adjust expected error messages to match what current libgit2
+             ;; provides.
+             (substitute* "test/libgit2.jl"
+               (("Invalid Content-Type") "invalid Content-Type")
+               (("Failed to resolve path") "failed to resolve path"))
+
              (substitute* "test/choosetests.jl"
                ;; These tests fail, probably because some of the input
                ;; binaries have been stripped and thus backtraces don't look
@@ -303,7 +315,12 @@
         "USE_SYSTEM_OPENSPECFUN=1")))
     (inputs
      `(("llvm" ,llvm)
-       ("arpack-ng" ,arpack-ng)
+
+       ;; The bundled version is 3.3.0 so stick to that version.  With other
+       ;; versions, we get test failures in 'linalg/arnoldi' as described in
+       ;; <https://bugs.gnu.org/30282>.
+       ("arpack-ng" ,arpack-ng-3.3.0)
+
        ("coreutils" ,coreutils) ;for bindings to "mkdir" and the like
        ("lapack" ,lapack)
        ("openblas" ,openblas) ;Julia does not build with Atlas
@@ -367,7 +384,7 @@
     ;; Julia is not officially released for ARM and MIPS.
     ;; See https://github.com/JuliaLang/julia/issues/10639
     (supported-systems '("i686-linux" "x86_64-linux" "aarch64-linux"))
-    (home-page "http://julialang.org/")
+    (home-page "https://julialang.org/")
     (synopsis "High-performance dynamic language for technical computing")
     (description
      "Julia is a high-level, high-performance dynamic programming language for

@@ -11,14 +11,17 @@
 ;;; Copyright © 2015 Florian Paul Schmidt <mista.tapas@gmx.net>
 ;;; Copyright © 2016 Christopher Allan Webber <cwebber@dustycloud.org>
 ;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2016, 2017 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2016 Petter <petter@mykolab.ch>
 ;;; Copyright © 2017 Mekeor Melire <mekeor.melire@gmail.com>
-;;; Copyright © 2017 ng0 <contact.ng0@cryptolab.net>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2017 Marek Benc <dusxmt@gmx.com>
+;;; Copyright © 2017 Mike Gerwitz <mtg@gnu.org>
+;;; Copyright © 2018 Thomas Sigurdsen <tonton@riseup.net>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -49,9 +52,11 @@
   #:use-module (gnu packages documentation)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages autotools)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages image)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages flex)
   #:use-module (gnu packages gettext)
   #:use-module (gnu packages gl)
   #:use-module (gnu packages glib)
@@ -68,7 +73,8 @@
   #:use-module (gnu packages xml)
   #:use-module (gnu packages gtk)
   #:use-module (gnu packages xorg)
-  #:use-module (gnu packages bison))
+  #:use-module (gnu packages bison)
+  #:use-module (ice-9 match))
 
 ;; packages outside the x.org system proper
 
@@ -93,16 +99,15 @@
     (build-system python-build-system)
     (arguments
      `(#:python ,python-2     ;incompatible with python 3
-       #:tests? #f ;no tests
        #:phases
        (modify-phases %standard-phases
-         (add-after 'install 'make-xrandr-available
-           (lambda* (#:key inputs outputs #:allow-other-keys)
-             (wrap-program (string-append (assoc-ref outputs "out")
-                                          "/bin/arandr")
-               `("PATH" ":" prefix (,(string-append (assoc-ref inputs "xrandr")
-                                                    "/bin"))))
-             #t)))))
+         (add-before 'build 'configure
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "screenlayout/xrandr.py"
+               (("\"xrandr\"") (string-append "\"" (assoc-ref inputs "xrandr")
+                                              "/bin/xrandr\"")))
+             #t)))
+       #:tests? #f)) ;no tests
     (inputs `(("pygtk" ,python2-pygtk)
               ("xrandr" ,xrandr)))
     (native-inputs `(("gettext"           ,gettext-minimal)
@@ -187,6 +192,33 @@ Clutter, and more.  Despite the name, it is not currently used by anything
 X11 (yet).")
     (license (license:x11-style "file://COPYING"
                                 "See 'COPYING' in the distribution."))))
+
+(define-public libfakekey
+  (package
+    (name "libfakekey")
+    (version "0.1")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (string-append "https://downloads.yoctoproject.org/releases"
+                            "/matchbox/libfakekey/" version "/libfakekey-"
+                            version ".tar.bz2"))
+        (sha256
+         (base32
+          "1501l0bflcrhqbf12n7a7cqilvr0w4xawxw0vw75p2940nkl4464"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags (list "AM_LDFLAGS=-lX11")))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("libxtst" ,libxtst)
+       ("libx11" ,libx11)))
+    (home-page "https://www.yoctoproject.org/tools-resources/projects/matchbox")
+    (synopsis "X virtual keyboard library")
+    (description
+     "Libfakekey is a virtual keyboard library for X.")
+    (license license:gpl2)))
 
 (define-public xdotool
   (package
@@ -288,7 +320,7 @@ rasterisation.")
 (define-public libdrm
   (package
     (name "libdrm")
-    (version "2.4.80")
+    (version "2.4.91")
     (source
       (origin
         (method url-fetch)
@@ -298,15 +330,30 @@ rasterisation.")
                ".tar.bz2"))
         (sha256
          (base32
-          "1wa9cnzf60xwx67zq9ay48xr3j3sn1z80q77jpbzmkg906b52am8"))
+          "0068dn47c478vm1lyyhy02gilrpsma0xmcblhvs0dzqyrk80wjk3"))
         (patches (search-patches "libdrm-symbol-check.patch"))))
     (build-system gnu-build-system)
+    (arguments
+     `(#:configure-flags
+       '(,@(match (%current-system)
+             ("armhf-linux"
+              '("--enable-exynos-experimental-api"
+                "--enable-omap-experimental-api"
+                ;; XXX: This fails a symbol check on a build machine:
+                ;; <https://hydra.gnu.org/build/2270314/nixlog/4/raw>
+                ;; TODO: Update the list of symbols.
+                ;;"--enable-etnaviv-experimental-api"
+                "--enable-tegra-experimental-api"
+                "--enable-freedreno-kgsl"))
+             ("aarch64-linux"
+              '("--enable-tegra-experimental-api"
+                "--enable-freedreno-kgsl"))
+             (_ '())))))
     (inputs
-      `(("libpciaccess" ,libpciaccess)
-        ("libpthread-stubs" ,libpthread-stubs)))
+     `(("libpciaccess" ,libpciaccess)))
     (native-inputs
-       `(("pkg-config" ,pkg-config)))
-    (home-page "http://dri.freedesktop.org/wiki/")
+     `(("pkg-config" ,pkg-config)))
+    (home-page "https://dri.freedesktop.org/wiki/")
     (synopsis "Direct rendering userspace library")
     (description "The Direct Rendering Infrastructure, also known as the DRI,
 is a framework for allowing direct access to graphics hardware under the
@@ -360,7 +407,7 @@ tracking.")
     (inputs
      `(("libx11" ,libx11)
        ("xcb-util" ,xcb-util)))
-    (home-page "http://www.freedesktop.org/wiki/Software/startup-notification/")
+    (home-page "https://www.freedesktop.org/wiki/Software/startup-notification/")
     (synopsis "Application startup notification and feedback library")
     (description
      "Startup-notification contains a reference implementation of the startup
@@ -452,7 +499,7 @@ of the screen selected by mouse.")
 (define-public slop
   (package
     (name "slop")
-    (version "6.3.47")
+    (version "7.4")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -461,7 +508,7 @@ of the screen selected by mouse.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1kjivsq4c7dr7ggp44k09xm97i9chg8czvachqrfnv6fiqvwys0i"))))
+                "1kpdrikgpjb4fpxalb6pjcih5njv1w9cnrjj5612ywdv1q5mjs48"))))
     (build-system cmake-build-system)
     (arguments
      '(#:tests? #f)) ; no "check" target
@@ -485,7 +532,7 @@ selection's dimensions to stdout.")
 (define-public maim
   (package
     (name "maim")
-    (version "5.4.64")
+    (version "5.5")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -494,7 +541,7 @@ selection's dimensions to stdout.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0y7ajwcp6x9q7581alz2b5xqijs5cb9l38h10fzinswqrcz53ak1"))))
+                "02blbimjdckbcb04crhv0k2vxnp3rcgskyq66sk0v13l2h52849v"))))
     (build-system cmake-build-system)
     (arguments
      '(#:tests? #f))            ; no "check" target
@@ -561,22 +608,56 @@ xedit, for example.  The human factors crowd would agree it should make
 things less distracting.")
     (license license:public-domain)))
 
+(define-public xautomation
+  (package
+    (name "xautomation")
+    (version "1.09")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://www.hoopajoo.net/static/projects/"
+                           "xautomation-" version ".tar.gz"))
+
+       (sha256
+        (base32
+         "03azv5wpg65h40ip2kk1kdh58vix4vy1r9bihgsq59jx2rhjr3zf"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("libpng" ,libpng)
+       ("libx11" ,libx11)
+       ("libxi" ,libxi)
+       ("libxtst" ,libxtst)))
+    (native-inputs
+     `(("inputproto" ,inputproto)
+       ("xextproto" ,xextproto)
+       ("xproto" ,xproto)))
+    (synopsis "Tools to automate tasks in X such as detecting on screen images")
+    (description
+     "Xautomation can control X from the command line for scripts, and
+do visual scraping to find things on the screen.  The control interface
+allows mouse movement, clicking, button up/down, key up/down, etc, and
+uses the XTest extension so you don't have the annoying problems that
+xse has when apps ignore sent events.  The visgrep program can find
+images inside of images and reports the coordinates, allowing progams
+to find buttons, etc, on the screen to click on.")
+    (home-page "https://www.hoopajoo.net/projects/xautomation.html")
+    (license license:gpl2+)))
+
 (define-public xlockmore
   (package
     (name "xlockmore")
-    (version "5.47")
+    (version "5.55")
     (source (origin
              (method url-fetch)
-             (uri (list (string-append
-                          "http://www.tux.org/~bagleyd/xlock/xlockmore-"
-                          version ".tar.xz")
-                        (string-append
-                          "http://www.tux.org/~bagleyd/xlock/xlockmore-old"
-                          "/xlockmore-" version
-                          "/xlockmore-" version ".tar.xz")))
+             (uri (list (string-append "http://sillycycle.com/xlock/"
+                                       name "-" version ".tar.xz")
+                        ;; Previous releases are moved to a subdirectory.
+                        (string-append "http://sillycycle.com/xlock/"
+                                       "recent-releases/"
+                                       name "-" version ".tar.xz")))
              (sha256
               (base32
-               "138d79b8zc2hambbr9fnxp3fhihlcljgqns04zf0kv2f53pavqwl"))))
+               "1y3f76rq2nd10fgi2rx81aj6pijglmm661vjsxi05hpg35dzmwfl"))))
     (build-system gnu-build-system)
     (arguments
      '(#:configure-flags (list (string-append "--enable-appdefaultdir="
@@ -588,7 +669,7 @@ things less distracting.")
        ("libXext" ,libxext)
        ("libXt" ,libxt)
        ("linux-pam" ,linux-pam)))
-    (home-page "http://www.tux.org/~bagleyd/xlockmore.html")
+    (home-page "http://sillycycle.com/xlockmore.html")
     (synopsis "Screen locker for the X Window System")
     (description
      "XLockMore is a classic screen locker and screen saver for the
@@ -642,7 +723,7 @@ transparent text on your screen.")
     (inputs
      `(("libx11" ,libx11)
        ("guile" ,guile-2.0)))
-    (home-page "http://www.nongnu.org/xbindkeys/")
+    (home-page "https://www.nongnu.org/xbindkeys/")
     (synopsis "Associate a combination of keys with a shell command")
     (description
      "XBindKeys is a program that allows you to launch shell commands with
@@ -677,7 +758,7 @@ Guile will work for XBindKeys.")
        ("xcb-util-keysyms" ,xcb-util-keysyms)
        ("xcb-util-wm" ,xcb-util-wm)))
     (arguments
-     '(#:phases (alist-delete 'configure %standard-phases)
+     '(#:phases (modify-phases %standard-phases (delete 'configure))
        #:tests? #f  ; no check target
        #:make-flags (list "CC=gcc"
                           (string-append "PREFIX=" %output))))
@@ -784,7 +865,8 @@ within a single process.")
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ; no check target
-       #:phases (alist-delete 'configure %standard-phases) ; no configure script
+       ;; no configure script
+       #:phases (modify-phases %standard-phases (delete 'configure))
        #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out"))
                           "MANDIR=/share/man/man1"
                           "CC=gcc")))
@@ -804,14 +886,14 @@ Escape key when Left Control is pressed and released on its own.")
 (define-public libwacom
   (package
     (name "libwacom")
-    (version "0.25")
+    (version "0.29")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/linuxwacom/libwacom/"
                                   name "-" version ".tar.bz2"))
               (sha256
                (base32
-                "1k20w2fkql3yr0dpdg51jjwzv7d4kp53ajmpyhcjxa08s0n8dl19"))))
+                "1diklgcjhmvcxi9p1ifp6wcnyr6k7z9jhrlzfhzjqd6zipk01slw"))))
     (build-system glib-or-gtk-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -836,7 +918,7 @@ Wacom tablet applet.")
 (define-public xf86-input-wacom
   (package
     (name "xf86-input-wacom")
-    (version "0.34.2")
+    (version "0.36.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -844,7 +926,7 @@ Wacom tablet applet.")
                     name "-" version ".tar.bz2"))
               (sha256
                (base32
-                "073bf12ka1mcqvr1sviixb51bsfx37jalrj9xw53f10i2kdvkl9a"))))
+                "1xi39hl8ddgj9m7m2k2ll2r3wh0k0aq45fvrsv43651bhz9cbrza"))))
     (arguments
      `(#:configure-flags
        (list (string-append "--with-sdkdir="
@@ -906,7 +988,7 @@ color temperature should be set to match the lamps in your room.")
 (define-public xscreensaver
   (package
     (name "xscreensaver")
-    (version "5.37")
+    (version "5.39")
     (source
      (origin
        (method url-fetch)
@@ -915,7 +997,7 @@ color temperature should be set to match the lamps in your room.")
                        version ".tar.gz"))
        (sha256
         (base32
-         "1ng5ddzb4k2h1w54pvk9hzxvnxxmc54bc4a2ibk974nzjjjaxivs"))))
+         "09i47h4hdgwxyqgrsnshl4l5dv5mrsp37h705cc22lwby601ikj8"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f  ; no check target
@@ -1020,7 +1102,7 @@ connectivity of the X server running on a particular @code{DISPLAY}.")
 (define-public rofi
   (package
     (name "rofi")
-    (version "1.3.1")
+    (version "1.5.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/DaveDavenport/rofi/"
@@ -1028,20 +1110,25 @@ connectivity of the X server running on a particular @code{DISPLAY}.")
                                   version "/rofi-" version ".tar.xz"))
               (sha256
                (base32
-                "1s47biv6d68nblpz6d3aklsar1xxxcilzr4y77v3hz2w1wbz2b5m"))))
+                "0wx118banbwfqdwc5y44fkp3hxg97gj3vma16528slhy408hkg7i"))))
     (build-system gnu-build-system)
     (inputs
      `(("pango" ,pango)
        ("cairo" ,cairo)
        ("glib" ,glib)
        ("startup-notification" ,startup-notification)
+       ("librsvg" ,librsvg)
        ("libxkbcommon" ,libxkbcommon)
        ("libxcb" ,libxcb)
        ("xcb-util" ,xcb-util)
        ("xcb-util-xrm" ,xcb-util-xrm)
        ("xcb-util-wm" ,xcb-util-wm)))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
+     `(("bison" ,bison)
+       ("check" ,check)
+       ("flex" ,flex)
+       ("glib:bin" ,glib "bin")
+       ("pkg-config" ,pkg-config)))
     (arguments
      `(#:parallel-tests? #f ; May fail in some circumstances.
        #:phases
@@ -1051,8 +1138,9 @@ connectivity of the X server running on a particular @code{DISPLAY}.")
              (substitute* '("test/helper-expand.c")
                (("~root") "/root")
                (("~") "")
-               (("g_get_home_dir \\(\\)") "\"/\"")))))))
-    (home-page "https://davedavenport.github.io/rofi/")
+               (("g_get_home_dir \\(\\)") "\"/\""))
+             #t)))))
+    (home-page "https://github.com/DaveDavenport/rofi")
     (synopsis "Application launcher")
     (description "Rofi is a minimalist application launcher.  It memorizes which
 applications you regularly use and also allows you to search for an application
@@ -1159,7 +1247,7 @@ program for X11.  It was designed to be fast, tiny and scriptable in any languag
 (define-public xcb-util-xrm
   (package
     (name "xcb-util-xrm")
-    (version "1.2")
+    (version "1.3")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -1167,7 +1255,7 @@ program for X11.  It was designed to be fast, tiny and scriptable in any languag
                     "/download/v" version "/xcb-util-xrm-" version ".tar.bz2"))
               (sha256
                (base32
-                "0vbqhag51i0njc8d5fc8c6aa12496cwrc3s6s7sa5kfc17cwhppp"))
+                "118cj1ybw86pgw0l5whn9vbg5n5b0ijcpx295mwahzi004vz671h"))
               (modules '((guix build utils)))
               (snippet
                ;; Drop bundled m4.
@@ -1224,9 +1312,9 @@ XCB util-xrm module provides the following libraries:
                         (install-file "README" doc)
                         ;; Avoid unspecified return value.
                         #t))))))
-    (inputs `(("libx11", libx11)
-              ("libxext", libxext)
-              ("libxxf86vm", libxxf86vm)))
+    (inputs `(("libx11" ,libx11)
+              ("libxext" ,libxext)
+              ("libxxf86vm" ,libxxf86vm)))
     (synopsis "Tiny monitor calibration loader for XFree86 (or X.org)")
     (description "xcalib is a tiny tool to load the content of vcgt-Tags in ICC
 profiles to the video card's gamma ramp.  It does work with most video card
@@ -1234,3 +1322,119 @@ drivers except the generic VESA driver.  Alter brightness, contrast, RGB, and
 invert colors on a specific display/screen.")
     (home-page "http://xcalib.sourceforge.net/")
     (license license:gpl2)))
+
+(define-public nxbelld
+  (package
+    (name "nxbelld")
+    (version "0.1.2")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/dusxmt/nxbelld.git")
+                    (commit version)))
+              (sha256
+               (base32
+                "04qwhmjs51irinz5mjlxdb3dc6vr79dqmc5fkj80x1ll3ylh5n3z"))
+              (file-name (git-file-name name version))))
+    (build-system gnu-build-system)
+    (arguments '(#:configure-flags `("--enable-sound"
+                                     "--enable-wave"
+                                     "--enable-alsa")
+                 #:phases (modify-phases %standard-phases
+                           (add-before 'configure 'autoreconf
+                             (lambda _
+                               (zero? (system* "autoreconf" "-vfi")))))))
+   (native-inputs `(("autoconf" ,autoconf)
+                    ("automake" ,automake)
+                    ("pkg-config" ,pkg-config)
+                    ("perl" ,perl)))
+    (inputs `(("libx11" ,libx11)
+              ("alsa-lib" ,alsa-lib)))
+    (synopsis "Daemon that performs an action every time the X11 bell is rung")
+    (description "nxbelld is a tiny utility to aid people who either don't
+like the default PC speaker beep, or use a sound driver that doesn't have
+support for the PC speaker.  The utility performs a given action every time
+the X bell is rung.  The actions nxbelld can currently perform include running
+a specified program, emulating the PC speaker beep using the sound card (default),
+or playing a PCM encoded WAVE file.")
+    (home-page "https://github.com/dusxmt/nxbelld")
+    (license license:gpl3+)))
+
+(define-public xautolock
+  (package
+    (name "xautolock")
+    (version "2.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://www.ibiblio.org/pub/linux/X11/screensavers/"
+                                  name "-" version ".tgz"))
+              (sha256
+               (base32
+                "18jd3k3pvlm5x1adyqw63z2b3f4ixh9mfvz9asvnskk3fm8jgw0i"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("imake" ,imake)))
+    (inputs
+     `(("libx11" ,libx11)
+       ("libxext" ,libxext)
+       ("libxscrnsaver" ,libxscrnsaver)))
+    (arguments
+     `(#:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let ((imake (assoc-ref inputs "imake"))
+                   (out   (assoc-ref outputs "out")))
+               ;; Generate Makefile
+               (invoke "xmkmf")
+               (substitute* "Makefile"
+                 ;; These imake variables somehow remain undefined
+                 (("DefaultGcc2[[:graph:]]*Opt") "-O2")
+                 ;; Reset a few variable defaults that are set in imake templates
+                 ((imake) out)
+                 (("(MANPATH = )[[:graph:]]*" _ front)
+                  (string-append front out "/share/man")))
+               ;; Old BSD-style 'union wait' is unneeded (defining
+               ;; _USE_BSD did not seem to fix it)
+               (substitute* "src/engine.c"
+                 (("union wait  status") "int status = 0"))
+               #t)))
+         (add-after 'install 'install/man
+           (lambda _
+             (zero? (system* "make" "install.man")))))))
+    (home-page "http://ibiblio.org/pub/Linux/X11/screensavers/")
+    (synopsis "Program launcher for idle X sessions")
+    (description "Xautolock monitors input devices under the X Window
+System, and launches a program of your choice if there is no activity after
+a user-configurable period of time.")
+    (license license:gpl2)))
+
+(define-public screen-message
+  (package
+    (name "screen-message")
+    (version "0.25")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://www.joachim-breitner.de/archive/screen-message"
+                    "/screen-message-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1lw955qq5pq010lzmaf32ylj2iprgsri9ih4hx672c3f794ilab0"))))
+    (build-system gnu-build-system)
+    (inputs `(("gtk3" ,gtk+)
+              ("gdk" ,gdk-pixbuf)
+              ("pango" ,pango)))
+    (native-inputs `(("pkg-config" ,pkg-config)))
+    (arguments
+     ;; The default configure puts the 'sm' binary in games/ instead of bin/ -
+     ;; this fixes it:
+     `(#:make-flags (list (string-append "execgamesdir=" %output "/bin"))))
+    (synopsis "Print messages on your screen")
+    (description "@code{screen-message} is a tool for displaying text on
+your screen.  It will make the text as large as possible and display it
+with black color on a white background (colors are configurable on the
+commandline).")
+    (home-page "https://www.joachim-breitner.de/projects#screen-message")
+    (license license:gpl2+)))

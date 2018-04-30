@@ -2,7 +2,7 @@
 ;;; Copyright © 2014, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Rene Saavedra <rennes@openmailbox.org>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -46,7 +46,7 @@
 (define-public lftp
   (package
     (name "lftp")
-    (version "4.7.5")
+    (version "4.8.3")
     (source (origin
               (method url-fetch)
               ;; See https://lftp.tech/get.html for mirrors.
@@ -58,7 +58,7 @@
                                         "ftp/lftp/lftp-" version ".tar.xz")))
               (sha256
                (base32
-                "1n6h3y5jz1rxlx7ap46vykgm0q2rvzr7c5s5ry5l32z3lbmwbdak"))))
+                "12y77jlfs4x4zvcah92mw2h2sb4j0bvbaxkh3wwsm8gs392ywyny"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -91,14 +91,14 @@ reliability in mind.")
 (define-public ncftp
   (package
     (name "ncftp")
-    (version "3.2.5")
+    (version "3.2.6")
     (source (origin
               (method url-fetch)
               (uri (string-append "ftp://ftp.ncftp.com/ncftp/ncftp-"
-                                  version "-src.tar.bz2"))
+                                  version "-src.tar.xz"))
               (sha256
                (base32
-                "0hlx12i0lwi99qsrx7nccf4nvwjj2gych4yks5y179b1ax0y5sxl"))
+                "1389657cwgw5a3kljnqmhvfh4vr2gcr71dwz1mlhf22xq23hc82z"))
               (modules '((guix build utils)))
               (snippet
                '(begin
@@ -159,7 +159,7 @@ FTP browser, as well as non-interactive commands such as 'ncftpput' and
     (arguments
      `(#:phases
        (modify-phases %standard-phases
-         (add-before 'configure 'bootstrap
+         (add-after 'unpack 'bootstrap
            (lambda _ (zero? (system* "autoreconf" "-vfi")))))))
     (home-page "http://weex.sourceforge.net/")
     (synopsis "Non-interactive client for FTP synchronization")
@@ -173,7 +173,7 @@ as required.")
 (define-public libfilezilla
   (package
     (name "libfilezilla")
-    (version "0.9.0")
+    (version "0.12.1")
     (source
      (origin
        (method url-fetch)
@@ -181,21 +181,36 @@ as required.")
                            name "/" name "-" version ".tar.bz2"))
        (sha256
         (base32
-         "0340v5xs48f28q2d16ldb9359dkzlhl4l449mgyv3qabnlz2pl21"))))
+         "1gbqm42dd0m3fvqz3bk53889479dvn8679zp6ba8a9q2br2wkvv0"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(("cppunit" ,cppunit)))
+     `(("cppunit" ,cppunit)
+       ("pkg-config" ,pkg-config)))
     (home-page "https://lib.filezilla-project.org")
     (synopsis "Cross-platform C++ library used by Filezilla client")
     (description
      "This package provides some basic functionality to build high-performing,
-platform-independent programs.")
+platform-independent programs.
+
+Some of the highlights include:
+@itemize
+@item
+A type-safe, multi-threaded event system that's simple to use yet efficient.
+@item
+Timers for periodic events.
+@item
+A @code{datetime} class that not only tracks timestamp but also their accuracy,
+which simplifies dealing with timestamps originating from different sources.
+@item
+Simple process handling for spawning child processes with redirected input and
+output.
+@end itemize\n")
     (license gpl2+)))
 
 (define-public filezilla
   (package
     (name "filezilla")
-    (version "3.24.1")
+    (version "3.31.0")
     (source
      (origin
        (method url-fetch)
@@ -204,7 +219,7 @@ platform-independent programs.")
                            "/FileZilla_" version "_src" ".tar.bz2"))
        (sha256
         (base32
-         "0ahcld3g6jj92nakm5i58wgmcv6f4l9yisw3aqbc2ry0gs679pg6"))))
+         "1rfysb8dil35a7bzj2kw0mzzkys39d7yn6ipsbk8l6rkwfvnii8l"))))
     (build-system gnu-build-system)
     (arguments
       ;; Don't let filezilla phone home to check for updates.

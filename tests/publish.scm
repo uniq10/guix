@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
+;;; Copyright © 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -110,6 +111,10 @@
            (sleep 1)
            (loop (- i 1))))))
 
+(define %gzip-magic-bytes
+  ;; Magic bytes of gzip file.
+  #vu8(#x1f #x8b))
+
 ;; Wait until the two servers are ready.
 (wait-until-ready 6789)
 
@@ -211,6 +216,18 @@ FileSize: ~a~%"
        (call-with-gzip-input-port nar
          (cut restore-file <> temp)))
      (call-with-input-file temp read-string))))
+
+(unless (zlib-available?)
+  (test-skip 1))
+(test-equal "/nar/gzip/* is really gzip"
+  %gzip-magic-bytes
+  ;; Since 'gzdopen' (aka. 'call-with-gzip-input-port') transparently reads
+  ;; uncompressed gzip, the test above doesn't check whether it's actually
+  ;; gzip.  This is what this test does.  See <https://bugs.gnu.org/30184>.
+  (let ((nar (http-get-port
+              (publish-uri
+               (string-append "/nar/gzip/" (basename %item))))))
+    (get-bytevector-n nar (bytevector-length %gzip-magic-bytes))))
 
 (unless (zlib-available?)
   (test-skip 1))
@@ -340,7 +357,7 @@ FileSize: ~a~%"
         200                                       ;nar/gzip/…
         #t                                        ;Content-Length
         #t                                        ;FileSize
-        200)                                      ;nar/…
+        404)                                      ;nar/…
   (call-with-temporary-directory
    (lambda (cache)
      (let ((thread (with-separate-output-ports
@@ -352,7 +369,7 @@ FileSize: ~a~%"
        (let* ((base     "http://localhost:6797/")
               (part     (store-path-hash-part %item))
               (url      (string-append base part ".narinfo"))
-              (nar-url  (string-append base "/nar/gzip/" (basename %item)))
+              (nar-url  (string-append base "nar/gzip/" (basename %item)))
               (cached   (string-append cache "/gzip/" (basename %item)
                                        ".narinfo"))
               (nar      (string-append cache "/gzip/"
@@ -393,7 +410,7 @@ FileSize: ~a~%"
 (let ((item (add-text-to-store %store "fake-compressed-thing.tar.gz"
                                (random-text))))
   (test-equal "with cache, uncompressed"
-    (list #f
+    (list #t
           `(("StorePath" . ,item)
             ("URL" . ,(string-append "nar/" (basename item)))
             ("Compression" . "none"))
@@ -438,5 +455,40 @@ FileSize: ~a~%"
                         (string->number
                          (assoc-ref narinfo "FileSize"))
                         (response-code compressed))))))))))
+
+(test-equal "/log/NAME"
+  `(200 #t application/x-bzip2)
+  (let ((drv (run-with-store %store
+               (gexp->derivation "with-log"
+                                 #~(call-with-output-file #$output
+                                     (lambda (port)
+                                       (display "Hello, build log!"
+                                                (current-error-port))
+                                       (display #$(random-text) port)))))))
+    (build-derivations %store (list drv))
+    (let* ((response (http-get
+                      (publish-uri (string-append "/log/"
+                                                  (basename (derivation->output-path drv))))
+                      #:decode-body? #f))
+           (base     (basename (derivation-file-name drv)))
+           (log      (string-append (dirname %state-directory)
+                                    "/log/guix/drvs/" (string-take base 2)
+                                    "/" (string-drop base 2) ".bz2")))
+      (list (response-code response)
+            (= (response-content-length response) (stat:size (stat log)))
+            (first (response-content-type response))))))
+
+(test-equal "/log/NAME not found"
+  404
+  (let ((uri (publish-uri "/log/does-not-exist")))
+    (response-code (http-get uri))))
+
+(test-equal "non-GET query"
+  '(200 404)
+  (let ((path (string-append "/" (store-path-hash-part %item)
+                             ".narinfo")))
+    (map response-code
+         (list (http-get (publish-uri path))
+               (http-post (publish-uri path))))))
 
 (test-end "publish")

@@ -2,9 +2,11 @@
 ;;; Copyright © 2014 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2014 Manolis Fragkiskos Ragkousis <manolis837@gmail.com>
 ;;; Copyright © 2016 Hartmut Goebel <h.goebel@crazy-compilers.com>
-;;; Copyright © 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Jonathan Brielmaier <jonathan.brielmaier@web.de>
+;;; Copyright © 2017 Julien Lepiller <julien@lepiller.eu>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,26 +24,32 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (gnu packages flashing-tools)
-  #:use-module (guix licenses)
+  #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix packages)
   #:use-module (gnu packages)
+  #:use-module (guix build-system cmake)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system python)
   #:use-module (gnu packages bison)
+  #:use-module (gnu packages compression)
   #:use-module (gnu packages flex)
   #:use-module (gnu packages elf)
+  #:use-module (gnu packages pciutils)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages libftdi)
   #:use-module (gnu packages pciutils)
+  #:use-module (gnu packages qt)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages admin))
 
 (define-public flashrom
   (package
     (name "flashrom")
-    (version "0.9.9")
+    ;; XXX: The CFLAGS=... line below can probably be removed when updating.
+    (version "1.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -49,7 +57,7 @@
                     version ".tar.bz2"))
               (sha256
                (base32
-                "0i9wg1lyfg99bld7d00zqjm9f0lk6m0q3h3n9c195c9yysq5ccfb"))))
+                "0r7fkpfc8w51n8ffbhclj4wa3kwrk0ijv1acwpw5myx5bchzl0ip"))))
     (build-system gnu-build-system)
     (inputs `(("dmidecode" ,dmidecode)
               ("pciutils" ,pciutils)
@@ -57,23 +65,26 @@
               ("libftdi" ,libftdi)))
     (native-inputs `(("pkg-config" ,pkg-config)))
     (arguments
-     '(#:make-flags (list "CC=gcc"
-                          (string-append "PREFIX=" %output)
-                          "CONFIG_ENABLE_LIBUSB0_PROGRAMMERS=no")
-       #:tests? #f   ; no 'check' target
+     '(#:make-flags
+       (list "CC=gcc"
+             ;; The default includes ‘-Wall -Werror’, causing the build to fail
+             ;; with deprecation warnings against libusb versions >= 1.0.22.
+             "CFLAGS=-Os -Wshadow"
+             (string-append "PREFIX=" %output)
+             "CONFIG_ENABLE_LIBUSB0_PROGRAMMERS=no")
+       #:tests? #f                      ; no 'check' target
        #:phases
-       (alist-delete
-        'configure
-        (alist-cons-before
-         'build 'patch-exec-paths
-         (lambda* (#:key inputs #:allow-other-keys)
-           (substitute* "dmi.c"
-             (("\"dmidecode\"")
-              (format #f "~S"
-                      (string-append (assoc-ref inputs "dmidecode")
-                                     "/sbin/dmidecode")))))
-         %standard-phases))))
-    (home-page "http://flashrom.org/")
+       (modify-phases %standard-phases
+         (delete 'configure)            ; no configure script
+         (add-before 'build 'patch-exec-paths
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "dmi.c"
+               (("\"dmidecode\"")
+                (format #f "~S"
+                        (string-append (assoc-ref inputs "dmidecode")
+                                       "/sbin/dmidecode"))))
+             #t)))))
+    (home-page "https://flashrom.org/")
     (synopsis "Identify, read, write, erase, and verify ROM/flash chips")
     (description
      "flashrom is a utility for identifying, reading, writing,
@@ -81,7 +92,7 @@ verifying and erasing flash chips.  It is designed to flash
 BIOS/EFI/coreboot/firmware/optionROM images on mainboards,
 network/graphics/storage controller cards, and various other
 programmer devices.")
-    (license gpl2)))
+    (license license:gpl2)))
 
 (define-public 0xffff
   (package
@@ -98,7 +109,7 @@ programmer devices.")
         "1g4032c81wkk37wvbg1dxcqq6mnd76y9x7f2crmzqi6z4q9jcxmj"))))
     (build-system gnu-build-system)
     (inputs
-     `(("libusb",libusb-0.1))) ; doesn't work with libusb-compat
+     `(("libusb" ,libusb-0.1))) ; doesn't work with libusb-compat
     (arguments
      '(#:phases
        (modify-phases %standard-phases
@@ -112,7 +123,7 @@ programmer devices.")
 for FIASCO images.  It supports generating, unpacking, editing and
 flashing of FIASCO images for Maemo devices.  Use it with care.  It can
 brick your device.")
-    (license gpl3+)))
+    (license license:gpl3+)))
 
 (define-public avrdude
   (package
@@ -134,13 +145,13 @@ brick your device.")
     (native-inputs
      `(("bison" ,bison)
        ("flex" ,flex)))
-    (home-page "http://www.nongnu.org/avrdude/")
+    (home-page "https://www.nongnu.org/avrdude/")
     (synopsis "AVR downloader and uploader")
     (description
      "AVRDUDE is a utility to download/upload/manipulate the ROM and
 EEPROM contents of AVR microcontrollers using the in-system programming
 technique (ISP).")
-    (license gpl2+)))
+    (license license:gpl2+)))
 
 (define-public dfu-programmer
   (package
@@ -166,7 +177,7 @@ technique (ISP).")
      "Dfu-programmer is a multi-platform command-line programmer for
 Atmel (8051, AVR, XMEGA & AVR32) chips with a USB bootloader supporting
 ISP.")
-    (license gpl2+)))
+    (license license:gpl2+)))
 
 (define-public dfu-util
   (package
@@ -193,7 +204,7 @@ ranges from small devices like micro-controller boards up to mobile phones.
 With dfu-util you are able to download firmware to your device or upload
 firmware from it.")
     (home-page "http://dfu-util.sourceforge.net/")
-    (license gpl2+)))
+    (license license:gpl2+)))
 
 (define-public teensy-loader-cli
   ;; The repo does not tag versions nor does it use releases, but a commit
@@ -244,7 +255,7 @@ HalfKay bootloader is running, so you can upload new programs and run them.
 You need to add the udev rules to make the Teensy update available for
 non-root users.")
       (home-page "https://www.pjrc.com/teensy/loader_cli.html")
-      (license gpl3))))
+      (license license:gpl3))))
 
 (define-public rkflashtool
   (let ((commit "094bd6410cb016e487e2ccb1050c59eeac2e6dd1")
@@ -278,4 +289,191 @@ non-root users.")
       (description "Allows flashing of Rockchip based embedded linux devices.
 The list of currently supported devices is: RK2818, RK2918, RK2928, RK3026,
 RK3036, RK3066, RK312X, RK3168, RK3188, RK3288, RK3368.")
-      (license bsd-2))))
+      (license license:bsd-2))))
+
+(define-public heimdall
+  (package
+    (name "heimdall")
+    (version "1.4.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/Benjamin-Dobell/Heimdall"
+                                  "/archive/v" version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1y7gwg3lipyp2zcysm2vid1qg5nwin9bxbvgzs28lz2rya4fz6sq"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:build-type "Release"
+       #:tests? #f                      ; no tests
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-invocations
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* '("heimdall-frontend/source/aboutform.cpp"
+                            "heimdall-frontend/source/mainwindow.cpp")
+               (("start[(]\"heimdall\"")
+                (string-append "start(\"" (assoc-ref outputs "out")
+                               "/bin/heimdall\"")))
+             #t))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((bin (string-append (assoc-ref outputs "out") "/bin"))
+                   (lib (string-append (assoc-ref outputs "out") "/lib")))
+               (install-file "bin/heimdall" bin)
+               (install-file "bin/heimdall-frontend" bin)
+               (install-file "libpit/libpit.a" lib)
+               #t))))))
+    (inputs
+     `(("libusb" ,libusb)
+       ("qtbase" ,qtbase)
+       ("zlib" ,zlib)))
+    (home-page "http://glassechidna.com.au/heimdall/")
+    (synopsis "Flash firmware onto Samsung mobile devices")
+    (description "@command{heimdall} is a tool suite used to flash firmware (aka
+ROMs) onto Samsung mobile devices.  Heimdall connects to a mobile device over
+USB and interacts with low-level software running on the device, known as Loke.
+Loke and Heimdall communicate via the custom Samsung-developed protocol typically
+referred to as the \"Odin 3 protocol\".")
+    (license license:expat)))
+
+(define-public ifdtool
+  (package
+    (name "ifdtool")
+    (version "4.7")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://review.coreboot.org/p/coreboot")
+                    (commit version)))
+              (file-name (git-file-name name version))
+              (sha256
+               (base32
+                "0nw555i0fm5kljha9h47bk70ykbwv8ddfk6qhz6kfqb79vzhy4h2"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags
+       (list "CC=gcc"
+             "INSTALL=install"
+             (string-append "PREFIX=" (assoc-ref %outputs "out")))
+       #:phases
+       (modify-phases %standard-phases
+        (add-after 'unpack 'chdir
+          (lambda _
+            (chdir "util/ifdtool")
+            #t))
+        (delete 'configure)
+        (delete 'check))))
+    (home-page "https://github.com/corna/me_cleaner/")
+    (synopsis "Intel Firmware Descriptor dumper")
+    (description "This package provides @command{ifdtool}, a program to
+dump Intel Firmware Descriptor data of an image file.")
+    (license license:gpl2)))
+
+(define-public intelmetool
+  (package
+    (name "intelmetool")
+    (version "4.7")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://review.coreboot.org/p/coreboot")
+                    (commit version)))
+              (file-name (git-file-name name version))
+              (sha256
+               (base32
+                "0nw555i0fm5kljha9h47bk70ykbwv8ddfk6qhz6kfqb79vzhy4h2"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("pciutils" ,pciutils)
+       ("zlib" ,zlib)))
+    (arguments
+     `(#:make-flags
+       (list "CC=gcc"
+             "INSTALL=install"
+             (string-append "PREFIX=" (assoc-ref %outputs "out")))
+       #:phases
+       (modify-phases %standard-phases
+        (add-after 'unpack 'chdir
+          (lambda _
+            (chdir "util/intelmetool")
+            #t))
+        (delete 'configure)
+        (delete 'check))))
+    (home-page "https://github.com/zamaudio/intelmetool")
+    (synopsis "Intel Management Engine tools")
+    (description "This package provides tools for working with Intel
+Management Engine (ME).  You need to @code{sudo rmmod mei_me} and
+@code{sudo rmmod mei} before using this tool.  Also pass
+@code{iomem=relaxed} to the Linux kernel command line.")
+    (license license:gpl2)
+
+    ;; This is obviously an Intel thing, plus it requires <cpuid.h>.
+    (supported-systems '("x86_64-linux" "i686-linux"))))
+
+(define-public me-cleaner
+  (package
+    (name "me-cleaner")
+    (version "1.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/corna/me_cleaner/"
+                                  "archive/v" version ".tar.gz"))
+              (sha256
+               (base32
+                "1pgwdqy0jly80nhxmlmyibs343497yjzs6dwfbkcw0l1gjm8i5hw"))
+              (file-name (string-append name "-" version ".tar.gz"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'create-setup.py
+           (lambda _
+             (call-with-output-file "setup.py"
+               (lambda (port)
+                 (format port "\
+from setuptools import setup
+setup(name='me_cleaner', version='~a', scripts=['me_cleaner.py'])
+" ,version)))
+             #t)))))
+    (home-page "https://github.com/corna/me_cleaner")
+    (synopsis "Intel ME cleaner")
+    (description "This package provides tools for disabling Intel
+ME as far as possible (it only edits ME firmware image files).")
+    (license license:gpl3+)
+
+    ;; This is an Intel thing.
+    (supported-systems '("x86_64-linux" "i686-linux"))))
+
+(define-public uefitool
+  (package
+    (name "uefitool")
+    (version "0.22.4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/LongSoft/UEFITool/archive/"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "05jmhv7jpq08kqbd1477y1lgyjvcic3njrd0bmzdy7v7b7lnhl82"))
+              (file-name (string-append name "-" version ".tar.gz"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda _
+             (invoke "qmake" "-makefile")))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (install-file "UEFITool" (string-append (assoc-ref outputs "out")
+                                                     "/bin"))
+             #t)))))
+    (inputs
+     `(("qtbase" ,qtbase)))
+    (home-page "https://github.com/LongSoft/UEFITool/")
+    (synopsis "UEFI image editor")
+    (description "@code{uefitool} is a graphical image file editor for
+Unifinished Extensible Firmware Interface (UEFI) images.")
+    (license license:bsd-2)))

@@ -1,9 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2014, 2015 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015, 2017 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Leo Famulari <leo@famulari.name>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,6 +30,7 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix utils)
+  #:use-module (gnu packages)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages base)
@@ -44,6 +47,7 @@
   #:use-module (gnu packages gtk)
   #:use-module (gnu packages image)
   #:use-module (gnu packages imagemagick)
+  #:use-module (gnu packages libcanberra)
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages llvm)
   #:use-module (gnu packages man)
@@ -59,22 +63,22 @@
   #:use-module (gnu packages xfig)
   #:use-module (gnu packages xorg)
   #:use-module (gnu packages xml)
-  #:use-module (srfi srfi-1)
+  #:use-module ((srfi srfi-1) #:hide (zip))
   #:use-module (srfi srfi-26))
 
 (define-public libraw
   (package
     (name "libraw")
-    (version "0.17.2")
+    (version "0.18.9")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://www.libraw.org/data/LibRaw-"
+              (uri (string-append "https://www.libraw.org/data/LibRaw-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0p6imxpsfn82i0i9w27fnzq6q6gwzvb9f7sygqqakv36fqnc9c4j"))))
+                "0kmjfdr409k9q9n17k9ywims5z4kqc16s81ba7y09n7669q1gvyj"))))
     (build-system gnu-build-system)
-    (home-page "http://www.libraw.org")
+    (home-page "https://www.libraw.org")
     (synopsis "Raw image decoder")
     (description
      "LibRaw is a library for reading RAW files obtained from digital photo
@@ -89,6 +93,8 @@ cameras (CRW/CR2, NEF, RAF, DNG, and others).")
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/libexif/libexif/"
                                   version "/libexif-" version ".tar.bz2"))
+              (patches (search-patches "libexif-CVE-2016-6328.patch"
+                                       "libexif-CVE-2017-7544.patch"))
               (sha256
                (base32
                 "06nlsibr3ylfwp28w8f5466l6drgrnydgxrm4jmxzrmk5svaxk8n"))))
@@ -103,14 +109,14 @@ data as produced by digital cameras.")
 (define-public libgphoto2
   (package
     (name "libgphoto2")
-    (version "2.5.11")
+    (version "2.5.17")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/gphoto/libgphoto/"
                                   version "/libgphoto2-" version ".tar.bz2"))
               (sha256
                (base32
-                "1ap070zz6l4kn2mbyxb1yj4x5ar8hpdbmf2pvjxgnly1ss319dkz"))))
+                "0mdmjb8a07g37bb5q69h11sixw0w6y5g3kbii9z97yhklgq68x21"))))
     (build-system gnu-build-system)
     (native-inputs `(("pkg-config" ,pkg-config)))
     (inputs
@@ -134,14 +140,14 @@ from digital cameras.")
 (define-public gphoto2
   (package
     (name "gphoto2")
-    (version "2.5.11")
+    (version "2.5.17")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/gphoto/gphoto/" version
                                   "/gphoto2-" version ".tar.bz2"))
               (sha256
                (base32
-                "1sgr6rsvzzagcwhc8fxbnvz3k02wr2hab0vrbvcb04k5l3b48a1r"))))
+                "0kslwclyyzvnxjw3gdzhlagj7l5f8lba833ipr9s0s0c4hwi0mxa"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -152,15 +158,16 @@ from digital cameras.")
        ("libexif" ,libexif)
        ("libgphoto2" ,libgphoto2)))
     (arguments
-     '(#:phases (alist-cons-before
-                 'check 'pre-check
-                 (lambda* (#:key inputs #:allow-other-keys)
-                   (substitute* (find-files "tests/data" "\\.param$")
-                     (("/usr/bin/env")
-                      (which "env"))))
-                 %standard-phases)
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'pre-check
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* (find-files "tests/data" "\\.param$")
+               (("/usr/bin/env")
+                (which "env")))
+             #t)))
 
-       ;; FIXME: There are 2 test failures, most likely related to the build
+       ;; FIXME: There is 1 test failure, most likely related to the build
        ;; environment.
        #:tests? #f))
 
@@ -177,7 +184,7 @@ MTP, and much more.")
 (define-public perl-image-exiftool
   (package
     (name "perl-image-exiftool")
-    (version "10.55")
+    (version "10.80")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -185,7 +192,7 @@ MTP, and much more.")
                     version ".tar.gz"))
               (sha256
                (base32
-                "0z8zwjjfvyllnhsafhddbybywpgqv0pl1dbn1g034cs27yj836q2"))))
+                "14rwr5wk2snqv4yva6fax1gfsdv88941n237m0wyzn3n0xh9dy5w"))))
     (build-system perl-build-system)
     (arguments
      '(#:phases
@@ -323,7 +330,7 @@ photographic equipment.")
 (define-public darktable
   (package
     (name "darktable")
-    (version "2.2.5")
+    (version "2.4.3")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -332,11 +339,11 @@ photographic equipment.")
                     version "/darktable-" version ".tar.xz"))
               (sha256
                (base32
-                "10gjzd4irxhladh4jyss9kgp627k8vgx2divipsb33pp6cms80z3"))))
+                "1lq3xp7hhfhfwqrz0f2mrp3xywnpvb0nlw6lbm5cgx22s5xzri8x"))))
     (build-system cmake-build-system)
     (arguments
      `(#:tests? #f ; There are no tests.
-       #:configure-flags '("-DCMAKE_INSTALL_LIBDIR=lib")
+       #:configure-flags '("-DBINARY_PACKAGE_BUILD=On")
        #:make-flags
        (list
         (string-append "CPATH=" (assoc-ref %build-inputs "ilmbase")
@@ -460,3 +467,57 @@ user interface.  It can be used to assemble a mosaic of photographs into
 a complete panorama and stitch any series of overlapping pictures.")
     (license license:gpl2+)))
 
+(define-public rawtherapee
+  (package
+    (name "rawtherapee")
+    (version "5.4")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://rawtherapee.com/shared/source/"
+                                  "rawtherapee-" version ".tar.xz"))
+              (sha256
+               (base32
+                "1229hxqq824hcqg1hy2cfglsp7kjbhhis9m33ss39pgmrb1w227d"))))
+    (build-system cmake-build-system)
+    (arguments
+     '(#:tests? #f ; no test suite
+       #:build-type "release"
+       #:configure-flags
+       (list (string-append "-DLENSFUNDBDIR="
+                            (assoc-ref %build-inputs "lensfun")
+                            "/share/lensfun")
+             ; Don't optimize the build for the host machine. See the file
+             ; 'ProcessorTargets.cmake' in the source distribution for more
+             ; information.
+             "-DPROC_TARGET_NUMBER=1"
+             ; These flags are recommended by upstream for distributed packages.
+             ; See the file 'RELEASE_NOTES.txt' in the source distribution.
+             "-O3"
+             "-DCACHE_NAME_SUFFIX=\"\"")))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("expat" ,expat)
+       ("fftw" ,fftwf)
+       ("glib" ,glib)
+       ("glibmm" ,glibmm)
+       ("gtk+" ,gtk+)
+       ("gtkmm" ,gtkmm)
+       ("lcms" ,lcms)
+       ("lensfun" ,lensfun)
+       ("libcanberra" ,libcanberra)
+       ("libiptcdata" ,libiptcdata)
+       ("libjpeg" ,libjpeg)
+       ("libpng" ,libpng)
+       ("libsigc++" ,libsigc++)
+       ("libtiff" ,libtiff)
+       ("zlib" ,zlib)))
+    (home-page "http://rawtherapee.com")
+    (synopsis "Raw image developing and processing")
+    (description "RawTherapee is a raw image processing suite.  It comprises a
+subset of image editing operations specifically aimed at non-destructive raw
+photo post-production and is primarily focused on improving a photographer's
+workflow by facilitating the handling of large numbers of images.  Most raw
+formats are supported, including Pentax Pixel Shift, Canon Dual-Pixel, and those
+from Foveon and X-Trans sensors.")
+    (license license:gpl3+)))

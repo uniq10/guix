@@ -45,7 +45,11 @@ Settings::Settings()
     useSshSubstituter = false;
     impersonateLinux26 = false;
     keepLog = true;
-    compressLog = true;
+#if HAVE_BZLIB_H
+    logCompression = COMPRESSION_BZIP2;
+#else
+    logCompression = COMPRESSION_GZIP;
+#endif
     maxLogSize = 0;
     cacheFailure = false;
     pollInterval = 5;
@@ -71,39 +75,6 @@ void Settings::processEnvironment()
     nixLibexecDir = canonPath(getEnv("NIX_LIBEXEC_DIR", NIX_LIBEXEC_DIR));
     nixBinDir = canonPath(getEnv("NIX_BIN_DIR", NIX_BIN_DIR));
     nixDaemonSocketFile = canonPath(nixStateDir + DEFAULT_SOCKET_PATH);
-}
-
-
-void Settings::loadConfFile()
-{
-    Path settingsFile = (format("%1%/%2%") % nixConfDir % "nix.conf").str();
-    if (!pathExists(settingsFile)) return;
-    string contents = readFile(settingsFile);
-
-    unsigned int pos = 0;
-
-    while (pos < contents.size()) {
-        string line;
-        while (pos < contents.size() && contents[pos] != '\n')
-            line += contents[pos++];
-        pos++;
-
-        string::size_type hash = line.find('#');
-        if (hash != string::npos)
-            line = string(line, 0, hash);
-
-        vector<string> tokens = tokenizeString<vector<string> >(line);
-        if (tokens.empty()) continue;
-
-        if (tokens.size() < 2 || tokens[1] != "=")
-            throw Error(format("illegal configuration line `%1%' in `%2%'") % line % settingsFile);
-
-        string name = tokens[0];
-
-        vector<string>::iterator i = tokens.begin();
-        advance(i, 2);
-        settings[name] = concatStringsSep(" ", Strings(i, tokens.end())); // FIXME: slow
-    };
 }
 
 
@@ -162,7 +133,7 @@ void Settings::update()
     _get(useChroot, "build-use-chroot");
     _get(impersonateLinux26, "build-impersonate-linux-26");
     _get(keepLog, "build-keep-log");
-    _get(compressLog, "build-compress-log");
+    // _get(logCompression, "build-log-compression");
     _get(maxLogSize, "build-max-log-size");
     _get(cacheFailure, "build-cache-failure");
     _get(pollInterval, "build-poll-interval");
@@ -249,17 +220,6 @@ string Settings::pack()
         s += i->first; s += '='; s += i->second; s += '\n';
     }
     return s;
-}
-
-
-void Settings::unpack(const string & pack) {
-    Strings lines = tokenizeString<Strings>(pack, "\n");
-    foreach (Strings::iterator, i, lines) {
-        string::size_type eq = i->find('=');
-        if (eq == string::npos)
-            throw Error("illegal option name/value");
-        set(i->substr(0, eq), i->substr(eq + 1));
-    }
 }
 
 

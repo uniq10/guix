@@ -1,7 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2016 John Darrington <jmd@gnu.org>
-;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017, 2018 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,6 +24,8 @@
   #:use-module (guix packages)
   #:use-module (guix download)
   #:use-module (gnu packages)
+  #:use-module (gnu packages autotools)
+  #:use-module (gnu packages gettext)
   #:use-module (gnu packages kerberos)
   #:use-module (gnu packages pkg-config)
   #:use-module (guix build-system gnu))
@@ -30,16 +33,15 @@
 (define-public libtirpc
   (package
     (name "libtirpc")
-    (version "1.0.1")
+    (version "1.0.3")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/libtirpc/libtirpc/"
                                   version "/libtirpc-"
                                   version ".tar.bz2"))
-              (patches (search-patches "libtirpc-CVE-2017-8779.patch"))
               (sha256
                (base32
-                "17mqrdgsgp9m92pmq7bvr119svdg753prqqxmg4cnz5y657rfmji"))))
+                "0ppxl3k3nsz0qdakq844i2kj4fvh9h937lhx26bgmpmxq67sghw6"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -56,7 +58,8 @@
 
              ;; Remove the dangling symlinks since it breaks the
              ;; 'patch-source-shebangs' file tree traversal.
-             (delete-file "INSTALL"))))))
+             (delete-file "INSTALL")
+             #t)))))
     (inputs `(("mit-krb5" ,mit-krb5)))
     (home-page "https://sourceforge.net/projects/libtirpc/")
     (synopsis "Transport-independent Sun/ONC RPC implementation")
@@ -85,7 +88,8 @@ IPv4 and IPv6.  ONC RPC is notably used by the network file system (NFS).")
      `(#:configure-flags
        `("--with-systemdsystemunitdir=no" "--enable-warmstarts")))
     (inputs
-     `(("libtirpc" ,libtirpc)))
+     `(("libnsl" ,libnsl)
+       ("libtirpc" ,libtirpc)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
     (home-page "http://rpcbind.sourceforge.net/")
@@ -95,3 +99,39 @@ IPv4 and IPv6.  ONC RPC is notably used by the network file system (NFS).")
 universal addresses.")
     (license bsd-3)))
 
+
+(define-public libnsl
+  (package
+    (name "libnsl")
+    (version "1.2.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/thkukuk/libnsl/archive/v"
+                                  version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1y6kmxmv1difzvdhx7grqzw0j2v2b74mg4kjb803m8jcgkqqx8m5"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (invoke "sh" "autogen.sh"))))))
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("gettext" ,gettext-minimal)
+       ("libtool" ,libtool)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("libtirpc" ,libtirpc)))
+    (synopsis "Public client interface for NIS(YP) and NIS+")
+    (description "Libnsl is the public client interface for the Network
+Information Service / Yellow Pages (NIS/YP) and NIS+.  It includes IPv6 support.
+This library was part of glibc < 2.26, but is now distributed separately.")
+    (home-page "https://github.com/thkukuk/libnsl")
+    ;; The package is distributed under the LGPL 2.1. Some files in
+    ;; 'src/nisplus/' are LGPL 2.1+, and some files in 'src/rpcsvc/' are BSD-3.
+    (license lgpl2.1)))

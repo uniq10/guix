@@ -1,8 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2016, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -74,7 +75,7 @@
 (define-public nss-certs
   (package
     (name "nss-certs")
-    (version "3.31")
+    (version "3.36")
     (source (origin
               (method url-fetch)
               (uri (let ((version-with-underscores
@@ -85,7 +86,7 @@
                       "nss-" version ".tar.gz")))
               (sha256
                (base32
-                "0pd643a8ns7q5az5ai3ascrw666i2kbfiyy1c9hlhw9jd8jn21g9"))))
+                "1580qc0a4s8v3k3vg7zz4xly4alkjrw7qq9zy2nf6p4v56wcfg53"))))
     (build-system gnu-build-system)
     (outputs '("out"))
     (native-inputs
@@ -101,8 +102,10 @@
                   (srfi srfi-26)
                   (ice-9 regex))
        #:phases
-         (alist-cons-after
-           'unpack 'install
+       (modify-phases
+           (map (cut assq <> %standard-phases)
+                '(set-paths install-locale unpack))
+         (add-after 'unpack 'install
            (lambda _
              (let ((certsdir (string-append %output "/etc/ssl/certs/"))
                    (trusted-rx (make-regexp "^# openssl-trust=[a-zA-Z]"
@@ -130,10 +133,9 @@
                  ;; "Usage error; try -help."
                  ;; This looks like a bug in openssl-1.0.2, but we can also
                  ;; switch into the target directory.
-                 (system* "c_rehash" "."))))
+                 (invoke "c_rehash" "."))
+               #t))))))
 
-           (map (cut assq <> %standard-phases)
-                '(set-paths install-locale unpack)))))
     (synopsis "CA certificates from Mozilla")
     (description
      "This package provides certificates for Certification Authorities (CA)
@@ -155,13 +157,26 @@ taken from the NSS package and thus ultimately from the Mozilla project.")
          (let ((root (assoc-ref %build-inputs "isrgrootx1.pem"))
                (intermediate (assoc-ref %build-inputs "letsencryptauthorityx3.pem"))
                (backup (assoc-ref %build-inputs "letsencryptauthorityx4.pem"))
-               (out (string-append (assoc-ref %outputs "out") "/etc/ssl/certs")))
+               (out (string-append (assoc-ref %outputs "out") "/etc/ssl/certs"))
+               (openssl (assoc-ref %build-inputs "openssl"))
+               (perl (assoc-ref %build-inputs "perl")))
            (mkdir-p out)
            (for-each
              (lambda (cert)
                (copy-file cert (string-append out "/"
                                               (strip-store-file-name cert))))
-             (list root intermediate backup))))))
+             (list root intermediate backup))
+
+           ;; Create hash symlinks suitable for OpenSSL ('SSL_CERT_DIR' and
+           ;; similar.)
+           (chdir (string-append %output "/etc/ssl/certs"))
+           (unless (zero? (system* (string-append perl "/bin/perl")
+                                   (string-append openssl "/bin/c_rehash")
+                                   "."))
+             (error "'c_rehash' failed" openssl))))))
+    (native-inputs
+     `(("openssl" ,openssl)
+       ("perl" ,perl)))                           ;for 'c_rehash'
     (inputs
      `(; The Let's Encrypt root certificate, "ISRG Root X1".
        ("isrgrootx1.pem"

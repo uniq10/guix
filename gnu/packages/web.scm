@@ -3,7 +3,8 @@
 ;;; Copyright © 2013 Aljosha Papsch <misc@rpapsch.de>
 ;;; Copyright © 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014, 2015, 2016 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2015, 2016, 2017, 2018 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2018 Raoul Jean Pierre Bonnal <ilpuccio.febo@gmail.com>
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015, 2016, 2017 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2015 Eric Dvorsak <eric@dvorsak.fr>
@@ -13,13 +14,17 @@
 ;;; Copyright © 2016 Rene Saavedra <rennes@openmailbox.org>
 ;;; Copyright © 2016 Ben Woodcroft <donttrustben@gmail.com>
 ;;; Copyright © 2016 Clément Lassieur <clement@lassieur.org>
-;;; Copyright © 2016, 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016, 2017 Arun Isaac <arunisaac@systemreboot.net>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2016 Bake Timmons <b3timmons@speedymail.org>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
-;;; Copyright © 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2017 Petter <petter@mykolab.ch>
+;;; Copyright © 2017 Pierre Langlois <pierre.langlois@gmx.com>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2018 Julien Lepiller <julien@lepiller.eu>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -43,6 +48,7 @@
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix cvs-download)
+  #:use-module (guix hg-download)
   #:use-module (guix utils)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system glib-or-gtk)
@@ -51,9 +57,13 @@
   #:use-module (guix build-system r)
   #:use-module (guix build-system trivial)
   #:use-module (guix build-system python)
+  #:use-module (guix build-system ant)
+  #:use-module (guix build-system scons)
   #:use-module (gnu packages)
+  #:use-module (gnu packages adns)
   #:use-module (gnu packages apr)
   #:use-module (gnu packages check)
+  #:use-module (gnu packages cran)
   #:use-module (gnu packages documentation)
   #:use-module (gnu packages docbook)
   #:use-module (gnu packages autotools)
@@ -72,36 +82,47 @@
   #:use-module (gnu packages gnuzilla)
   #:use-module (gnu packages gperf)
   #:use-module (gnu packages gtk)
+  #:use-module (gnu packages java)
+  #:use-module (gnu packages javascript)
+  #:use-module (gnu packages jemalloc)
   #:use-module (gnu packages image)
+  #:use-module (gnu packages imagemagick)
+  #:use-module (gnu packages libevent)
   #:use-module (gnu packages libidn)
   #:use-module (gnu packages libunistring)
+  #:use-module (gnu packages lisp)
   #:use-module (gnu packages lua)
+  #:use-module (gnu packages markup)
   #:use-module (gnu packages ncurses)
+  #:use-module (gnu packages openstack)
   #:use-module (gnu packages base)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages pcre)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages qt)
   #:use-module (gnu packages valgrind)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages curl)
-  #:use-module (gnu packages perl)
   #:use-module (gnu packages texinfo)
   #:use-module (gnu packages textutils)
   #:use-module (gnu packages tls)
-  #:use-module (gnu packages statistics))
+  #:use-module (gnu packages statistics)
+  #:use-module (gnu packages version-control))
 
 (define-public httpd
   (package
     (name "httpd")
-    (version "2.4.27")
+    (version "2.4.33")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://apache/httpd/httpd-"
                                  version ".tar.bz2"))
              (sha256
               (base32
-               "0fn1778mxhf78np2d8qlycg1c2ak18rxax41plahasca4clc3z3i"))))
+               "01bghiq4pbgjbgd6gic0nb8bbk6mfpwx3gcsbf21f3dhb4c520ny"))))
     (build-system gnu-build-system)
     (native-inputs `(("pcre" ,pcre "bin")))       ;for 'pcre-config'
     (inputs `(("apr" ,apr)
@@ -129,20 +150,53 @@ and its related documentation.")
     (license l:asl2.0)
     (home-page "https://httpd.apache.org/")))
 
+(define-public mod-wsgi
+  (package
+    (name "mod-wsgi")
+    (version "4.5.22")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/GrahamDumpleton/mod_wsgi/archive/"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0n1yhmrfp8mjbsngmyjl937c6rc0069p6wdi1lknrbn1q42hzw6q"))))
+    (build-system gnu-build-system)
+    (arguments
+     '(#:tests? #f ;; TODO: Can't figure out if there are tests
+       #:make-flags (list
+                     (string-append "DESTDIR="
+                                    (assoc-ref %outputs "out"))
+                     "LIBEXECDIR=/modules")))
+    (inputs
+     `(("httpd" ,httpd)
+       ("python" ,python-wrapper)))
+    (synopsis "Apache HTTPD module for Python WSGI applications")
+    (description
+     "The mod_wsgi module for the Apache HTTPD Server adds support for running
+applications that support the Python @acronym{WSGI, Web Server Gateway
+Interface} specification.")
+    (license l:asl2.0)
+    (home-page "https://modwsgi.readthedocs.io/")))
+
 (define-public nginx
   (package
     (name "nginx")
-    (version "1.12.1")
+    ;; Consider updating the nginx-documentation package if the nginx package is
+    ;; updated.
+    (version "1.14.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://nginx.org/download/nginx-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "1yvnmj7vlykrqdi6amkvs63lva6qkxd98sqv0a8hz8w5ci1bz4w7"))))
+                "1d9c0avfpbwvzyg53b59ks8shpnrxnbnshcd7ziizflsyv5vw5ax"))))
     (build-system gnu-build-system)
-    (inputs `(("pcre" ,pcre)
-              ("openssl" ,openssl)
+    (inputs `(("openssl" ,openssl)
+              ("pcre" ,pcre)
               ("zlib" ,zlib)))
     (arguments
      `(#:tests? #f                      ; no test target
@@ -154,17 +208,19 @@ and its related documentation.")
                (("/bin/sh") (which "sh")))
              #t))
          (replace 'configure
+           ;; The configure script is hand-written, not from GNU autotools.
            (lambda* (#:key outputs #:allow-other-keys)
              (let ((flags
                     (list (string-append "--prefix=" (assoc-ref outputs "out"))
                           "--with-http_ssl_module"
+                          "--with-http_v2_module"
                           "--with-pcre-jit"
                           "--with-debug"
                           ;; Even when not cross-building, we pass the
                           ;; --crossbuild option to avoid customizing for the
                           ;; kernel version on the build machine.
                           ,(let ((system "Linux")    ; uname -s
-                                 (release "2.6.32")  ; uname -r
+                                 (release "3.2.0")   ; uname -r
                                  ;; uname -m
                                  (machine (match (or (%current-target-system)
                                                      (%current-system))
@@ -181,7 +237,14 @@ and its related documentation.")
                (setenv "CC" "gcc")
                (format #t "environment variable `CC' set to `gcc'~%")
                (format #t "configure flags: ~s~%" flags)
-               (zero? (apply system* "./configure" flags)))))
+               (apply invoke "./configure" flags)
+               #t)))
+         (add-after 'install 'install-man-page
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (man (string-append out "/share/man")))
+               (install-file "objs/nginx.8" (string-append man "/man8"))
+               #t)))
          (add-after 'install 'fix-root-dirs
            (lambda* (#:key outputs #:allow-other-keys)
              ;; 'make install' puts things in strange places, so we need to
@@ -196,12 +259,13 @@ and its related documentation.")
                (rename-file (string-append out "/conf")
                             (string-append share "/conf"))
                (rename-file (string-append out "/html")
-                            (string-append share "/html"))))))))
+                            (string-append share "/html"))
+               #t))))))
     (home-page "https://nginx.org")
     (synopsis "HTTP and reverse proxy server")
     (description
      "Nginx (\"engine X\") is a high-performance web and reverse proxy server
-created by Igor Sysoev.  It can be used both as a standalone web server
+created by Igor Sysoev.  It can be used both as a stand-alone web server
 and as a proxy to reduce the load on back-end HTTP or mail servers.")
     ;; Almost all of nginx is distributed under the bsd-2 license.
     ;; The exceptions are:
@@ -210,6 +274,102 @@ and as a proxy to reduce the load on back-end HTTP or mail servers.")
     ;;     except for two source files which are bsd-4 licensed.
     (license (list l:bsd-2 l:expat l:bsd-3 l:bsd-4))))
 
+(define nginx-xslscript
+  (let ((revision 11)
+        (changeset "01dc9ba12e1b"))
+    (package
+      (name "nginx-xslscript")
+      (version
+       (simple-format #f "2014-03-31-~A-~A" revision changeset))
+      (source (origin
+                (method hg-fetch)
+                (uri (hg-reference
+                      (url "http://hg.nginx.org/xslscript")
+                      (changeset changeset)))
+                (file-name (string-append name "-" version))
+                (sha256
+                 (base32
+                  "0am8zvdx3jmiwkg5q07qjaw5r26r4i2v5i4yr8a1k0jgib6ii08g"))))
+      (build-system gnu-build-system)
+      (arguments
+       '(#:tests? #f  ; No test suite
+         #:phases
+         (modify-phases %standard-phases
+           (delete 'configure)
+           (delete 'build)
+           (replace 'install
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let ((out-bin (string-append
+                               (assoc-ref outputs "out")
+                               "/bin")))
+                 (mkdir-p out-bin)
+                 (copy-file "xslscript.pl"
+                            (string-append
+                             out-bin
+                             "/xslscript.pl"))
+                 #t))))))
+      (home-page "http://hg.nginx.org/xslscript")
+      (synopsis "XSLScript with NGinx specific modifications")
+      (description
+       "XSLScript is a terse notation for writing complex XSLT stylesheets.
+This is modified version, specifically intended for use with the NGinx
+documentation.")
+      (license l:bsd-2))))
+
+(define-public nginx-documentation
+  ;; This documentation should be relevant for nginx@1.13.11.
+  (let ((revision 2131)
+        (changeset "dbaf3950f8e9"))
+    (package
+      (name "nginx-documentation")
+      (version
+       (simple-format #f "2018-04-04-~A-~A" revision changeset))
+      (source
+       (origin (method hg-fetch)
+               (uri (hg-reference
+                     (url "http://hg.nginx.org/nginx.org")
+                     (changeset changeset)))
+               (file-name (string-append name "-" version))
+               (sha256
+                (base32
+                 "0acdjsdaqixzh9g9s6db552v4pan4nqrllyqapay9ns9yzh1hrp7"))))
+      (build-system gnu-build-system)
+      (arguments
+       '(#:tests? #f                    ; no test suite
+         #:phases
+         (modify-phases %standard-phases
+           (delete 'configure)          ; no configure script
+           (replace 'build
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let ((output (assoc-ref outputs "out")))
+                 (substitute* "umasked.sh"
+                   ((" /bin/sh") (string-append " " (which "sh"))))
+                 ;; The documentation includes a banner, which makes sense on
+                 ;; the NGinx website, but doesn't make much sense when
+                 ;; viewing locally. Therefore, modify the CSS to remove the
+                 ;; banner.
+                 (substitute* "xslt/style.xslt"
+                   (("#banner           \\{ background:     black;")
+                    "#banner           { background:     black;
+                            display:     none;"))
+                 (invoke "make")
+                 #t)))
+           (replace 'install
+             (lambda* (#:key outputs #:allow-other-keys)
+               (let ((output (assoc-ref outputs "out")))
+                 (mkdir-p output)
+                 (copy-recursively "libxslt" output)
+                 #t))))))
+      (native-inputs
+       `(("libxml2" ,libxml2)
+         ("libxslt" ,libxslt)
+         ("nginx-xslscript" ,nginx-xslscript)))
+      (home-page "https://nginx.org")
+      (synopsis "Documentation for the nginx web server")
+      (description
+       "This package provides HTML documentation for the nginx web server.")
+      (license l:bsd-2))))
+
 (define-public fcgi
   (package
     (name "fcgi")
@@ -217,7 +377,7 @@ and as a proxy to reduce the load on back-end HTTP or mail servers.")
     (source
      (origin
        (method url-fetch)
-       ;; Upstream has disappeared
+       ;; Upstream has disappeared.
        (uri (string-append "https://sources.archlinux.org/other/packages/fcgi/"
                            "fcgi-" version ".tar.gz"))
        (sha256
@@ -228,9 +388,10 @@ and as a proxy to reduce the load on back-end HTTP or mail servers.")
     (build-system gnu-build-system)
     ;; Parallel building is not supported.
     (arguments `(#:parallel-build? #f))
-    (home-page "http://www.fastcgi.com")
+    ;; This is an archived fork of the original home page, www.fastcgi.com.
+    (home-page "https://fastcgi-archives.github.io/")
     (synopsis "Language-independent, high-performant extension to CGI")
-    (description "FastCGI is a language independent, scalable extension to CGI
+    (description "FastCGI is a language-independent, scalable extension to CGI
 that provides high performance without the limitations of server specific
 APIs.")
     ;; This package is released under the Open Market License, a variant of
@@ -304,10 +465,46 @@ such as high performance, preforking, signal support, superdaemon awareness,
 and UNIX socket support.")
     (license l:perl-license)))
 
+(define-public icedtea-web
+  (package
+    (name "icedtea-web")
+    (version "1.6.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "http://icedtea.wildebeest.org/download/source/"
+                    name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "004kwrngyxxlrlzby4vzxjr0xcyngcdc9dfgnvi61ffnjr006ryf"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:configure-flags
+       (list  "--disable-plugin"         ;NPAPI plugins are obsolete nowadays.
+             (string-append "BIN_BASH=" (assoc-ref %build-inputs "bash")
+                            "/bin/bash")
+             (string-append "--with-jdk-home=" (assoc-ref %build-inputs "jdk")))))
+    (outputs '("out" "doc"))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("zip" ,zip)))
+    (inputs
+     `(("gtk+" ,gtk+)
+       ("jdk" ,icedtea "jdk")))
+    (home-page "http://icedtea.classpath.org/wiki/IcedTea-Web")
+    (synopsis "Java Web Start")
+    (description
+     "IcedTea-Web is an implementation of the @dfn{Java Network Launching
+Protocol}, also known as Java Web Start.  This package provides tools and
+libraries for working with JNLP applets.")
+    ;; The program is mainly GPL2+, with some individual files under LGPL2.1+
+    ;; or dual licenses.
+    (license l:gpl2+)))
+
 (define-public jansson
   (package
     (name "jansson")
-    (version "2.9")
+    (version "2.10")
     (source (origin
              (method url-fetch)
              (uri
@@ -315,7 +512,7 @@ and UNIX socket support.")
                              version ".tar.gz"))
              (sha256
               (base32
-               "19fjgfwjfj99rqa3kf96x5rssj88siazggksgrikd6h4r9sd1l0a"))))
+               "0iv4rxsnamqm3ldpg7dyhjq0x9cp023nc7ac820jdd3pwb8ml8bq"))))
     (build-system gnu-build-system)
     (home-page "http://www.digip.org/jansson/")
     (synopsis "JSON C library")
@@ -327,7 +524,7 @@ data.")
 (define-public json-c
   (package
     (name "json-c")
-    (version "0.12.1")
+    (version "0.13")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -335,7 +532,7 @@ data.")
                    version ".tar.gz"))
              (sha256
               (base32
-               "08qibrq29a5v7g23wi5icy6l4fbfw90h9ccps6vq0bcklx8n84ra"))
+               "0kf2594kxcfga6x0mvwzj2qg8pgxhjkibc16ghnw85mdx45ph5h3"))
              (modules '((guix build utils)))
              (snippet
               '(begin
@@ -355,9 +552,75 @@ data.")
     (synopsis "JSON implementation in C")
     (description
      "JSON-C implements a reference counting object model that allows you to
-easily construct JSON objects in C, output them as JSON formatted strings and
-parse JSON formatted strings back into the C representation of JSON objects.")
+easily construct JSON objects in C, output them as JSON-formatted strings and
+parse JSON-formatted strings back into the C representation of JSON objects.
+It aims to conform to RFC 7159.")
     (license l:x11)))
+
+;; TODO: remove this old version when all dependents have been updated.
+(define-public json-c-0.12
+  (package
+    (inherit json-c)
+    (version "0.12.1")
+    (source (origin
+             (method url-fetch)
+             (uri (string-append
+                   "https://s3.amazonaws.com/json-c_releases/releases/json-c-"
+                   version ".tar.gz"))
+             (sha256
+              (base32 "08qibrq29a5v7g23wi5icy6l4fbfw90h9ccps6vq0bcklx8n84ra"))
+             (modules '((guix build utils)))
+             (snippet
+              '(begin
+                 ;; Somehow 'config.h.in' is older than
+                 ;; 'aclocal.m4', which would trigger a rule to
+                 ;; run 'autoheader'.
+                 (set-file-time "config.h.in"
+                                (stat "aclocal.m4"))
+
+                 ;; Don't try to build with -Werror.
+                 (substitute* (find-files "." "Makefile\\.in")
+                   (("-Werror") ""))))))))
+
+(define-public qjson
+  (package
+    (name "qjson")
+    (version "0.9.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/flavio/qjson/archive/"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1m0h4rajj99hv9w4i381a8x81lxiv167lxk10ncvphpkfxs624p8"))))
+    (build-system cmake-build-system)
+    (arguments
+     ;; The tests require a X server
+     `(#:configure-flags '("-DQJSON_BUILD_TESTS=ON"
+                           "-DCMAKE_CXX_FLAGS=-std=gnu++11 -fPIC")
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'disable-broken-test
+           (lambda _
+             ;; FIXME: One test fails.  See
+             ;; https://github.com/flavio/qjson/issues/105
+             (substitute* "tests/scanner/testscanner.cpp"
+               (("QTest::newRow\\(\"too large exponential\"\\)" line)
+                (string-append "//" line)))
+             #t))
+         (add-before 'check 'render-offscreen
+           (lambda _ (setenv "QT_QPA_PLATFORM" "offscreen") #t)))))
+    (inputs
+     `(("qtbase" ,qtbase)))
+    (home-page "http://qjson.sourceforge.net")
+    (synopsis "Library that maps JSON data to QVariant objects")
+    (description "QJson is a Qt-based library that maps JSON data to
+@code{QVariant} objects.  JSON arrays will be mapped to @code{QVariantList}
+instances, while JSON's objects will be mapped to @code{QVariantMap}.")
+    ;; Only version 2.1 of the license
+    (license l:lgpl2.1)))
 
 (define-public krona-tools
   (package
@@ -449,7 +712,7 @@ current version of any major web browser.")
 (define-public rapidjson
   (package
     (name "rapidjson")
-    (version "1.0.2")
+    (version "1.1.0")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -458,13 +721,7 @@ current version of any major web browser.")
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "0rl6s0vg5y1dhh9vfl1lqay3sxf69sxjh0czxrjmasn7ng91wwf3"))
-             (modules '((guix build utils)))
-             (snippet
-              ;; Building with GCC 4.8 with -Werror was fine, but 4.9.3
-              ;; complains in new ways, so turn of -Werror.
-              '(substitute* (find-files "." "^CMakeLists\\.txt$")
-                 (("-Werror") "")))))
+               "13nrpvw8f1wx0ga7svbzld7pgrv8l172nangpipnj7jaf0lysz5z"))))
     (build-system cmake-build-system)
     (arguments
      `(,@(if (string-prefix? "aarch64" (or (%current-target-system)
@@ -513,7 +770,7 @@ parser written in ANSI C and a small validating JSON generator.")
               ;; things from Git.
               (method git-fetch)
               (uri (git-reference
-                    (url "git://git.libwebsockets.org/libwebsockets")
+                    (url "https://github.com/warmcat/libwebsockets.git")
                     (commit (string-append "v" version
                                            "-chrome37-firefox30"))))
               (sha256
@@ -543,7 +800,7 @@ for efficient socket-like bidirectional reliable communication channels.")
 (define-public libpsl
   (package
     (name "libpsl")
-    (version "0.18.0")
+    (version "0.20.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/rockdaboot/libpsl/"
@@ -551,7 +808,7 @@ for efficient socket-like bidirectional reliable communication channels.")
                                   "/libpsl-" version ".tar.gz"))
               (sha256
                (base32
-                "00iids8ldsqnnndmcfjp6kc00lv7fawf5l24mpbdbkh98yazgc4i"))))
+                "17r18y25ka2ck2ykfidbg4a7jpyzmkqwrzplgqjp7mwd2l9rc6cm"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -589,6 +846,7 @@ UTS#46.")
                      ":pserver:anonymous@tidy.cvs.sourceforge.net:/cvsroot/tidy")
                     (module "tidy")
                     (revision "2009-12-23")))
+              (file-name (string-append name "-" version "-checkout"))
               (sha256
                (base32
                 "14dsnmirjcrvwsffqp3as70qr6bbfaig2fv3zvs5g7005jrsbvpb"))
@@ -632,14 +890,13 @@ used to validate and fix HTML data.")
         ;; For the log file, etc.
         "--localstatedir=/var")
        #:phases
-       (alist-cons-before
-        'build 'pre-build
-        (lambda* (#:key inputs #:allow-other-keys #:rest args)
-          ;; Uncommenting the next two lines may assist in debugging
-          ;; (substitute* "docs/man5/Makefile" (("a2x") "a2x -v"))
-          ;; (setenv "XML_DEBUG_CATALOG" "1")
-          #t)
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-before 'build 'pre-build
+           (lambda* (#:key inputs #:allow-other-keys #:rest args)
+             ;; Uncommenting the next two lines may assist in debugging
+             ;; (substitute* "docs/man5/Makefile" (("a2x") "a2x -v"))
+             ;; (setenv "XML_DEBUG_CATALOG" "1")
+             #t)))))
     ;; All of the below are used to generate the documentation
     ;; (Should they be propagated inputs of asciidoc ??)
     (native-inputs `(("asciidoc" ,asciidoc)))
@@ -685,6 +942,35 @@ server).  It was primarily designed to be used by one person or a small group
 of people.")
     (license l:expat)))
 
+(define-public websockify
+  (package
+    (name "websockify")
+    (version "0.8.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/novnc/websockify/archive/v"
+                                  version "/archive.tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1kjq6gibsvbb6zx5gi8hgh7110x62pbwcqkwapf3k7s27w5y907h"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:tests? #f)) ; FIXME: 2 out of 6 tests fail with "ImportError: No module
+     ; named 'stubout'". The tests can be run by replacing the check phase with
+     ; the command "python setup.py nosetests --verbosity=3".
+    (native-inputs `(; Required for tests:
+                     ("python-mox3" ,python-mox3)
+                     ("python-nose" ,python-nose)))
+    (propagated-inputs `(("python-numpy" ,python-numpy)))
+    (home-page "https://github.com/novnc/websockify")
+    (synopsis "WebSockets support for any application/server")
+    (description "Websockify translates WebSockets traffic to normal socket
+traffic.  Websockify accepts the WebSockets handshake, parses it, and then
+begins forwarding traffic between the client and the target in both
+directions.")
+    (license l:lgpl3)))
+
 (define-public wwwoffle
   (package
     (name "wwwoffle")
@@ -703,7 +989,7 @@ of people.")
        #:tests? #f))                         ; no test target
     (native-inputs `(("flex" ,flex)))
     (inputs `(("gnutls" ,gnutls)
-              ("libcrypt", libgcrypt)))
+              ("libcrypt" ,libgcrypt)))
     (home-page "https://www.gedanken.org.uk/software/wwwoffle/")
     (synopsis "Caching web proxy optimized for intermittent internet links")
     (description "WWWOFFLE is a proxy web server that is especially good for
@@ -849,10 +1135,7 @@ from streaming URLs.  It is a command-line wrapper for the libquvi library.")
                            version ".tar.bz2"))
        (sha256
         (base32 "1k47gbgpp52049andr28y28nbwh9m36bbb0g8p0aka3pqlhjv72l"))))
-    (build-system gnu-build-system)
-    (native-inputs
-     `(("scons" ,scons)
-       ("python" ,python-2)))
+    (build-system scons-build-system)
     (propagated-inputs
      `(("apr" ,apr)
        ("apr-util" ,apr-util)
@@ -862,13 +1145,15 @@ from streaming URLs.  It is a command-line wrapper for the libquvi library.")
        ;;("gss" ,gss)
        ("zlib" ,zlib)))
     (arguments
-     `(#:modules ((guix build gnu-build-system)
-                  (guix build utils)
-                  (srfi srfi-1))
+     `(#:scons ,scons-python2
+       #:scons-flags (list (string-append "APR=" (assoc-ref %build-inputs "apr"))
+                           (string-append "APU=" (assoc-ref %build-inputs "apr-util"))
+                           (string-append "OPENSSL=" (assoc-ref %build-inputs "openssl"))
+                           ;; (string-append "GSSAPI=" (assoc-ref %build-inputs "gss"))
+                           (string-append "ZLIB=" (assoc-ref %build-inputs "zlib"))
+                           (string-append "PREFIX=" %output))
        #:phases
-       ;; TODO: Add scons-build-system and use it here.
        (modify-phases %standard-phases
-         (delete 'configure)
          (add-after 'unpack 'scons-propagate-environment
                     (lambda _
                       ;; By design, SCons does not, by default, propagate
@@ -879,21 +1164,6 @@ from streaming URLs.  It is a command-line wrapper for the libquvi library.")
                       (substitute* "SConstruct"
                         (("^env = Environment\\(")
                          "env = Environment(ENV=os.environ, "))))
-         (replace 'build
-                  (lambda* (#:key inputs outputs #:allow-other-keys)
-                    (let ((out      (assoc-ref outputs "out"))
-                          (apr      (assoc-ref inputs "apr"))
-                          (apr-util (assoc-ref inputs "apr-util"))
-                          (openssl  (assoc-ref inputs "openssl"))
-                          ;;(gss      (assoc-ref inputs "gss"))
-                          (zlib     (assoc-ref inputs "zlib")))
-                      (zero? (system* "scons"
-                                      (string-append "APR=" apr)
-                                      (string-append "APU=" apr-util)
-                                      (string-append "OPENSSL=" openssl)
-                                      ;;(string-append "GSSAPI=" gss)
-                                      (string-append "ZLIB=" zlib)
-                                      (string-append "PREFIX=" out))))))
          (add-before 'check 'disable-broken-tests
            (lambda _
              ;; These tests rely on SSL certificates that expired 2017-04-18.
@@ -920,9 +1190,7 @@ from streaming URLs.  It is a command-line wrapper for the libquvi library.")
                   (substitute* "test/test_context.c"
                     (((string-append "SUITE_ADD_TEST\\(suite, " test "\\);")) "")))
                 broken-tests)
-               #t)))
-         (replace 'check   (lambda _ (zero? (system* "scons" "check"))))
-         (replace 'install (lambda _ (zero? (system* "scons" "install")))))))
+               #t))))))
     (home-page "https://serf.apache.org/")
     (synopsis "High-performance asynchronous HTTP client library")
     (description
@@ -937,7 +1205,7 @@ minimum to provide high performance operation.")
 (define-public sassc
   ;; libsass must be statically linked and it isn't included in the sassc
   ;; release tarballs, hence this odd package recipe.
-  (let* ((version "3.2.5")
+  (let* ((version "3.4.5")
          (libsass
           (origin
             (method url-fetch)
@@ -947,7 +1215,7 @@ minimum to provide high performance operation.")
             (file-name (string-append "libsass-" version ".tar.gz"))
             (sha256
              (base32
-              "1x25k6p1s1yzsdpzb7bzh8japilmi1mk3z96q66pycbinj9z9is4")))))
+              "1j22138l5ymqjfj5zan9d2hipa3ahjmifgpjahqy1smlg5sb837x")))))
     (package
       (name "sassc")
       (version version)
@@ -958,11 +1226,16 @@ minimum to provide high performance operation.")
                 (file-name (string-append "sassc-" version ".tar.gz"))
                 (sha256
                  (base32
-                  "1xf3w75w840rj0nx375rxi7mcv1ngqqq8p3zrzjlyx8jfpnldmv5"))))
+                  "1xk4kmmvziz9sal3swpqa10q0s289xjpcz8aggmly8mvxvmngsi9"))))
       (build-system gnu-build-system)
       (arguments
-       `(#:make-flags '("CC=gcc")
+       `(#:make-flags
+         (list "CC=gcc"
+               (string-append "PREFIX=" (assoc-ref %outputs "out")))
          #:test-target "test"
+         ;; FIXME: "make test" rebuilds the application and gets lost in a
+         ;; non-existing directory.
+         #:tests? #f
          #:phases
          (modify-phases %standard-phases
            (delete 'configure)
@@ -972,13 +1245,7 @@ minimum to provide high performance operation.")
                     (begin
                       (setenv "SASS_LIBSASS_PATH"
                               (string-append (getcwd) "/libsass-" ,version))
-                      #t))))
-           (replace 'install ; no install target
-             (lambda* (#:key outputs #:allow-other-keys)
-               (let ((bin (string-append (assoc-ref outputs "out") "/bin")))
-                 (mkdir-p bin)
-                 (copy-file "bin/sassc" (string-append bin "/sassc"))
-                 #t))))))
+                      #t)))))))
       (inputs
        `(("libsass" ,libsass)))
       (synopsis "CSS pre-processor")
@@ -1029,6 +1296,13 @@ to perl-code, for faster generation of access_log lines.")
         (base32
          "02afhlrdq5hh5g8b32fa79fqq5i76qzwfqqvfi9zi57h31szl536"))))
     (build-system perl-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'set-env
+           ;; Fix the build with Perl 5.26.0. Try removing this phase for later
+           ;; versions of perl-authen-sasl.
+           (lambda _ (setenv "PERL_USE_UNSAFE_INC" "1") #t)))))
     (propagated-inputs
      `(("perl-digest-hmac" ,perl-digest-hmac)
        ("perl-gssapi" ,perl-gssapi)))
@@ -1052,7 +1326,8 @@ to perl-code, for faster generation of access_log lines.")
          "0j1rrld13cjk7ks92b5hv3xw4rfm2lvmksb4rlzd8mx0a0wj0rc5"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-http-request-ascgi" ,perl-http-request-ascgi)))
+     `(("perl-http-request-ascgi" ,perl-http-request-ascgi)
+       ("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-data-visitor" ,perl-data-visitor)
@@ -1076,7 +1351,8 @@ action, which will forward to the first available view.")
                 "1mpa64p61f3dp24xnhdraswch4sqj5vyv1iivcvvh5h0xi0haiy0"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-test-requires" ,perl-test-requires)))
+     `(("perl-test-requires" ,perl-test-requires)
+       ("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-class-inspector" ,perl-class-inspector)
@@ -1118,6 +1394,7 @@ regular method.")
        ("perl-catalyst-plugin-session-state-cookie"
         ,perl-catalyst-plugin-session-state-cookie)
        ("perl-dbd-sqlite" ,perl-dbd-sqlite)
+       ("perl-module-install" ,perl-module-install)
        ("perl-test-www-mechanize-catalyst" ,perl-test-www-mechanize-catalyst)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
@@ -1147,6 +1424,8 @@ DBIx::Class.")
         (base32
          "0wfj4vnn2cvk6jh62amwlg050p37fcwdgrn9amcz24z6w4qgjqvz"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-moose" ,perl-moose)))
@@ -1245,6 +1524,7 @@ when the dispatch type is first seen in your application.")
   (build-system perl-build-system)
   (native-inputs
    `(("perl-dbd-sqlite" ,perl-dbd-sqlite)
+     ("perl-module-install" ,perl-module-install)
      ("perl-test-exception" ,perl-test-exception)
      ("perl-test-requires" ,perl-test-requires)))
   (propagated-inputs
@@ -1313,6 +1593,8 @@ for you.  It will work even with Catalyst debug logging turned off.")
         (base32
          "0v6hb4r1wv3djrnqvnjcn3xx1scgqzx8nyjdg9lfc1ybvamrl0rn"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-plugin-session" ,perl-catalyst-plugin-session)
        ("perl-catalyst-runtime" ,perl-catalyst-runtime)
@@ -1348,7 +1630,8 @@ system authorises them to do).")
          "0l83lkwmq0lngwh8b1rv3r719pn8w1gdbyhjqm74rnd0wbjl8h7f"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-test-exception" ,perl-test-exception)))
+     `(("perl-module-install" ,perl-module-install)
+       ("perl-test-exception" ,perl-test-exception)))
     (propagated-inputs
      `(("perl-catalyst-plugin-authentication"
         ,perl-catalyst-plugin-authentication)
@@ -1401,7 +1684,8 @@ Catalyst.")
          "19j7p4v7mbx6wrmpvmrnd974apx7hdl2s095ga3b9zcbdrl77h5q"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-path-class" ,perl-path-class)))
+     `(("perl-path-class" ,perl-path-class)
+       ("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-config-any" ,perl-config-any)
@@ -1428,7 +1712,8 @@ formats.")
          "171vi9xcl775scjaw4fcfdmqvz0rb1nr0xxg2gb3ng6bjzpslhgv"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-test-deep" ,perl-test-deep)
+     `(("perl-module-install" ,perl-module-install)
+       ("perl-test-deep" ,perl-test-deep)
        ("perl-test-exception" ,perl-test-exception)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
@@ -1459,6 +1744,8 @@ management in web applications together: the state, and the store.")
         (base32
          "1rvxbfnpf9x2pc2zgpazlcgdlr2dijmxgmcs0m5nazs0w6xikssb"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-plugin-session" ,perl-catalyst-plugin-session)
        ("perl-catalyst-runtime" ,perl-catalyst-runtime)
@@ -1517,6 +1804,8 @@ memory interprocess cache.  It is based on Cache::FastMmap.")
         (base32
          "1b2ksz74cpigxqzf63rddar3vfmnbpwpdcbs11v0ml89pb8ar79j"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-devel-stacktrace" ,perl-devel-stacktrace)
@@ -1542,6 +1831,8 @@ number, file name, and code context surrounding the line number.")
         (base32
          "1h8f12bhzh0ssq9gs8r9g3hqn8zn2k0q944vc1vm8j81bns16msy"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-mime-types" ,perl-mime-types)
@@ -1562,7 +1853,7 @@ MIME type directly to the browser, without being processed through Catalyst.")
 (define-public perl-catalyst-runtime
   (package
     (name "perl-catalyst-runtime")
-    (version "5.90082")
+    (version "5.90115")
     (source
      (origin
        (method url-fetch)
@@ -1570,10 +1861,11 @@ MIME type directly to the browser, without being processed through Catalyst.")
                            "Catalyst-Runtime-" version ".tar.gz"))
        (sha256
         (base32
-         "1gs70nq4rikpq6siwds9disb1z03vwjzf979xi9kf7saa1drfncs"))))
+         "0kh3ng6pjpxmndq9vrn515f70x7h44ish5bsgjwj4pjvchcyivzm"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-test-fatal" ,perl-test-fatal)))
+     `(("perl-module-install" ,perl-module-install)
+       ("perl-test-fatal" ,perl-test-fatal)))
     (propagated-inputs
      `(("perl-cgi-simple" ,perl-cgi-simple)
        ("perl-cgi-struct" ,perl-cgi-struct)
@@ -1641,7 +1933,8 @@ run an application on the web, either by doing them itself, or by letting you
     (native-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-catalystx-roleapplicator" ,perl-catalystx-roleapplicator)
-       ("perl-http-message" ,perl-http-message)))
+       ("perl-http-message" ,perl-http-message)
+       ("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-moose" ,perl-moose)
        ("perl-namespace-autoclean" ,perl-namespace-autoclean)
@@ -1670,6 +1963,7 @@ replaced with the contents of the X-Request-Base header.")
     (build-system perl-build-system)
     (native-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
+       ("perl-module-install" ,perl-module-install)
        ("perl-test-simple" ,perl-test-simple)
        ("perl-test-www-mechanize-catalyst" ,perl-test-www-mechanize-catalyst)
        ("perl-text-csv" ,perl-text-csv)
@@ -1695,7 +1989,8 @@ table based report in a variety of formats (CSV, HTML, etc.).")
          "0x943j1n2r0zqanyzdrs1xsnn8ayn2wqskn7h144xcqa6v6gcisl"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-yaml" ,perl-yaml)))
+     `(("perl-module-install" ,perl-module-install)
+       ("perl-yaml" ,perl-yaml)))
     (inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-json-maybexs" ,perl-json-maybexs)
@@ -1804,7 +2099,8 @@ application classes.")
          "0h02mpkc4cmi3jpvcd7iw7xyzx55bqvvl1qkf967gqkvpklm0qx5"))))
     (build-system perl-build-system)
     (native-inputs
-     `(("perl-test-www-mechanize-catalyst" ,perl-test-www-mechanize-catalyst)))
+     `(("perl-module-install" ,perl-module-install)
+       ("perl-test-www-mechanize-catalyst" ,perl-test-www-mechanize-catalyst)))
     (propagated-inputs
      `(("perl-catalyst-runtime" ,perl-catalyst-runtime)
        ("perl-moose" ,perl-moose)
@@ -1842,6 +2138,33 @@ processing and preparing HTTP requests and responses.  Major features include
 processing form submissions, file uploads, reading and writing cookies, query
 string generation and manipulation, and processing and preparing HTTP
 headers.")
+    (license l:perl-license)))
+
+(define-public perl-cgi-session
+  (package
+    (name "perl-cgi-session")
+    (version "4.48")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://cpan/authors/id/M/MA/MARKSTOS/CGI-Session-"
+             version
+             ".tar.gz"))
+       (sha256
+        (base32
+         "1xsl2pz1jrh127pq0b01yffnj4mnp9nvkp88h5mndrscq9hn8xa6"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-build" ,perl-module-build)))
+    (inputs `(("perl-cgi" ,perl-cgi)))
+    (home-page
+     "http://search.cpan.org/dist/CGI-Session")
+    (synopsis
+     "Persistent session data in CGI applications")
+    (description
+     "@code{CGI::Session} provides modular session management system across
+HTTP requests.")
     (license l:perl-license)))
 
 (define-public perl-cgi-simple
@@ -1973,7 +2296,11 @@ with Encode::decode(locale => $string).")
     (build-system perl-build-system)
     (arguments
      ;; Tests expect to query files at http://stupidfool.org/perl/feeds/
-     `(#:tests? #f))
+     `(#:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'set-env
+           (lambda _ (setenv "PERL_USE_UNSAFE_INC" "1"))))))
     (inputs
      `(("perl-class-errorhandler" ,perl-class-errorhandler)
        ("perl-html-parser" ,perl-html-parser)
@@ -2112,10 +2439,41 @@ composed of HTML::Element style components.")
 <form> ... </form> instance.")
     (license l:perl-license)))
 
+(define-public perl-html-scrubber
+  (package
+    (name "perl-html-scrubber")
+    (version "0.15")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://cpan/authors/id/N/NI/NIGELM/HTML-Scrubber-"
+             version
+             ".tar.gz"))
+       (sha256
+        (base32
+         "1m1f8gm2jry42zxja05dxp2ck7y66m7i8vc38nj6hccnwlby6cvi"))))
+    (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-build" ,perl-module-build)
+       ("perl-test-cpan-meta" ,perl-test-cpan-meta)
+       ("perl-test-eol" ,perl-test-eol)
+       ("perl-test-memory-cycle" ,perl-test-memory-cycle)
+       ("perl-test-notabs" ,perl-test-notabs)))
+    (inputs
+     `(("perl-html-parser" ,perl-html-parser)))
+    (home-page
+     "http://search.cpan.org/dist/HTML-Scrubber")
+    (synopsis
+     "Perl extension for scrubbing/sanitizing html")
+    (description
+     "@code{HTML::Scrubber} Perl extension for scrubbing/sanitizing HTML.")
+    (license l:perl-license)))
+
 (define-public perl-html-lint
   (package
     (name "perl-html-lint")
-    (version "2.20")
+    (version "2.26")
     (source
      (origin
        (method url-fetch)
@@ -2123,7 +2481,7 @@ composed of HTML::Element style components.")
                            "HTML-Lint-" version ".tar.gz"))
        (sha256
         (base32
-         "15vrqjnlb0f8rib1kqdf4islqy6i33h08wy7b1bkgd550p7lfjwk"))))
+         "02vi1s4sw3hjnndxd6s91cp54iw5pg8n5kl9v0109dfxzn1n9bnl"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-html-parser" ,perl-html-parser)
@@ -2161,15 +2519,15 @@ in tables within an HTML document, either as text or encoded element trees.")
 (define-public perl-html-tree
   (package
     (name "perl-html-tree")
-    (version "5.03")
+    (version "5.07")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "mirror://cpan/authors/id/C/CJ/CJM/"
+       (uri (string-append "mirror://cpan/authors/id/K/KE/KENTNL/"
                            "HTML-Tree-" version ".tar.gz"))
        (sha256
         (base32
-         "13qlqbpixw470gnck0xgny8hyjj576m8y24bba2p9ai2lvy76vbx"))))
+         "1gyvm4qlwm9y6hczkpnrdfl303ggbybr0nqxdjw09hii8yw4sdzh"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-module-build" ,perl-module-build)
@@ -2310,15 +2668,15 @@ jar in conformance with RFC 6265 <http://tools.ietf.org/html/rfc6265>.")
 (define-public perl-http-cookies
   (package
     (name "perl-http-cookies")
-    (version "6.01")
+    (version "6.04")
     (source (origin
              (method url-fetch)
              (uri (string-append
-                   "mirror://cpan/authors/id/G/GA/GAAS/HTTP-Cookies-"
+                   "mirror://cpan/authors/id/O/OA/OALDERS/HTTP-Cookies-"
                    version ".tar.gz"))
              (sha256
               (base32
-               "087bqmg22dg3vj7gssh3pcsh9y1scimkbl5h1kc8jqyfhgisvlzm"))))
+               "1m0kxcirbvbkrm2c59p1bkbvzlcdymg8fdpa7wlxijlx0xwz1iqc"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-http-message" ,perl-http-message)))
@@ -2462,6 +2820,8 @@ supported.")
         (base32
          "02d84xq1mm53c7jl33qyb7v5w4372vydp74z6qj0vc96wcrnhkkr"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (home-page "http://search.cpan.org/dist/HTTP-Parser-XS")
     (synopsis "Fast HTTP request parser")
     (description "HTTP::Parser::XS is a fast, primitive HTTP request/response
@@ -2493,7 +2853,7 @@ environment from an HTTP::Request.")
 (define-public perl-http-server-simple
   (package
     (name "perl-http-server-simple")
-    (version "0.51")
+    (version "0.52")
     (source
      (origin
        (method url-fetch)
@@ -2501,14 +2861,23 @@ environment from an HTTP::Request.")
                            "HTTP-Server-Simple-" version ".tar.gz"))
        (sha256
         (base32
-         "1yvd2g57z2kq00q5i3zzfi15k98qgbif3vghjsda6v612agmrp5r"))))
+         "0k6bg7k6mjixfzxdkkdrhqvaqmdhjszx0zsk8g0bimiby6j9z4yq"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-cgi" ,perl-cgi)))
     (arguments
      ;; See the discussion of a related tests issue at
      ;; https://lists.gnu.org/archive/html/guix-devel/2015-01/msg00346.html
-     `(#:tests? #f))
+     `(#:tests? #f
+
+       #:phases (modify-phases %standard-phases
+                   (add-before 'configure 'set-search-path
+                     (lambda _
+                       ;; Work around "dotless @INC" build failure.
+                       (setenv "PERL5LIB"
+                               (string-append (getcwd) ":"
+                                              (getenv "PERL5LIB")))
+                       #t)))))
     (home-page "http://search.cpan.org/dist/HTTP-Server-Simple")
     (synopsis "Lightweight HTTP server")
     (description "HTTP::Server::Simple is a simple standalone HTTP daemon with
@@ -2566,7 +2935,7 @@ algorithm specified in section 8.2.2.1 of the draft standard.")
 (define-public perl-io-socket-ip
   (package
     (name "perl-io-socket-ip")
-    (version "0.36")
+    (version "0.39")
     (source
      (origin
        (method url-fetch)
@@ -2574,7 +2943,7 @@ algorithm specified in section 8.2.2.1 of the draft standard.")
                            "IO-Socket-IP-" version ".tar.gz"))
        (sha256
         (base32
-         "0ky20hmln6waipzqikizyw04vpszf70fgpshz7ib8zv8480ri456"))))
+         "15kv5g1yb4a345sk3r5wfr99f868lhfqkddzsgpqddvccfkhv58i"))))
     (build-system perl-build-system)
     (native-inputs `(("perl-module-build" ,perl-module-build)))
     (home-page "http://search.cpan.org/dist/IO-Socket-IP")
@@ -2646,6 +3015,35 @@ and functions that allow you to write WWW clients.  The library also
 contains modules that are of more general use and even classes that
 help you implement simple HTTP servers.")
     (home-page "http://search.cpan.org/dist/libwww-perl/")))
+
+(define-public perl-lwp-online
+  (package
+    (name "perl-lwp-online")
+    (version "1.08")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://cpan/authors/id/A/AD/ADAMK/LWP-Online-"
+             version ".tar.gz"))
+       (sha256
+        (base32
+         "176f6vbk1018i0y7xj9d406ndbjgwzan2j9nihxnsahzg2vr2vz2"))))
+    (build-system perl-build-system)
+    (propagated-inputs
+     `(("perl-libwww" ,perl-libwww)
+       ("perl-uri" ,perl-uri)))
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
+    (home-page "http://search.cpan.org/dist/LWP-Online/")
+    (synopsis "Checks whether your process has access to the web")
+    (description "This module attempts to answer, as accurately as it can, one
+of the nastiest technical questions there is: am I on the internet?
+
+A host of networking and security issues make this problem very difficult.
+There are firewalls, proxies (both well behaved and badly behaved).  We might
+not have DNS.  We might not have a network card at all!")
+    (license l:perl-license)))
 
 (define-public perl-lwp-mediatypes
   (package
@@ -2788,7 +3186,7 @@ HTTP/1.1.")
 (define-public perl-net-server
   (package
     (name "perl-net-server")
-    (version "2.008")
+    (version "2.009")
     (source
      (origin
        (method url-fetch)
@@ -2796,7 +3194,7 @@ HTTP/1.1.")
                            "Net-Server-" version ".tar.gz"))
        (sha256
         (base32
-         "182gfikn7r40kmm3d35m2qc6r8g0y1j8gxbn9ffaawf8xmm0a889"))))
+         "0gw1k9gcw7habbkxvsfa2gz34brlbwcidk6khgsf1qjm0dbccrw2"))))
     (build-system perl-build-system)
     (home-page "http://search.cpan.org/dist/Net-Server")
     (synopsis "Extensible Perl server engine")
@@ -2815,7 +3213,7 @@ or to multiple server ports.")
 (define-public perl-net-smtp-ssl
   (package
     (name "perl-net-smtp-ssl")
-    (version "1.03")
+    (version "1.04")
     (source
      (origin
        (method url-fetch)
@@ -2823,7 +3221,7 @@ or to multiple server ports.")
                            "Net-SMTP-SSL-" version ".tar.gz"))
        (sha256
         (base32
-         "05y94mb1vdw32mvwb0cp2h4ggh32f8j8nwwfjb8kjwxvfkfhyp9h"))))
+         "001a6dcfahf7kkyirqkc8jd4fh4fkal7n7vm9c4dblqrvmdc8abv"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-io-socket-ssl" ,perl-io-socket-ssl)))
@@ -2958,6 +3356,8 @@ required.")
         (base32
          "1zmsccdy6wr5hxzj07r1nsmaymyibk87p95z0wzknjw10lwmqs9f"))))
     (build-system perl-build-system)
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-plack" ,perl-plack)))
     (home-page "http://search.cpan.org/dist/Plack-Middleware-ReverseProxy")
@@ -3013,7 +3413,7 @@ either mocked HTTP or a locally spawned server.")
 (define-public perl-test-www-mechanize
   (package
     (name "perl-test-www-mechanize")
-    (version "1.44")
+    (version "1.48")
     (source
      (origin
        (method url-fetch)
@@ -3021,10 +3421,12 @@ either mocked HTTP or a locally spawned server.")
                            "Test-WWW-Mechanize-" version ".tar.gz"))
        (sha256
         (base32
-         "062pj242vsc73bw11jqpap92ax9wzc9f2m4xhyp1wzrwkfchpl2q"))))
+         "1d11fx9155d5v17d5w7q3kj37b01l8yj2yb0g6b0z1vh938rrlcr"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-test-exception" ,perl-test-exception)))
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (propagated-inputs
      `(("perl-carp-assert-more" ,perl-carp-assert-more)
        ("perl-html-form" ,perl-html-form)
@@ -3057,6 +3459,7 @@ WWW::Mechanize that incorporates features for web application testing.")
      `(("perl-catalyst-plugin-session" ,perl-catalyst-plugin-session)
        ("perl-catalyst-plugin-session-state-cookie"
         ,perl-catalyst-plugin-session-state-cookie)
+       ("perl-module-install" ,perl-module-install)
        ("perl-test-exception" ,perl-test-exception)
        ("perl-test-pod" ,perl-test-pod)
        ("perl-test-utf8" ,perl-test-utf8)))
@@ -3078,15 +3481,15 @@ testing of Catalyst applications without needing to start up a web server.")
 (define-public perl-test-www-mechanize-psgi
   (package
     (name "perl-test-www-mechanize-psgi")
-    (version "0.35")
+    (version "0.37")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "mirror://cpan/authors/id/L/LB/LBROCARD/"
+       (uri (string-append "mirror://cpan/authors/id/O/OA/OALDERS/"
                            "Test-WWW-Mechanize-PSGI-" version ".tar.gz"))
        (sha256
         (base32
-         "1hih8s49zf38bisvhnhzrrj0zwyiivkrbs7nmmdqm1qqy27wv7pc"))))
+         "0c9a9w0d2whadnrich7f09w37fgq5hws4gq04zgz4jsdjcvr3qv2"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-test-pod" ,perl-test-pod)))
@@ -3105,15 +3508,18 @@ applications.")
 (define-public perl-uri
   (package
     (name "perl-uri")
-    (version "1.71")
+    (version "1.73")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://cpan/authors/id/E/ET/ETHER/"
                                  "URI-" version ".tar.gz"))
              (sha256
               (base32
-               "05a1ck1bhvqkkk690xhsxf7276dnagk96qkh2jy4prrrgw6wm3lw"))))
+               "04z4xwiryrbxxi48bwbkgq9q9pwfgqry3wp0ramcrwv3dx5ap9yc"))))
     (build-system perl-build-system)
+    (native-inputs
+     ;; For tests.
+     `(("perl-test-needs" ,perl-test-needs)))
     (license l:perl-license)
     (synopsis "Perl Uniform Resource Identifiers (absolute and relative)")
     (description
@@ -3150,7 +3556,7 @@ and time-saving way.")
 (define-public perl-uri-find
   (package
     (name "perl-uri-find")
-    (version "20140709")
+    (version "20160806")
     (source
      (origin
        (method url-fetch)
@@ -3158,7 +3564,7 @@ and time-saving way.")
                            "URI-Find-" version ".tar.gz"))
        (sha256
         (base32
-         "0czc4h182s7sx3k123m7qlg7yybnwxgh369hap3c3b6xgrglrhy0"))))
+         "1mk3jv8x0mcq3ajrn9garnxd0jc7sw4pkwqi88r5apqvlljs84z2"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-module-build" ,perl-module-build)))
@@ -3210,6 +3616,7 @@ methods for WebSocket URIs as it does for HTTP URIs.")
     (native-inputs
      `(("perl-test-pod-coverage" ,perl-test-pod-coverage)
        ("perl-test-pod" ,perl-test-pod)
+       ("perl-module-install" ,perl-module-install)
        ("perl-json" ,perl-json)))
     (home-page "http://search.cpan.org/dist/URI-Template")
     (synopsis "Object for handling URI templates")
@@ -3232,7 +3639,18 @@ RFC 6570.")
                 "1fmp9aib1kaps9vhs4dwxn7b15kgnlz9f714bxvqsd1j1q8spzsj"))))
     (build-system perl-build-system)
     (arguments
-     '(#:tests? #f))                        ;XXX: tests require network access
+     '(#:tests? #f                          ;XXX: tests require network access
+
+       #:phases (modify-phases %standard-phases
+                   (add-before 'configure 'set-search-path
+                     (lambda _
+                       ;; Work around "dotless @INC" build failure.
+                       (setenv "PERL5LIB"
+                               (string-append (getcwd) ":"
+                                              (getenv "PERL5LIB")))
+                       #t)))))
+    (native-inputs
+     `(("perl-module-install" ,perl-module-install)))
     (inputs `(("curl" ,curl)))
     (synopsis "Perl extension interface for libcurl")
     (description
@@ -3244,21 +3662,26 @@ library.")
 (define-public perl-www-mechanize
   (package
     (name "perl-www-mechanize")
-    (version "1.73")
+    (version "1.88")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "mirror://cpan/authors/id/E/ET/ETHER/"
+       (uri (string-append "mirror://cpan/authors/id/O/OA/OALDERS/"
                            "WWW-Mechanize-" version ".tar.gz"))
        (sha256
         (base32
-         "1zrw8aadhwy48q51x2z2rqlkwf17bya4j4h3hy89mw783j96rmg9"))))
+         "0yd8a1zsfpbv5wr79x3iqmik9gvcd10iam9dfrdan4dri9vpxn9n"))))
     (build-system perl-build-system)
     (native-inputs                      ;only for tests
-     `(("perl-cgi" ,perl-cgi)))
+     `(("perl-cgi" ,perl-cgi)
+       ("perl-test-deep" ,perl-test-deep)
+       ("perl-test-fatal" ,perl-test-fatal)
+       ("perl-test-output" ,perl-test-output)
+       ("perl-test-warnings" ,perl-test-warnings)))
     (propagated-inputs
      `(("perl-html-form" ,perl-html-form)
        ("perl-html-parser" ,perl-html-parser)
+       ("perl-html-tree" ,perl-html-tree)
        ("perl-http-message" ,perl-http-message)
        ("perl-http-server-simple" ,perl-http-server-simple)
        ("perl-libwww" ,perl-libwww)
@@ -3282,8 +3705,18 @@ web browsing, used for automating interaction with websites.")
                (base32
                 "1yxplx1q1qk2fvnzqrbk01lz26fy1lyhay51a3ky7q3jgh9p01rb"))))
     (build-system perl-build-system)
-    (arguments
-     `(#:tests? #f)) ; Tests require further modules to be packaged
+    (native-inputs
+     `(("perl-class-errorhandler" ,perl-class-errorhandler)
+       ("perl-datetime" ,perl-datetime)
+       ("perl-datetime-format-mail" ,perl-datetime-format-mail)
+       ("perl-datetime-format-w3cdtf" ,perl-datetime-format-w3cdtf)
+       ("perl-feed-find" ,perl-feed-find)
+       ("perl-module-install" ,perl-module-install)
+       ("perl-module-pluggable" ,perl-module-pluggable)
+       ("perl-uri-fetch" ,perl-uri-fetch)
+       ("perl-test-simple" ,perl-test-simple)
+       ("perl-xml-atom" ,perl-xml-atom)
+       ("perl-xml-rss" ,perl-xml-rss)))
     (inputs
      `(("perl-data-page" ,perl-data-page)
        ("perl-libwww" ,perl-libwww)
@@ -3352,15 +3785,19 @@ CDF, Atom 0.3, and Atom 1.0 feeds.")
 (define-public r-httpuv
   (package
     (name "r-httpuv")
-    (version "1.3.3")
+    (version "1.4.1")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "httpuv" version))
               (sha256
                (base32
-                "0aibs0hf38n8f6xxx4g2i2lzd6l5h92m5pscx2z834sdvhnladxv"))))
+                "1pndv0h870ygibk0bmg9ayzkls60jqscrsyk39k29gy2pvm9ha5y"))))
     (build-system r-build-system)
     (native-inputs `(("r-rcpp" ,r-rcpp)))
+    (propagated-inputs
+     `(("r-bh" ,r-bh)
+       ("r-later" ,r-later)
+       ("r-promises" ,r-promises)))
     (home-page "https://github.com/rstudio/httpuv")
     (synopsis "HTTP and WebSocket server library for R")
     (description
@@ -3376,13 +3813,13 @@ particularly easy to create complete web applications using httpuv alone.")
 (define-public r-jsonlite
   (package
     (name "r-jsonlite")
-    (version "1.4")
+    (version "1.5")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "jsonlite" version))
               (sha256
                (base32
-                "11rgkjp5qir79niad0aizjxvjzyvkl6l9nsrv3ikv446vllmrasn"))))
+                "00lfg464jhf7k01bal9pcjvbdf5cxk6xi2h46hccp1x3h883g434"))))
     (build-system r-build-system)
     (home-page "http://arxiv.org/abs/1403.2805")
     (synopsis "Robust, high performance JSON parser and generator for R")
@@ -3400,18 +3837,19 @@ in systems and applications.")
 (define-public r-servr
   (package
     (name "r-servr")
-    (version "0.5")
+    (version "0.9")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "servr" version))
               (sha256
                (base32
-                "1ixcl9xjc1k9zvl6v6bsw4kpramr1h53b4s46qg8kahkqy6kqd8a"))))
+                "0bs0i5mjfzxfshqz8i30nhn7kvgwly4fqn5bfq6dqfdrn7biai2x"))))
     (build-system r-build-system)
     (propagated-inputs
      `(("r-httpuv" ,r-httpuv)
        ("r-jsonlite" ,r-jsonlite)
-       ("r-mime" ,r-mime)))
+       ("r-mime" ,r-mime)
+       ("r-xfun" ,r-xfun)))
     (native-inputs
      `(("r-rcpp" ,r-rcpp)))
     (home-page "https://github.com/yihui/servr")
@@ -3425,13 +3863,13 @@ directory.")
 (define-public r-htmltools
   (package
     (name "r-htmltools")
-    (version "0.3.5")
+    (version "0.3.6")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "htmltools" version))
               (sha256
                (base32
-                "0j9bf80grd6gwh7116m575pycv87c0wcwkxsz3gzzfs4aw3pxyr9"))))
+                "18k8r1s8sz1jy7dkz35n69wj20xhmllr53xmwb4pdzf2z61gpbs4"))))
     (build-system r-build-system)
     (arguments
      `(#:phases
@@ -3450,7 +3888,7 @@ directory.")
     (propagated-inputs
      `(("r-digest" ,r-digest)
        ("r-rcpp" ,r-rcpp)))
-    (home-page "http://cran.r-project.org/web/packages/htmltools")
+    (home-page "https://cran.r-project.org/web/packages/htmltools")
     (synopsis "R tools for HTML")
     (description
      "This package provides tools for HTML generation and output in R.")
@@ -3459,13 +3897,13 @@ directory.")
 (define-public r-htmlwidgets
   (package
     (name "r-htmlwidgets")
-    (version "0.8")
+    (version "1.2")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "htmlwidgets" version))
               (sha256
                (base32
-                "1df3pwl34rvdbr9sgr5h27q9bmqpckvpwq4frl3d1v614y3vfclj"))))
+                "04c4d0mfcy3dkdlbxnaccpdgxvyxfdwfmmh5djim6v9hyg0j2z8s"))))
     (build-system r-build-system)
     (propagated-inputs
      `(("r-htmltools" ,r-htmltools)
@@ -3482,21 +3920,23 @@ applications.")
 (define-public r-htmltable
   (package
     (name "r-htmltable")
-    (version "1.9")
+    (version "1.11.2")
     (source
      (origin
        (method url-fetch)
        (uri (cran-uri "htmlTable" version))
        (sha256
         (base32
-         "0ciic1f4iczq14j81fg7kxibn65sy8z1zxkvk1yxnxxg6dzplj2v"))))
+         "1lbpi0kkk8b41w10scmlf27dg5azcv51a4q3p5bpqyphrnqp78k4"))))
     (properties `((upstream-name . "htmlTable")))
     (build-system r-build-system)
     (propagated-inputs
      `(("r-checkmate" ,r-checkmate)
+       ("r-htmltools" ,r-htmltools)
        ("r-htmlwidgets" ,r-htmlwidgets)
        ("r-knitr" ,r-knitr)
        ("r-magrittr" ,r-magrittr)
+       ("r-rstudioapi" ,r-rstudioapi)
        ("r-stringr" ,r-stringr)))
     (home-page "http://gforge.se/packages/")
     (synopsis "Advanced tables for Markdown/HTML")
@@ -3513,13 +3953,13 @@ LaTeX.")
 (define-public r-curl
   (package
     (name "r-curl")
-    (version "2.5")
+    (version "3.2")
     (source (origin
               (method url-fetch)
               (uri (cran-uri "curl" version))
               (sha256
                (base32
-                "09p86i5f88gx1i7cidm1ka56g0jjkghqfam96p1jhwlh2fv6nrks"))))
+                "15hmy71310hnf9yqvz0icx4cq939gv6iqaifzlfdh2ia8akawdhn"))))
     (build-system r-build-system)
     (arguments
      `(#:phases
@@ -3561,7 +4001,7 @@ callback or connection interfaces.")
         (base32
          "0arjsz854rfkfqhgvpqbm9lfni97dcjs66isdsfvwfd2wz932dbb"))))
     (build-system r-build-system)
-    (home-page "http://cran.r-project.org/web/packages/hwriter")
+    (home-page "https://cran.r-project.org/web/packages/hwriter")
     (synopsis "Output R objects in HTML format")
     (description
      "This package provides easy-to-use and versatile functions to output R
@@ -3580,7 +4020,7 @@ objects in HTML format.")
         (base32
          "1vzjyvf57k1fjizlk28rby65y5lsww5qnfvgnhln74qwda7hvl3p"))))
     (build-system r-build-system)
-    (home-page "http://cran.r-project.org/web/packages/rjson")
+    (home-page "https://cran.r-project.org/web/packages/rjson")
     (synopsis "JSON library for R")
     (description
      "This package provides functions to convert R objects into JSON objects
@@ -3621,14 +4061,14 @@ a pure C99 library.")
 (define-public uwsgi
   (package
     (name "uwsgi")
-    (version "2.0.12")
+    (version "2.0.17")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://projects.unbit.it/downloads/uwsgi-"
+              (uri (string-append "https://projects.unbit.it/downloads/uwsgi-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "02g46dnw5j1iw8fsq392bxbk8d21b9pdgb3ypcinv3b4jzdm2srh"))))
+                "1wlbaairsmhp6bx5wv282q9pgh6w7w6yrb8vxjznfaxrinsfkhix"))))
     (build-system gnu-build-system)
     (outputs '("out" "python"))
     (arguments
@@ -3729,7 +4169,7 @@ you'd expect.")
 (define-public uhttpmock
   (package
     (name "uhttpmock")
-    (version "0.5.0")
+    (version "0.5.1")
     (source
      (origin
        (method url-fetch)
@@ -3737,7 +4177,7 @@ you'd expect.")
                            name "-" version ".tar.xz"))
        (sha256
         (base32
-         "0vniyx341pnnmvxmqacc49k0g7h9a9nhknfslidrqmxj5lm1ini6"))))
+         "163py4klka423x7li2b685gmg3a6hjf074mlff2ajhmi3l0lm8x6"))))
     (build-system glib-or-gtk-build-system)
     (arguments
      `(#:phases
@@ -3803,7 +4243,7 @@ tools they trust (e.g. wget).")
 (define netsurf-buildsystem
   (package
     (name "netsurf-buildsystem")
-    (version "1.5")
+    (version "1.6")
     (source
      (origin
        (method url-fetch)
@@ -3811,7 +4251,7 @@ tools they trust (e.g. wget).")
                            "buildsystem-" version ".tar.gz"))
        (sha256
         (base32
-         "0wdgvasrjik1dgvvpqbppbpyfzkqd1v45x3g9rq7p67n773azinv"))))
+         "0p5k708lcq8dip9xxck6hml32bjrbyipprm22bbsvdnsc0pqm71x"))))
     (build-system gnu-build-system)
     (inputs `(("perl" ,perl)))
     (arguments
@@ -3867,7 +4307,7 @@ C.  It is developed as part of the NetSurf project.")
 (define-public hubbub
   (package
     (name "hubbub")
-    (version "0.3.3")
+    (version "0.3.4")
     (source
      (origin
        (method url-fetch)
@@ -3875,14 +4315,14 @@ C.  It is developed as part of the NetSurf project.")
                            "lib" name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "101781iw32p47386fxqr01nrkywi12w17ajh02k2vlga4z8zyv86"))
+         "1shi4hv8drn9zy8f2f6yhnz2dqnpg5jkybvqhzggfjx1q35fbxz3"))
        (patches (search-patches "hubbub-sort-entities.patch"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
        ("pkg-config" ,pkg-config)
        ("doxygen" ,doxygen)
-       ("json-c" ,json-c)
+       ("json-c" ,json-c-0.12)      ; check whether json-c-0.12 can be removed
        ("perl" ,perl)))
     (propagated-inputs
      `(("libparserutils" ,libparserutils))) ;for libhubbub.pc
@@ -3895,10 +4335,87 @@ parse both valid and invalid web content.  It is developed as part of the
 NetSurf project.")
     (license l:expat)))
 
+(define-public ikiwiki
+  (package
+    (name "ikiwiki")
+    (version "3.20170111")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://snapshot.debian.org/archive/debian/"
+                           "20170111T215449Z/pool/main/i/ikiwiki/ikiwiki_"
+                           version ".tar.xz"))
+       (sha256
+        (base32
+         "00d7yzv426fvqbhvzyafddv7fa6b4j2647b0wi371wd5yjj9j3sz"))))
+    (build-system perl-build-system)
+    (arguments
+     `(;; Image tests fail
+       ;;
+       ;; Test Summary Report
+       ;; -------------------
+       ;; t/img.t                      (Wstat: 2304 Tests: 62 Failed: 9)
+       ;;   Failed tests:  21, 27-28, 30-35
+       ;;   Non-zero exit status: 9
+       #:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'include-PERL5LIB-in-wrapper
+           (lambda _
+             (substitute* "IkiWiki/Wrapper.pm"
+               (("^@wrapper\\_hooks")
+                (string-append
+                 "@wrapper_hooks\n"
+                 "        addenv(\"PERL5LIB\", \""
+                 (getenv "PERL5LIB")
+                 "\");")))))
+         (add-after 'install 'wrap-programs
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out  (assoc-ref outputs "out"))
+                    (bin  (string-append out "/bin/"))
+                    (path (getenv "PERL5LIB")))
+               (for-each (lambda (file)
+                           (wrap-program file
+                             `("PERL5LIB" ":" prefix (,path))))
+                         (find-files bin))
+               #t))))))
+    (native-inputs
+     `(("which" ,which)
+       ("perl-html-tagset" ,perl-html-tagset)
+       ("perl-timedate" ,perl-timedate)
+       ("perl-xml-sax" ,perl-xml-sax)
+       ("perl-xml-simple" ,perl-xml-simple)
+       ("gettext" ,gettext-minimal)
+       ("subversion" ,subversion)
+       ("git" ,git)
+       ("bazaar" ,bazaar)
+       ("cvs" ,cvs)
+       ("mercurial" ,mercurial)))
+    (inputs
+     `(("python" ,python-wrapper)
+       ("perl-cgi-session" ,perl-cgi-session)
+       ("perl-cgi-simple" ,perl-cgi-simple)
+       ("perl-json" ,perl-json)
+       ("perl-image-magick" ,perl-image-magick)
+       ("perl-uri" ,perl-uri)
+       ("perl-html-parser" ,perl-html-parser)
+       ("perl-uri" ,perl-uri)
+       ("perl-text-markdown-discount" ,perl-text-markdown-discount)
+       ("perl-html-scrubber" ,perl-html-scrubber)
+       ("perl-html-template" ,perl-html-template)
+       ("perl-yaml-libyaml" ,perl-yaml-libyaml)))
+    (home-page "https://ikiwiki.info/")
+    (synopsis "Wiki compiler, capable of generating HTML")
+    (description
+     "Ikiwiki is a wiki compiler, capable of generating a static set of web
+pages, but also incorporating dynamic features like a web based editor and
+commenting.")
+    (license l:gpl2+)))
+
 (define-public libwapcaplet
   (package
     (name "libwapcaplet")
-    (version "0.3.0")
+    (version "0.4.0")
     (source
      (origin
        (method url-fetch)
@@ -3906,7 +4423,7 @@ NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "0cs1dd2afjgc3wf5gqg434hv6jdabrp9qvlpl4dp53nhkyfywna3"))))
+         "15yr0pl6qa6biy36qkmd949ydbjzpqiaccpx3sprh4jknabsk1vv"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
@@ -3924,7 +4441,7 @@ developed as part of the Netsurf project.")
 (define-public libcss
   (package
     (name "libcss")
-    (version "0.6.0")
+    (version "0.7.0")
     (source
      (origin
        (method url-fetch)
@@ -3932,7 +4449,7 @@ developed as part of the Netsurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "0qp4p1q1dwgdra4pkrzd081zjzisxkgwx650ijx323j8bj725daf"))))
+         "16mns3h8vj7iw8myvgnw58q84irvbjlvfkxh8mdw6fbkjvaa7cnz"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
@@ -3952,7 +4469,7 @@ written in C.  It is developed as part of the NetSurf project.")
 (define-public libdom
   (package
     (name "libdom")
-    (version "0.3.1")
+    (version "0.3.2")
     (source
      (origin
        (method url-fetch)
@@ -3960,7 +4477,7 @@ written in C.  It is developed as part of the NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "0qy7c8b229aiamyqqjgp6m1jlzc3fpl8s9dk33kxzkj70na8l7hv"))))
+         "1zb7x2qwm6p11lph6j2vcyp4a0a8i1klkqilnk5vb4qmlzzpcv7i"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
@@ -3988,7 +4505,7 @@ developed as part of the NetSurf project.")
 (define-public libsvgtiny
   (package
     (name "libsvgtiny")
-    (version "0.1.5")
+    (version "0.1.6")
     (source
      (origin
        (method url-fetch)
@@ -3996,7 +4513,7 @@ developed as part of the NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "0w5hab9x1saz4lq2s9w47x1r64fbzcsl5bvdjph9c9dq68qv3f8a"))))
+         "12ppy2r7m21ykrjgbf067cgi6dn48fkj7i4b7m64xl4dc13y0ah6"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
@@ -4042,7 +4559,7 @@ written in C.  It is developed as part of the NetSurf project.")
 (define-public libnsgif
   (package
     (name "libnsgif")
-    (version "0.1.4")
+    (version "0.2.0")
     (source
      (origin
        (method url-fetch)
@@ -4050,7 +4567,7 @@ written in C.  It is developed as part of the NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "1ldsyscsgqwc8g5481h9nqmwirpp1pp57hmss450hr0mqra26g0k"))))
+         "1phwf0m24m6nd7096fw14hanl4f8gr9bcppi834lbik04agxk38a"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)))
@@ -4088,7 +4605,7 @@ developed as part of the NetSurf project.")
 (define-public libnspsl
   (package
     (name "libnspsl")
-    (version "0.1.0")
+    (version "0.1.2")
     (source
      (origin
        (method url-fetch)
@@ -4096,7 +4613,7 @@ developed as part of the NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "0x3frscrp9bzxlm9ama5laxjr3zi8cg20r8lhsamw4x4zyyk145y"))))
+         "0wim5hwzwrfrvvap096whf79m2mnfivbqhqlh03ci9d89xb1w0y9"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)))
@@ -4111,7 +4628,7 @@ Public Suffix List.  It is developed as part of the NetSurf project.")
 (define-public nsgenbind
   (package
     (name "nsgenbind")
-    (version "0.4")
+    (version "0.5")
     (source
      (origin
        (method url-fetch)
@@ -4119,7 +4636,7 @@ Public Suffix List.  It is developed as part of the NetSurf project.")
                            name "-" version "-src.tar.gz"))
        (sha256
         (base32
-         "078gpbfcs96bgcba0ygha0ph9jzqr6ry5s3a8p6sl61px2908s66"))))
+         "1iwjpdaan0njlhb9ir6a2q5vpxfmkqfldkvnqszqdz50b44vd1jv"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("netsurf-buildsystem" ,netsurf-buildsystem)
@@ -4139,7 +4656,7 @@ w3c webidl files and a binding configuration file.")
 (define-public netsurf
   (package
     (name "netsurf")
-    (version "3.6")
+    (version "3.7")
     (source
      (origin
        (method url-fetch)
@@ -4147,7 +4664,7 @@ w3c webidl files and a binding configuration file.")
                            "releases/source/netsurf-" version "-src.tar.gz"))
        (sha256
         (base32
-         "174sjx0566agckwmlj4w2cip5qbxdiafyhlp185a1qprxx84pbjr"))
+         "05kynfzzwd4fc03vbqdjpghh5xnk2yrh43w7vikak89vla30mhpg"))
        (patches (search-patches "netsurf-system-utf8proc.patch"
                                 "netsurf-y2038-tests.patch"
                                 "netsurf-longer-test-timeout.patch"))))
@@ -4236,10 +4753,10 @@ w3c webidl files and a binding configuration file.")
                (copy-file "frontends/gtk/res/netsurf-gtk.desktop"
                           desktop)
                (substitute* desktop
-                 (("netsurf-gtk") (string-append out "/bin/netsurf"))
+                 (("netsurf-gtk") (string-append out "/bin/netsurf-gtk"))
                  (("netsurf.png") (string-append out "/share/netsurf/"
                                                  "netsurf.xpm")))
-               (install-file "Docs/netsurf-gtk.1"
+               (install-file "docs/netsurf-gtk.1"
                              (string-append out "/share/man/man1/"))
                #t))))))
     (home-page "http://www.netsurf-browser.org")
@@ -4265,6 +4782,13 @@ handling many of the web standards in use today.")
     (arguments
      `(#:phases
        (modify-phases %standard-phases
+         (add-before 'configure 'patch-perl
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((perl (assoc-ref inputs "perl")))
+               (substitute* "surfraw.IN"
+                 (("perl -e")
+                  (string-append perl "/bin/perl -e")))
+               #t)))
          (add-after 'install 'compress-elvi.1sr
            (lambda* (#:key outputs #:allow-other-keys)
              ;; The manpages of the elvis are symlinks to elvi.1sr.gz
@@ -4389,7 +4913,7 @@ tools like SSH (Secure Shell) to reach the outside world.")
 (define-public stunnel
   (package
   (name "stunnel")
-  (version "5.39")
+  (version "5.44")
   (source
     (origin
       (method url-fetch)
@@ -4397,7 +4921,7 @@ tools like SSH (Secure Shell) to reach the outside world.")
                           version ".tar.gz"))
       (sha256
        (base32
-        "1vjdn32iw11zqsygwxbjmqgs4644dk3ql1h8ap890ls6a1x0i318"))))
+        "1692y69wl7j6yjgnrrzclgzb34bxsaxjzl1dfy47vms7pdfk42lr"))))
   (build-system gnu-build-system)
   (inputs `(("openssl" ,openssl)))
   (arguments
@@ -4419,15 +4943,18 @@ deployments.")
     (source
      (origin
        (method url-fetch)
-       (uri "https://github.com/xinetd-org/xinetd/archive/xinetd-2-3-15.tar.gz")
-       (patches (search-patches "xinetd-CVE-2013-4342.patch" "xinetd-fix-fd-leak.patch"))
+       (uri
+        (string-append "https://github.com/xinetd-org/xinetd/archive/xinetd-"
+                       (string-join (string-split version #\.) "-") ".tar.gz"))
+       (patches (search-patches "xinetd-CVE-2013-4342.patch"
+                                "xinetd-fix-fd-leak.patch"))
        (sha256
         (base32
          "0k59x52cbzp5fw0n8zn0y54j1ps0x9b72y8k5grzswjdmgs2a2v2"))))
     (build-system gnu-build-system)
     (arguments
      `(#:configure-flags '("--with-loadavg")
-       #:tests? #f )) ; no tests
+       #:tests? #f))                    ; no tests
     (home-page "https://github.com/xinetd-org/xinetd")
     (synopsis "Internet services daemon")
     (description "@code{xinetd}, a more secure replacement for @code{inetd},
@@ -4440,7 +4967,7 @@ used to start services with both privileged and non-privileged port numbers.")
 (define-public tidy-html
   (package
     (name "tidy-html")
-    (version "5.4.0")
+    (version "5.6.0")
     (source
      (origin
        (method url-fetch)
@@ -4449,13 +4976,13 @@ used to start services with both privileged and non-privileged port numbers.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "0yhbgbjl45b4sjxwc394cjra6iy02q1pi66p28zy70lr6jvm9mx2"))))
+         "0n29wcgw32rhnraj9j21ibhwi0xagmmcskhbaz8ihxly7nx3p9h8"))))
     (build-system cmake-build-system)
     (outputs '("out"
-               "static")) ; 1.0MiB of .a files
+               "static"))               ; 1.0MiB of .a files
     (arguments
-     `(#:tests? #f ; No tests available
-       #:configure-flags (list "-DCMAKE_BUILD_TYPE=Release")
+     `(#:tests? #f                      ; no tests available
+       #:build-type "Release"
        #:phases
        (modify-phases %standard-phases
          (add-after 'install 'move-static-libraries
@@ -4488,7 +5015,7 @@ functions of Tidy.")
 (define-public hiawatha
   (package
     (name "hiawatha")
-    (version "10.4")
+    (version "10.7")
     (source
      (origin
        (method url-fetch)
@@ -4500,7 +5027,7 @@ functions of Tidy.")
         '(delete-file-recursively "mbedtls"))
        (sha256
         (base32
-         "0m2llzm72s29c32abnj03532m85fawvi8ybjpx6s3mgvx2yvq3p4"))))
+         "0x2zfc8kc6c7rl4gwymwmg13w1c60biv6c6c9fvzpnl59bc9jgin"))))
     (build-system cmake-build-system)
     (arguments
      `(#:tests? #f ; No tests included
@@ -4600,7 +5127,7 @@ into your tests.  It automatically starts up a HTTP server in a separate thread 
 (define-public http-parser
   (package
     (name "http-parser")
-    (version "2.7.1")
+    (version "2.8.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/nodejs/http-parser/"
@@ -4608,7 +5135,7 @@ into your tests.  It automatically starts up a HTTP server in a separate thread 
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "1cw6nf8xy4jhib1w0jd2y0gpqjbdasg8b7pkl2k2vpp54k9rlh3h"))))
+                "15ids8k2f0xhnnxh4m85w2f78pg5ndiwrpl24kyssznnp1l5yqai"))))
     (build-system gnu-build-system)
     (arguments
      `(#:test-target "test"
@@ -4702,7 +5229,7 @@ command-line arguments or read from stdin.")
 (define-public python-internetarchive
   (package
     (name "python-internetarchive")
-    (version "1.6.0")
+    (version "1.7.4")
     (source
      (origin
        (method url-fetch)
@@ -4711,24 +5238,23 @@ command-line arguments or read from stdin.")
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
         (base32
-         "00v1489rv1ydcihwbdl7sqpcpmm98b9kqqlfggr32k0ndmv7ivas"))))
+         "0sdbb2ag6vmybi8zmbjszi492a587giaaqxyy1p6gy03cb8mc512"))))
     (build-system python-build-system)
     (arguments
-     `(#:tests? #f ; 11 tests of 105 fail to mock "requests".
-       #:phases
+     `(#:phases
        (modify-phases %standard-phases
          (delete 'check)
          (add-after 'install 'check
-           (lambda* (#:key inputs outputs target (tests? (not target)) #:allow-other-keys)
-             (if tests?
-               (begin
-                 (add-installed-pythonpath inputs outputs)
-                 (setenv "PATH" (string-append (assoc-ref outputs "out") "/bin"
-                                               ":" (getenv "PATH")))
-                 (zero? (system* "py.test")))
-               (begin
-                 (format #t "test suite not run~%")
-                 #t)))))))
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (add-installed-pythonpath inputs outputs)
+             (setenv "PATH" (string-append (assoc-ref outputs "out") "/bin"
+                                           ":" (getenv "PATH")))
+             (zero? (system* "py.test" "-v" "-k"
+                             (string-append
+                              ;; These tests attempt to make a connection to
+                              ;; an external web service.
+                              "not test_get_item_with_kwargs"
+                              " and not test_ia"))))))))
     (propagated-inputs
      `(("python-requests" ,python-requests)
        ("python-jsonpatch" ,python-jsonpatch-0.4)
@@ -4738,7 +5264,7 @@ command-line arguments or read from stdin.")
        ("python-schema" ,python-schema-0.5)
        ("python-backports-csv" ,python-backports-csv)))
     (native-inputs
-     `(("python-pytest-3.0" ,python-pytest-3.0)
+     `(("python-pytest" ,python-pytest)
        ("python-pytest-capturelog" ,python-pytest-capturelog)
        ("python-responses" ,python-responses)))
     (home-page "https://github.com/jjjake/internetarchive")
@@ -4753,3 +5279,1161 @@ internetarchive python module for programatic access to archive.org.")
 (define-public python2-internetarchive
   (package-with-python2
    (strip-python2-variant python-internetarchive)))
+
+(define-public python-clf
+  (let ((commit-test-clf "d01d25923c599d3261910f79fb948825b4270d07")) ; 0.5.7
+    (package
+      (name "python-clf")
+      (version "0.5.7")
+      (source
+       (origin
+         (method url-fetch)
+         (uri (pypi-uri "clf" version))
+         (sha256
+          (base32
+           "0zlkzqnpz7a4iavsq5vaz0nf5nr7qm5znpg1vlpz6rwnx6hikjdb"))))
+      (build-system python-build-system)
+      (propagated-inputs
+       `(("python-docopt" ,python-docopt)
+         ("python-pygments" ,python-pygments)
+         ("python-requests" ,python-requests)
+         ("python-nose" ,python-nose)
+         ("python-lxml" ,python-lxml)
+         ("python-pyaml" ,python-pyaml)))
+      (inputs
+       `(("test-clf"
+          ,(origin
+             (method url-fetch)
+             (uri (string-append "https://raw.githubusercontent.com"
+                                 "/ncrocfer/clf/" commit-test-clf
+                                 "/test_clf.py"))
+             (sha256
+              (base32
+               "19lr5zdzsmxgkg7wrjq1yzkiahd03wi4k3dskssyhmjls8c10nqd"))))))
+      (arguments
+       '(#:phases
+         (modify-phases %standard-phases
+           (add-after 'unpack 'get-tests
+             (lambda _
+               (copy-file (assoc-ref %build-inputs "test-clf") "test_clf.py")))
+           (replace 'check
+             (lambda _
+               (zero? (system* "nosetests"
+                               ;; These tests require internet connection
+                               "--exclude=test_browse"
+                               "--exclude=test_command"
+                               "--exclude=test_search")))))))
+      (home-page "https://github.com/ncrocfer/clf")
+      (synopsis "Search code snippets on @url{https://commandlinefu.com}")
+      (description "@code{clf} is a command line tool for searching code
+snippets on @url{https://commandlinefu.com}.")
+      (license l:expat))))
+
+(define-public python2-clf
+  (package-with-python2 python-clf))
+
+(define-public r-shiny
+  (package
+    (name "r-shiny")
+    (version "1.0.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/rstudio/shiny/"
+                           "archive/v" version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0z2v2s4hd44mvzjn7r70549kdzkrrch9nxhp27r6x2cy6micizm3"))))
+    (build-system r-build-system)
+    (arguments
+     `(#:modules ((guix build r-build-system)
+                  (guix build minify-build-system)
+                  (guix build utils)
+                  (ice-9 match))
+       #:imported-modules (,@%r-build-system-modules
+                           (guix build minify-build-system))
+       #:phases
+       (modify-phases (@ (guix build r-build-system) %standard-phases)
+         (add-after 'unpack 'replace-bundled-minified-JavaScript
+           (lambda* (#:key inputs #:allow-other-keys)
+             (let ((replace-file (lambda (old new)
+                                   (format #t "replacing ~a with ~a\n" old new)
+                                   (delete-file old)
+                                   (symlink new old))))
+               ;; NOTE: Files in ./inst/www/shared/datepicker/js/locales/
+               ;; contain just data.  They are not minified code, so we don't
+               ;; replace them.
+               (with-directory-excursion "inst/www/shared"
+                 (replace-file "bootstrap/shim/respond.min.js"
+                               (string-append (assoc-ref inputs "js-respond")
+                                              "/share/javascript/respond.min.js"))
+                 (replace-file "bootstrap/shim/html5shiv.min.js"
+                               (string-append (assoc-ref inputs "js-html5shiv")
+                                              "/share/javascript/html5shiv.min.js"))
+                 (replace-file "json2-min.js"
+                               (string-append (assoc-ref inputs "js-json2")
+                                              "/share/javascript/json2.min.js"))
+                 (replace-file "strftime/strftime-min.js"
+                               (string-append (assoc-ref inputs "js-strftime")
+                                              "/share/javascript/strftime.min.js"))
+                 (replace-file "highlight/highlight.pack.js"
+                               (string-append (assoc-ref inputs "js-highlight")
+                                              "/share/javascript/highlight.min.js"))
+                 (replace-file "datatables/js/jquery.dataTables.min.js"
+                               (string-append (assoc-ref inputs "js-datatables")
+                                              "/share/javascript/jquery.dataTables.min.js"))
+                 (replace-file "selectize/js/selectize.min.js"
+                               (string-append (assoc-ref inputs "js-selectize")
+                                              "/share/javascript/selectize.min.js"))
+                 (replace-file "selectize/js/es5-shim.min.js"
+                               (string-append (assoc-ref inputs "js-es5-shim")
+                                              "/share/javascript/es5-shim.min.js"))
+                 (for-each (match-lambda
+                             ((source . target)
+                              (delete-file target)
+                              (minify source #:target target)))
+                           '(("jqueryui/jquery-ui.js" .
+                              "jqueryui/jquery-ui.min.js")
+                             ("showdown/src/showdown.js" .
+                              "showdown/compressed/showdown.js")
+                             ("datepicker/js/bootstrap-datepicker.js" .
+                              "datepicker/js/bootstrap-datepicker.min.js")
+                             ("ionrangeslider/js/ion.rangeSlider.js" .
+                              "ionrangeslider/js/ion.rangeSlider.min.js")
+                             ("bootstrap/js/bootstrap.js" .
+                              "bootstrap/js/bootstrap.min.js")
+                             ("shiny.js" .
+                              "shiny.min.js")
+                             ("jquery.js" .
+                              "jquery.min.js")))))
+             #t)))))
+    (propagated-inputs
+     `(("r-httpuv" ,r-httpuv)
+       ("r-mime" ,r-mime)
+       ("r-jsonlite" ,r-jsonlite)
+       ("r-xtable" ,r-xtable)
+       ("r-digest" ,r-digest)
+       ("r-htmltools" ,r-htmltools)
+       ("r-r6" ,r-r6)
+       ("r-sourcetools" ,r-sourcetools)))
+    (inputs
+     `(("js-datatables" ,js-datatables)
+       ("js-html5shiv" ,js-html5shiv)
+       ("js-json2" ,js-json2)
+       ("js-respond" ,js-respond)
+       ("js-selectize" ,js-selectize)
+       ("js-strftime" ,js-strftime)
+       ("js-highlight" ,js-highlight)
+       ("js-es5-shim" ,js-es5-shim)))
+    (home-page "http://shiny.rstudio.com")
+    (synopsis "Easy interactive web applications with R")
+    (description
+     "Makes it incredibly easy to build interactive web applications
+with R.  Automatic \"reactive\" binding between inputs and outputs and
+extensive prebuilt widgets make it possible to build beautiful,
+responsive, and powerful applications with minimal effort.")
+    (license l:artistic2.0)))
+
+(define-public r-shinydashboard
+  (package
+    (name "r-shinydashboard")
+    (version "0.7.0")
+    (source (origin
+              (method url-fetch)
+              (uri (cran-uri "shinydashboard" version))
+              (sha256
+               (base32
+                "10yqcqqcxgfqwkmscqwvvgr710im583qsqnsqkfpisjvkqp10yqb"))))
+    (build-system r-build-system)
+    ;; The directory inst/AdminLTE/ contains a minified JavaScript file.
+    ;; Regenerate it from the included sources.
+    (arguments
+     `(#:modules ((guix build utils)
+                  (guix build r-build-system)
+                  (ice-9 popen))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'generate-minified-javascript
+           (lambda _
+             (with-directory-excursion "inst/AdminLTE"
+               (delete-file "app.min.js")
+               (let ((minified (open-pipe* OPEN_READ "uglify-js" "app.js")))
+                 (call-with-output-file "app.min.js"
+                   (lambda (port)
+                     (dump-port minified port))))))))))
+    (propagated-inputs
+     `(("r-htmltools" ,r-htmltools)
+       ("r-shiny" ,r-shiny)))
+    (native-inputs
+     `(("uglify-js" ,uglify-js)))
+    (home-page "http://rstudio.github.io/shinydashboard/")
+    (synopsis "Create dashboards with shiny")
+    (description "This package provides an extension to the Shiny web
+application framework for R, making it easy to create attractive dashboards.")
+    ;; This package includes software that was released under the Expat
+    ;; license, but the whole package is released under GPL version 2 or
+    ;; later.
+    (license l:gpl2+)))
+
+(define-public r-crosstalk
+  (package
+    (name "r-crosstalk")
+    (version "1.0.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (cran-uri "crosstalk" version))
+       (sha256
+        (base32
+         "0lfa89vhrzi7a1rghmygcjr8gzddw35sinb3jx6g49mc9jias7mk"))))
+    (build-system r-build-system)
+    (propagated-inputs
+     `(("r-ggplot2" ,r-ggplot2)
+       ("r-htmltools" ,r-htmltools)
+       ("r-jsonlite" ,r-jsonlite)
+       ("r-lazyeval" ,r-lazyeval)
+       ("r-r6" ,r-r6)
+       ("r-shiny" ,r-shiny)))
+    (home-page "https://rstudio.github.io/crosstalk/")
+    (synopsis "Inter-widget interactivity for HTML widgets")
+    (description
+     "This package provides building blocks for allowing HTML widgets to
+communicate with each other, with Shiny or without (i.e.  static @code{.html}
+files).  It currently supports linked brushing and filtering.")
+    (license l:expat)))
+
+(define-public r-rook
+  (package
+    (name "r-rook")
+    (version "1.1-1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (cran-uri "Rook" version))
+       (sha256
+        (base32
+         "00s9a0kr9rwxvlq433daxjk4ji8m0w60hjdprf502msw9kxfrx00"))))
+    (properties `((upstream-name . "Rook")))
+    (build-system r-build-system)
+    (propagated-inputs `(("r-brew" ,r-brew)))
+    (home-page "https://cran.r-project.org/web/packages/Rook")
+    (synopsis "Web server interface for R")
+    (description
+     "This package contains the Rook specification and convenience software
+for building and running Rook applications.  A Rook application is an R
+reference class object that implements a @code{call} method or an R closure
+that takes exactly one argument, an environment, and returns a list with three
+named elements: the @code{status}, the @code{headers}, and the @code{body}.")
+    (license l:gpl2)))
+
+(define-public rss-bridge
+  (package
+    (name "rss-bridge")
+    (version "2018-03-11")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/RSS-Bridge/rss-bridge/archive/"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1ix15ck45yb659k63mhwxwia6qnm9nn8jw0bga85abrvk1rchjdn"))))
+    (build-system trivial-build-system)
+    (native-inputs
+     `(("gzip" ,gzip)
+       ("tar" ,tar)))
+    (arguments
+     '(#:modules ((guix build utils))
+       #:builder
+       (begin
+         (use-modules (guix build utils)
+                      (ice-9 match))
+         (let* ((out (assoc-ref %outputs "out"))
+                (share-rss-bridge (string-append out "/share/rss-bridge")))
+           (set-path-environment-variable
+            "PATH" '("bin") (map (match-lambda ((_ . input) input))
+                                 %build-inputs))
+           (mkdir-p share-rss-bridge)
+           (system* "tar" "xvf" (assoc-ref %build-inputs "source")
+                    "--strip-components" "1" "-C" share-rss-bridge)
+           #t))))
+    (home-page "https://github.com/RSS-Bridge/rss-bridge")
+    (synopsis "Generate Atom feeds for social networking websites")
+    (description "rss-bridge generates Atom feeds for social networking
+websites lacking feeds.  Supported websites include Facebook, Twitter,
+Instagram and YouTube.")
+    (license (list l:public-domain
+                   l:expat)))) ;; vendor/simplehtmldom/simple_html_dom.php
+
+(define-public linkchecker
+  (package
+    (name "linkchecker")
+    (version "9.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "LinkChecker" version))
+       (sha256
+        (base32
+         "0v8pavf0bx33xnz1kwflv0r7lxxwj7vg3syxhy2wzza0wh6sc2pf"))))
+    (build-system python-build-system)
+    (inputs
+     `(("python2-requests" ,python2-requests)))
+    (arguments
+     `(#:python ,python-2
+       #:phases
+       (modify-phases %standard-phases
+         ;; Remove faulty python-requests version check. This has been fixed
+         ;; upstream, and can be removed in version 9.4.
+         (add-after 'unpack 'remove-python-requests-version
+           (lambda _
+             (substitute* "linkcheck/__init__.py"
+               (("requests.__version__ <= '2.2.0'") "False"))
+             #t)))))
+    (home-page "https://linkcheck.github.io/linkchecker")
+    (synopsis "Check websites for broken links")
+    (description "LinkChecker is a website validator.  It checks for broken
+links in websites.  It is recursive and multithreaded providing output in
+colored or normal text, HTML, SQL, CSV, XML or as a sitemap graph.  It
+supports checking HTTP/1.1, HTTPS, FTP, mailto, news, nntp, telnet and local
+file links.")
+    (license (list l:gpl2+
+                   l:bsd-2 ; linkcheck/better_exchook2.py
+                   l:bsd-3 ; linkcheck/colorama.py
+                   l:psfl  ; linkcheck/gzip2.py
+                   l:expat ; linkcheck/mem.py
+                   ;; FIXME: Unbundle dnspython and miniboa
+                   ;; This issue has been raised upstream
+                   ;; https://github.com/wummel/linkchecker/issues/729
+                   l:isc   ; third_party/dnspython
+                   l:asl2.0)))) ; third_party/miniboa
+
+(define-public cadaver
+  (package
+    (name "cadaver")
+    (version "0.23.3")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://www.webdav.org/cadaver/"
+                           name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "1jizq69ifrjbjvz5y79wh1ny94gsdby4gdxwjad4bfih6a5fck7x"))))
+    (build-system gnu-build-system)
+    ;; TODO: Unbundle libneon and make build succeed with new neon.
+    (arguments
+     `(#:configure-flags (list "--with-ssl=openssl")
+       #:tests? #f)) ;No tests included
+    (native-inputs
+     `(("gettext" ,gnu-gettext)
+       ("pkg-config" ,pkg-config)
+       ("intltool" ,intltool)))
+    (inputs
+     `(("expat" ,expat)
+       ("openssl" ,openssl)))
+    (home-page "http://www.webdav.org/cadaver")
+    (synopsis "Command-line WebDAV client")
+    (description
+     "Cadaver is a command-line WebDAV client for Unix. It supports
+file upload, download, on-screen display, namespace operations (move/copy),
+collection creation and deletion, and locking operations.")
+    (license l:gpl2)))
+
+(define-public python-py-ubjson
+  (package
+    (name "python-py-ubjson")
+    (version "0.10.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "py-ubjson" version))
+       (sha256
+        (base32
+         "03l9m9w5ip4hw0y69wlys5gzsfb7zcq3a77blj88grgiqhn5vm5n"))))
+    (build-system python-build-system)
+    (home-page "https://github.com/Iotic-Labs/py-ubjson")
+    (synopsis "Universal Binary JSON encoder/decoder")
+    (description
+     "Py-ubjson is a Python module providing an Universal Binary JSON
+encoder/decoder based on the draft-12 specification for UBJSON.")
+    (license l:asl2.0)))
+
+(define-public java-tomcat
+  (package
+    (name "java-tomcat")
+    (version "8.5.28")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://apache/tomcat/tomcat-8/v"
+                                  version "/src/apache-tomcat-" version "-src.tar.gz"))
+              (sha256
+               (base32
+                "0q2bc3sajrmcx3z3vhhwp78y47ryc2ky8ssbdmfk24zvqdb76hvl"))))
+    (build-system ant-build-system)
+    (inputs
+     `(("java-eclipse-jdt-core" ,java-eclipse-jdt-core)))
+    (native-inputs
+     `(("java-junit" ,java-junit)))
+    (arguments
+     `(#:build-target "package"
+       #:tests? #f; requires downloading some files.
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'prevent-download
+           (lambda _
+             ;; This directory must exist
+             (mkdir "downloads")
+             ;; We patch build.xml so it doesn't download any dependency, because
+             ;; we already have all of them.
+             (substitute* "build.xml"
+               (("download-compile,") "")
+               (("depends=\"validate\"") "depends=\"build-prepare\"")
+               ((",download-validate") ""))
+             #t))
+         (add-after 'unpack 'generate-properties
+           (lambda _
+             ;; This could have been passed to make-flags, but getcwd returns
+             ;; a different directory then.
+             (with-output-to-file "build.properties"
+               (lambda _
+                 (display
+                   (string-append "base.path=" (getcwd) "/downloads\n"))))
+             #t))
+         (replace 'install
+           (install-jars "output/build/lib")))))
+    (home-page "https://tomcat.apache.org")
+    (synopsis "Java Servlet, JavaServer Pages, Java Expression Language and Java
+WebSocket")
+    (description "Apache Tomcat is a free implementation of the Java
+Servlet, JavaServer Pages, Java Expression Language and Java WebSocket
+technologies.")
+    (license l:asl2.0)))
+
+(define-public java-eclipse-jetty-test-helper
+  (package
+    (name "java-eclipse-jetty-test-helper")
+    (version "4.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/eclipse/jetty.toolchain/"
+                                  "archive/jetty-test-helper-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1jd6r9wc26fa11si4rn2gvy8ml8q4zw1nr6v04mjp8wvwpgvzwx5"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "eclipse-jetty-test-helper.jar"
+       #:source-dir "src/main/java"
+       #:test-dir "src/test"
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-test-helper")))
+         (add-before 'build 'fix-paths
+           (lambda _
+             ;; TODO:
+             ;; This file assumes that the build directory is named "target"
+             ;; but it is not the case with our ant-build-system. Once we have
+             ;; maven though, we will have to rebuild this package because this
+             ;; assumption is correct with maven-build-system.
+             (substitute*
+               "src/main/java/org/eclipse/jetty/toolchain/test/MavenTestingUtils.java"
+               (("\"target\"") "\"build\"")
+               (("\"tests\"") "\"test-classes\""))
+             ;; Tests assume we are building with maven, so that the build
+             ;; directory is named "target", and not "build".
+             (with-directory-excursion "src/test/java/org/eclipse/jetty/toolchain/test"
+               (substitute* '("FSTest.java" "OSTest.java" "TestingDirTest.java"
+                              "MavenTestingUtilsTest.java")
+                 (("target/tests") "build/test-classes")
+                 (("\"target") "\"build")))
+             #t)))))
+    (inputs
+     `(("junit" ,java-junit)
+       ("hamcrest" ,java-hamcrest-all)))
+    (home-page "https://www.eclipse.org/jetty/")
+    (synopsis "Helper classes for jetty tests")
+    (description "This packages contains helper classes for testing the Jetty
+Web Server.")
+    ;; This program is licensed under both epl and asl.
+    (license (list l:epl1.0 l:asl2.0))))
+
+(define-public java-eclipse-jetty-perf-helper
+  (package
+    (inherit java-eclipse-jetty-test-helper)
+    (name "java-eclipse-jetty-perf-helper")
+    (arguments
+     `(#:jar-name "eclipse-jetty-perf-helper.jar"
+       #:source-dir "src/main/java"
+       #:tests? #f; no tests
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-perf-helper")
+             #t)))))
+    (inputs
+     `(("hdrhistogram" ,java-hdrhistogram)))))
+
+(define-public java-eclipse-jetty-util
+  (package
+    (name "java-eclipse-jetty-util")
+    (version "9.4.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/eclipse/jetty.project/"
+                                  "archive/jetty-" version ".v20170531.tar.gz"))
+              (sha256
+               (base32
+                "0x7kbdvkmgr6kbsmbwiiyv3bb0d6wk25frgvld9cf8540136z9p1"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "eclipse-jetty-util.jar"
+       #:source-dir "src/main/java"
+       #:test-exclude
+       (list "**/Abstract*.java"
+             ;; requires network
+             "**/InetAddressSetTest.java"
+             ;; Assumes we are using maven
+             "**/TypeUtilTest.java"
+             ;; Error on the style of log
+             "**/StdErrLogTest.java")
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-util")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)))
+    (native-inputs
+     `(("junit" ,java-junit)
+       ("hamcrest" ,java-hamcrest-all)
+       ("perf-helper" ,java-eclipse-jetty-perf-helper)
+       ("test-helper" ,java-eclipse-jetty-test-helper)))
+    (home-page "https://www.eclipse.org/jetty/")
+    (synopsis "Utility classes for Jetty")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides utility classes.")
+    (license (list l:epl1.0 l:asl2.0))))
+
+;; This version is required by maven-wagon
+(define-public java-eclipse-jetty-util-9.2
+  (package
+    (inherit java-eclipse-jetty-util)
+    (version "9.2.22")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/eclipse/jetty.project/"
+                                  "archive/jetty-" version ".v20170606.tar.gz"))
+              (sha256
+               (base32
+                "1i51qlsd7h06d35kx5rqpzbfadbcszycx1iwr6vz7qc9gf9f29la"))))
+    (arguments
+     `(#:jar-name "eclipse-jetty-util.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:test-exclude
+       (list "**/Abstract*.java"
+             ;; requires network
+             "**/InetAddressSetTest.java"
+             ;; Assumes we are using maven
+             "**/TypeUtilTest.java"
+             ;; We don't have an implementation for slf4j
+             "**/LogTest.java"
+             ;; Error on the style of log
+             "**/StdErrLogTest.java")
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-util")
+             #t))
+         (add-before 'build 'fix-test-sources
+           (lambda _
+             ;; We need to fix issues caused by changes in newer versions of
+             ;; jetty-test-helper
+             (let ((src "src/test/java/org/eclipse/jetty/util/resource"))
+               (substitute* (string-append src "/AbstractFSResourceTest.java")
+                 (("testdir.getDir\\(\\)") "testdir.getPath().toFile()")
+                 (("testdir.getFile\\(\"foo\"\\)")
+                  "testdir.getPathFile(\"foo\").toFile()")
+                 (("testdir.getFile\\(name\\)")
+                  "testdir.getPathFile(name).toFile()")))
+             #t)))))))
+
+(define-public java-eclipse-jetty-io
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-io")
+    (arguments
+     `(#:jar-name "eclipse-jetty-io.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:test-exclude (list "**/Abstract*.java"
+                            ;; Abstract class
+                            "**/EndPointTest.java")
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-io")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("util" ,java-eclipse-jetty-util)))
+    (synopsis "Jetty :: IO Utility")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides IO-related utility classes.")))
+
+(define-public java-eclipse-jetty-io-9.2
+  (package
+    (inherit java-eclipse-jetty-io)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))
+    (native-inputs
+     `(("mockito" ,java-mockito-1)
+       ("cglib" ,java-cglib)
+       ("objenesis" ,java-objenesis)
+       ("asm" ,java-asm)
+       ,@(package-native-inputs java-eclipse-jetty-util-9.2)))))
+
+(define-public java-eclipse-jetty-http
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-http")
+    (arguments
+     `(#:jar-name "eclipse-jetty-http.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-http")
+             #t))
+         (add-before 'build 'copy-resources
+           (lambda _
+             (mkdir-p "build/classes")
+             (copy-recursively "src/main/resources/" "build/classes/")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("io" ,java-eclipse-jetty-io)
+       ("util" ,java-eclipse-jetty-util)))
+    (synopsis "Jetty :: Http Utility")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides HTTP-related utility classes.")))
+
+(define-public java-eclipse-jetty-http-9.2
+  (package
+    (inherit java-eclipse-jetty-http)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ("io" ,java-eclipse-jetty-io-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))))
+
+(define-public java-eclipse-jetty-jmx
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-jmx")
+    (arguments
+     `(#:jar-name "eclipse-jetty-jmx.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:tests? #f; FIXME: requires com.openpojo.validation
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-jmx")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("util" ,java-eclipse-jetty-util)))
+    (synopsis "Jetty :: JMX Management")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides the JMX management.")))
+
+(define-public java-eclipse-jetty-jmx-9.2
+  (package
+    (inherit java-eclipse-jetty-jmx)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))))
+
+(define java-eclipse-jetty-http-test-classes
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-http-test-classes")
+    (arguments
+     `(#:jar-name "eclipse-jetty-http.jar"
+       #:source-dir "src/test"
+       #:tests? #f
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-http"))))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("http" ,java-eclipse-jetty-http)
+       ("io" ,java-eclipse-jetty-io)
+       ("util" ,java-eclipse-jetty-util)))))
+
+(define java-eclipse-jetty-http-test-classes-9.2
+  (package
+    (inherit java-eclipse-jetty-http-test-classes)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("http" ,java-eclipse-jetty-http-9.2)
+       ,@(package-inputs java-eclipse-jetty-http-9.2)))))
+
+(define-public java-eclipse-jetty-server
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-server")
+    (arguments
+     `(#:jar-name "eclipse-jetty-server.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:tests? #f; requires a mockito version we don't have
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-server")
+             #t))
+         (add-before 'build 'fix-source
+           (lambda _
+             ;; Explicit casts to prevent build failures
+             (substitute* "src/main/java/org/eclipse/jetty/server/Request.java"
+               (("append\\(LazyList")
+                "append((CharSequence)LazyList"))
+             (substitute*
+               "src/main/java/org/eclipse/jetty/server/handler/ContextHandler.java"
+               (((string-append
+                   "Class<\\? extends EventListener> clazz = _classLoader==null"
+                   "\\?Loader.loadClass\\(ContextHandler.class,className\\):"
+                   "_classLoader.loadClass\\(className\\);"))
+                (string-append "Class<? extends EventListener> clazz = "
+                               "(Class<? extends EventListener>) "
+                               "(_classLoader==null?Loader.loadClass("
+                               "ContextHandler.class,className):"
+                               "_classLoader.loadClass(className));")))
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("http" ,java-eclipse-jetty-http)
+       ("io" ,java-eclipse-jetty-io)
+       ("jmx" ,java-eclipse-jetty-jmx)
+       ("util" ,java-eclipse-jetty-util)))
+    (native-inputs
+     `(("test-classes" ,java-eclipse-jetty-http-test-classes)
+       ,@(package-native-inputs java-eclipse-jetty-util)))
+    (synopsis "Core jetty server artifact")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides the core jetty server
+artifact.")))
+
+(define-public java-eclipse-jetty-server-9.2
+  (package
+    (inherit java-eclipse-jetty-server)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ("jmx" ,java-eclipse-jetty-jmx-9.2)
+       ("io" ,java-eclipse-jetty-io-9.2)
+       ("http" ,java-eclipse-jetty-http-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))
+    (native-inputs
+     `(("test-classes" ,java-eclipse-jetty-http-test-classes-9.2)
+       ,@(package-native-inputs java-eclipse-jetty-util-9.2)))))
+
+(define-public java-eclipse-jetty-security
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-security")
+    (arguments
+     `(#:jar-name "eclipse-jetty-security.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-security")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("http" ,java-eclipse-jetty-http)
+       ("server" ,java-eclipse-jetty-server)
+       ("util" ,java-eclipse-jetty-util)))
+    (native-inputs
+     `(("io" ,java-eclipse-jetty-io)
+       ,@(package-native-inputs java-eclipse-jetty-util)))
+    (synopsis "Jetty security infrastructure")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides the core jetty security
+infrastructure")))
+
+(define-public java-eclipse-jetty-security-9.2
+  (package
+    (inherit java-eclipse-jetty-security)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ("http" ,java-eclipse-jetty-http-9.2)
+       ("server" ,java-eclipse-jetty-server-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))
+    (native-inputs
+     `(("io" ,java-eclipse-jetty-io-9.2)
+       ,@(package-native-inputs java-eclipse-jetty-util-9.2)))))
+
+(define-public java-eclipse-jetty-servlet
+  (package
+    (inherit java-eclipse-jetty-util)
+    (name "java-eclipse-jetty-servlet")
+    (arguments
+     `(#:jar-name "eclipse-jetty-servlet.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-servlet")
+             #t)))))
+    (inputs
+     `(("slf4j" ,java-slf4j-api)
+       ("servlet" ,java-tomcat)
+       ("http" ,java-eclipse-jetty-http)
+       ("http-test" ,java-eclipse-jetty-http-test-classes)
+       ("io" ,java-eclipse-jetty-io)
+       ("jmx" ,java-eclipse-jetty-jmx)
+       ("security" ,java-eclipse-jetty-security)
+       ("server" ,java-eclipse-jetty-server)
+       ("util" ,java-eclipse-jetty-util)))
+    (synopsis "Jetty Servlet Container")
+    (description "The Jetty Web Server provides an HTTP server and Servlet
+container capable of serving static and dynamic content either from a standalone
+or embedded instantiation.  This package provides the core jetty servlet
+container.")))
+
+(define-public java-eclipse-jetty-servlet-9.2
+  (package
+    (inherit java-eclipse-jetty-servlet)
+    (version (package-version java-eclipse-jetty-util-9.2))
+    (source (package-source java-eclipse-jetty-util-9.2))
+    (arguments
+     `(#:jar-name "eclipse-jetty-servlet.jar"
+       #:source-dir "src/main/java"
+       #:jdk ,icedtea-8
+       #:tests? #f; doesn't work
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'chdir
+           (lambda _
+             (chdir "jetty-servlet")
+             #t)))))
+    (inputs
+     `(("util" ,java-eclipse-jetty-util-9.2)
+       ("jmx" ,java-eclipse-jetty-jmx-9.2)
+       ("io" ,java-eclipse-jetty-io-9.2)
+       ("http" ,java-eclipse-jetty-http-9.2)
+       ("security" ,java-eclipse-jetty-security-9.2)
+       ("http-test" ,java-eclipse-jetty-http-test-classes-9.2)
+       ("server" ,java-eclipse-jetty-server-9.2)
+       ,@(package-inputs java-eclipse-jetty-util-9.2)))))
+
+(define-public java-jsoup
+  (package
+    (name "java-jsoup")
+    (version "1.10.3")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/jhy/jsoup/archive/jsoup-"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "0xbzw7rjv7s4nz1xk9b2cnin6zkpaldmc3svk71waa7hhjgp0a20"))))
+    (build-system ant-build-system)
+    (arguments
+     `(#:jar-name "jsoup.jar"
+       #:source-dir "src/main/java"
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'copy-resources
+           (lambda _
+             (let ((classes-dir (string-append (getcwd) "/build/classes")))
+               (with-directory-excursion "src/main/java"
+                 (for-each (lambda (file)
+                             (let ((dist (string-append classes-dir "/" file)))
+                               (mkdir-p (dirname dist))
+                               (copy-file file dist)))
+                   (find-files "." ".*.properties"))))
+             #t)))))
+    (native-inputs
+     `(("java-junit" ,java-junit)
+       ("java-hamcrest-core" ,java-hamcrest-core)
+       ("java-gson" ,java-gson)))
+    (home-page "https://jsoup.org")
+    (synopsis "HTML parser")
+    (description "Jsoup is a Java library for working with real-world HTML.  It
+provides a very convenient API for extracting and manipulating data, using the
+best of DOM, CSS, and jQuery-like methods.")
+    (license l:expat)))
+
+(define-public tidyp
+  (package
+    (name "tidyp")
+    (version "1.04")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/downloads/petdance/tidyp/tidyp-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "0f5ky0ih4vap9c6j312jn73vn8m2bj69pl2yd3a5nmv35k9zmc10"))))
+    (build-system gnu-build-system)
+    ;; ./test-thing.sh tries to run ./testall.sh, which is not included.
+    (arguments `(#:tests? #f))
+    (home-page "http://www.tidyp.com/")
+    (synopsis "Validate HTML")
+    (description "Tidyp is a program that can validate your HTML, as well as
+modify it to be more clean and standard.  tidyp does not validate HTML 5.
+
+libtidyp is the library on which the program is based.  It can be used by any
+other program that can interface to it.  The Perl module @code{HTML::Tidy} is
+based on this library, allowing Perl programmers to easily validate HTML.")
+    ;; See htmldoc/license.html
+    (license l:bsd-3)))
+
+(define-public perl-html-tidy
+  (package
+    (name "perl-html-tidy")
+    (version "1.60")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "mirror://cpan/authors/id/P/PE/PETDANCE/HTML-Tidy-"
+                           version ".tar.gz"))
+       (sha256
+        (base32
+         "1iyp2fd6j75cn1xvcwl2lxr8qpjxssy2360cyqn6g3kzd1fzdyxw"))))
+    (build-system perl-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'fix-tidyp-paths
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "Makefile.PL"
+               (("^my \\$inc = \"" line)
+                (string-append line
+                               "-I" (assoc-ref inputs "tidyp") "/include/tidyp "))
+               (("-L/usr/lib")
+                (string-append
+                 "-L" (assoc-ref inputs "tidyp") "/lib")))
+             #t)))))
+    (inputs
+     `(("perl-libwww" ,perl-libwww)
+       ("tidyp" ,tidyp)))
+    (native-inputs
+     `(("perl-test-exception" ,perl-test-exception)))
+    (home-page "http://search.cpan.org/dist/HTML-Tidy/")
+    (synopsis "(X)HTML validation in a Perl object")
+    (description "@code{HTML::Tidy} is an HTML checker in a handy dandy
+object.  It's meant as a replacement for @code{HTML::Lint}, which is written
+in Perl but is not nearly as capable as @code{HTML::Tidy}.")
+    (license l:artistic2.0)))
+
+(define-public geomyidae
+  (package
+    (name "geomyidae")
+    (version "0.31")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://git.r-36.net/geomyidae/snapshot/"
+                           "geomyidae-" version ".tar.bz2"))
+       (sha256
+        (base32
+         "1ih7220c6mgq4r7blm4kx3pxbl53sph58lqgwci6cmi3c0sq5c3x"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags (list "CC=gcc"
+                          (string-append "PREFIX="
+                                         (assoc-ref %outputs "out")))
+       #:tests? #f                                ;no tests
+       #:phases (modify-phases %standard-phases
+                  (delete 'configure))))
+    (home-page "http://git.r-36.net/geomyidae")
+    (synopsis "Small Gopher server")
+    (description
+     "Geomyidae is a server for distributed hypertext protocol Gopher.  Its
+features include:
+
+@enumerate
+@item Gopher menus (see @file{index.gph} for an example);
+@item directory listings (if no @file{index.gph} was found);
+@item CGI support (@file{.cgi} files are executed);
+@item search support in CGI files;
+@item logging with multiple log levels.
+@end enumerate\n")
+    (license l:expat)))
+
+(define-public cat-avatar-generator
+  (package
+    (name "cat-avatar-generator")
+    (version "1")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                     (url "https://framagit.org/Deevad/cat-avatar-generator.git")
+                     (commit "71c0c662742cafe8afd2d2d50ec84243113e35ad")))
+              (file-name (string-append name "-" version))
+              (sha256
+               (base32
+                "0s7b5whqsmfa57prbgl66ym551kg6ly0z14h5dgrlx4lqm70y2yw"))))
+    (build-system trivial-build-system)
+    (arguments
+     `(#:modules ((guix build utils)
+                  (srfi srfi-1)
+                  (srfi srfi-26))
+       #:builder
+       (begin
+         (use-modules (guix build utils)
+                      (srfi srfi-1)
+                      (srfi srfi-26))
+         (let ((source (assoc-ref %build-inputs "source"))
+               (php-dir (string-append %output "/share/web/" ,name "/")))
+           ;; The cache directory must not be in the store, but in a writable
+           ;; location.  The webserver will give us this location.
+           (copy-recursively source php-dir)
+           (substitute* (string-append php-dir "/cat-avatar-generator.php")
+             (("\\$cachepath = .*")
+              "if(isset($_SERVER['CACHE_DIR']))
+$cachepath = $_SERVER['CACHE_DIR'];
+else
+die('You need to set the CACHE_DIR variable first.');"))))))
+    (home-page "https://framagit.org/Deevad/cat-avatar-generator")
+    (synopsis "Random avatar generator")
+    (description "Cat avatar generator is a generator of cat pictures optimised
+to generate random avatars, or defined avatar from a \"seed\".  This is a
+derivation by David Revoy from the original MonsterID by Andreas Gohr.")
+    ;; expat for the code, CC-BY 4.0 for the artwork
+    (license (list l:expat
+                   l:cc-by4.0))))
+
+(define-public nghttp2
+  (package
+    (name "nghttp2")
+    (version "1.31.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/nghttp2/nghttp2/"
+                           "releases/download/v" version "/"
+                           name "-" version ".tar.xz"))
+       (sha256
+        (base32
+         "00z1687m4wi2gbgkijbv099l9hs1sjlyzbhh8jhn0xssx4xcifb5"))))
+    (build-system gnu-build-system)
+    (outputs (list "out"
+                   "lib"))              ; only libnghttp2
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+
+       ;; Required by tests.
+       ("cunit" ,cunit)
+       ("tzdata" ,tzdata-for-tests)))
+    (inputs
+     ;; Required to build the tools (i.e. without ‘--enable-lib-only’).
+     `(("c-ares" ,c-ares)
+       ("jansson" ,jansson)             ; for HPACK tools
+       ("jemalloc" ,jemalloc)           ; fight nghttpd{,x} heap fragmentation
+       ("libev" ,libev)
+       ("libxml2" ,libxml2)             ; for ‘nghttp -a’
+       ("openssl" ,openssl)))
+    (arguments
+     `(#:configure-flags
+       (list (string-append "--libdir=" (assoc-ref %outputs "lib") "/lib")
+             "--enable-app"             ; build all the tools
+             "--enable-hpack-tools"     ; ...all the tools
+             "--disable-examples"
+             "--disable-static")        ; don't bother building .a files
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'break-circular-reference
+           ;; libnghttp2.pc by default retains a reference to the ‘out’ output,
+           ;; which is not allowed.  Break this cycle.  While we could install
+           ;; only the library to ‘out’ and move everything else to a separate
+           ;; output, this would inconvenience the majority of (human) users.
+           (lambda* (#:key outputs #:allow-other-keys)
+             (substitute* "lib/libnghttp2.pc.in"
+               (("@prefix@")
+                (assoc-ref outputs "lib")))
+             #t))
+         (add-before 'check 'set-timezone-directory
+           (lambda* (#:key inputs #:allow-other-keys)
+             (setenv "TZDIR" (string-append (assoc-ref inputs "tzdata")
+                                            "/share/zoneinfo"))
+             #t)))))
+    (home-page "https://nghttp2.org/")
+    (synopsis "HTTP/2 protocol client, proxy, server, and library")
+    (description
+     "nghttp2 implements the Hypertext Transfer Protocol, version
+2 (@dfn{HTTP/2}).
+
+A reusable C library provides the HTTP/2 framing layer, with several tools built
+on top of it:
+
+@itemize
+@item @command{nghttp}, a command-line HTTP/2 client.  It exposes many advanced
+and low-level aspects of the protocol and is useful for debugging.
+@item @command{nghttpd}, a fast, multi-threaded HTTP/2 static web server that
+serves files from a local directory.
+@item @command{nghttpx}, a fast, multi-threaded HTTP/2 reverse proxy that can be
+deployed in front of existing web servers that don't support HTTP/2.
+Both @command{nghttpd} and @command{nghttpx} can fall back to HTTP/1.1 for
+backwards compatibilty with clients that don't speak HTTP/2.
+@item @command{h2load} for benchmarking (only!) your own HTTP/2 servers.
+@item HTTP/2 uses a header compression method called @dfn{HPACK}.
+nghttp2 provides a HPACK encoder and decoder as part of its public API.
+@item @command{deflatehd} converts JSON data or HTTP/1-style header fields to
+compressed JSON header blocks.
+@item @command{inflatehd} converts such compressed headers back to JSON pairs.
+@end itemize\n")
+    (license l:expat)))

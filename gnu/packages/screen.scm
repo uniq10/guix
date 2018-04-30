@@ -5,6 +5,7 @@
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2017 Mathieu Othacehe <m.othacehe@gmail.com>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -37,13 +38,13 @@
 (define-public screen
   (package
     (name "screen")
-    (version "4.6.1")
+    (version "4.6.2")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://gnu/screen/screen-"
                                  version ".tar.gz"))
              (sha256
-              (base32 "0r3wpfxnr5kw73b8ndja26jk03nfbks06iyfmgb5aqb2rdkazadb"))))
+              (base32 "0fps0fsipfbh7c2cnp7rjw9n79j0ysq21mk8hzifa33a1r924s8v"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("makeinfo" ,texinfo)))
@@ -85,7 +86,8 @@ view to show two terminals at once.")
          (replace 'install
            (lambda* (#:key outputs #:allow-other-keys)
              (let ((out (assoc-ref outputs "out")))
-               (install-file "dtach" (string-append out "/bin"))))))
+               (install-file "dtach" (string-append out "/bin"))
+               (install-file "dtach.1" (string-append out "/share/man/man1"))))))
        ;; No check target.
        #:tests? #f))
     (home-page "http://dtach.sourceforge.net/")

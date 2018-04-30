@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 David Craven <david@craven.ch>
 ;;; Copyright © 2017 Danny Milosavljevic <dannym@scratchpost.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -69,14 +70,14 @@
     (zero? (system* "dub" "add-path" vendor-dir))))
 
 (define (grep string file-name)
-  "Find the first occurence of STRING in the file named FILE-NAME.
-   Return the position of this occurence, or #f if none was found."
+  "Find the first occurrence of STRING in the file named FILE-NAME.
+   Return the position of this occurrence, or #f if none was found."
   (string-contains (call-with-input-file file-name get-string-all)
                    string))
 
 (define (grep* string file-name)
-  "Find the first occurence of STRING in the file named FILE-NAME.
-   Return the position of this occurence, or #f if none was found.
+  "Find the first occurrence of STRING in the file named FILE-NAME.
+   Return the position of this occurrence, or #f if none was found.
    If the file named FILE-NAME doesn't exist, return #f."
   (catch 'system-error
     (lambda ()
@@ -91,11 +92,19 @@
           (grep* "sourceLibrary" "dub.sdl") ; note: format is different!
           (grep* "sourceLibrary" "dub.json"))
     #t
-    (zero? (apply system* `("dub" "build" ,@dub-build-flags)))))
+    (let ((status (zero? (apply system* `("dub" "build" ,@dub-build-flags)))))
+      (substitute* ".dub/dub.json"
+        (("\"lastUpgrade\": \"[^\"]*\"")
+         "\"lastUpgrade\": \"1970-01-01T00:00:00.0000000\""))
+      status)))
 
 (define* (check #:key tests? #:allow-other-keys)
   (if tests?
-    (zero? (system* "dub" "test"))
+    (let ((status (zero? (system* "dub" "test"))))
+      (substitute* ".dub/dub.json"
+        (("\"lastUpgrade\": \"[^\"]*\"")
+         "\"lastUpgrade\": \"1970-01-01T00:00:00.0000000\""))
+      status)
     #t))
 
 (define* (install #:key inputs outputs #:allow-other-keys)

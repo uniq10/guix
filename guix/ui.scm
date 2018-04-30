@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2013 Nikita Karetnikov <nikita@karetnikov.org>
 ;;; Copyright © 2014 Cyril Roelandt <tipecaml@gmail.com>
@@ -26,7 +26,9 @@
 ;;; along with GNU Guix.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (guix ui)
+  #:use-module (guix i18n)
   #:use-module (guix gexp)
+  #:use-module (guix sets)
   #:use-module (guix utils)
   #:use-module (guix store)
   #:use-module (guix config)
@@ -36,7 +38,6 @@
   #:use-module (guix combinators)
   #:use-module (guix build-system)
   #:use-module (guix serialization)
-  #:use-module ((guix build utils) #:select (mkdir-p))
   #:use-module ((guix licenses) #:select (license? license-name))
   #:use-module ((guix build syscalls)
                 #:select (free-disk-space terminal-columns))
@@ -51,15 +52,15 @@
   #:use-module (ice-9 match)
   #:use-module (ice-9 format)
   #:use-module (ice-9 regex)
+  #:autoload   (system base compile) (compile-file)
   #:autoload   (system repl repl)  (start-repl)
   #:autoload   (system repl debug) (make-debug stack->vector)
   #:use-module (texinfo)
   #:use-module (texinfo plain-text)
   #:use-module (texinfo string-utils)
-  #:export (G_
-            N_
-            P_
-            report-error
+  #:re-export (G_ N_ P_)                          ;backward compatibility
+  #:export (report-error
+            display-hint
             leave
             make-user-module
             load*
@@ -79,14 +80,16 @@
             read/eval
             read/eval-package-expression
             location->string
-            config-directory
             fill-paragraph
+            %text-width
             texi->plain-text
             package-description-string
             package-synopsis-string
             string->recutils
             package->recutils
             package-specification->name+version+output
+            relevance
+            package-relevance
             string->generations
             string->duration
             matching-generations
@@ -109,26 +112,6 @@
 ;;; User interface facilities for command-line tools.
 ;;;
 ;;; Code:
-
-(define %gettext-domain
-  ;; Text domain for strings used in the tools.
-  "guix")
-
-(define %package-text-domain
-  ;; Text domain for package synopses and descriptions.
-  "guix-packages")
-
-(define G_ (cut gettext <> %gettext-domain))
-(define N_ (cut ngettext <> <> <> %gettext-domain))
-
-(define (P_ msgid)
-  "Return the translation of the package description or synopsis MSGID."
-  ;; Descriptions/synopses might occasionally be empty strings, even if that
-  ;; is something we try to avoid.  Since (gettext "") can return a non-empty
-  ;; string, explicitly check for that case.
-  (if (string-null? msgid)
-      msgid
-      (gettext msgid %package-text-domain)))
 
 (define-syntax-rule (define-diagnostic name prefix)
   "Create a diagnostic macro (i.e., NAME), which will prepend PREFIX to all
@@ -169,6 +152,18 @@ messages."
     (report-error args ...)
     (exit 1)))
 
+(define (print-unbound-variable-error port key args default-printer)
+  ;; Print unbound variable errors more nicely, and in the right language.
+  (match args
+    ((proc message (variable) _ ...)
+     ;; We can always omit PROC because when it's useful (i.e., different from
+     ;; "module-lookup"), it gets displayed before.
+     (format port (G_ "~a: unbound variable") variable))
+    (_
+     (default-printer))))
+
+(set-exception-printer! 'unbound-variable print-unbound-variable-error)
+
 (define (make-user-module modules)
   "Return a new user module with the additional MODULES loaded."
   ;; Module in which the machine description file is loaded.
@@ -193,8 +188,8 @@ messages."
 
   (define (error-string frame args)
     (call-with-output-string
-     (lambda (port)
-       (apply display-error frame port (cdr args)))))
+      (lambda (port)
+        (apply display-error frame port (cdr args)))))
 
   (define tag
     (make-prompt-tag "user-code"))
@@ -202,7 +197,17 @@ messages."
   (catch #t
     (lambda ()
       ;; XXX: Force a recompilation to avoid ABI issues.
-      (set! %fresh-auto-compile #t)
+      ;;
+      ;; In 2.2.3, the bogus answer to <https://bugs.gnu.org/29226> was to
+      ;; ignore all available .go, not just those from ~/.cache, which in turn
+      ;; meant that we had to rebuild *everything*.  Since this is too costly,
+      ;; we have to turn off '%fresh-auto-compile' with that version, so to
+      ;; avoid ABI breakage in the user's config file, we explicitly compile
+      ;; it (the problem remains if the user's config is spread on several
+      ;; modules.)  See <https://bugs.gnu.org/29881>.
+      (unless (string=? (version) "2.2.3")
+        (set! %fresh-auto-compile #t))
+
       (set! %load-should-auto-compile #t)
 
       (save-module-excursion
@@ -213,6 +218,12 @@ messages."
          (parameterize ((current-warning-port (%make-void-port "w")))
            (call-with-prompt tag
              (lambda ()
+               (when (string=? (version) "2.2.3")
+                 (catch 'system-error
+                   (lambda ()
+                     (compile-file file #:env user-module))
+                   (const #f)))              ;EACCES maybe, let's interpret it
+
                ;; Give 'load' an absolute file name so that it doesn't try to
                ;; search for FILE in %LOAD-PATH.  Note: use 'load', not
                ;; 'primitive-load', so that FILE is compiled, which then allows us
@@ -249,6 +260,51 @@ messages."
              (else
               #t))))))
 
+(define (known-variable-definition variable)
+  "Search among the currently loaded modules one that defines a variable named
+VARIABLE and return it, or #f if none was found."
+  (define (module<? m1 m2)
+    (match (module-name m2)
+      (('gnu _ ...) #t)
+      (('guix _ ...)
+       (match (module-name m1)
+         (('gnu _ ...) #f)
+         (_ #t)))
+      (_ #f)))
+
+  (let loop ((modules     (list (resolve-module '() #f #f #:ensure #f)))
+             (suggestions '())
+             (visited     (setq)))
+    (match modules
+      (()
+       ;; Pick the "best" suggestion.
+       (match (sort suggestions module<?)
+         (() #f)
+         ((first _ ...) first)))
+      ((head tail ...)
+       (if (set-contains? visited head)
+           (loop tail suggestions visited)
+           (let ((visited (set-insert head visited))
+                 (next    (append tail
+                                  (hash-map->list (lambda (name module)
+                                                    module)
+                                                  (module-submodules head)))))
+             (match (module-local-variable head variable)
+               (#f (loop next suggestions visited))
+               (_
+                (match (module-name head)
+                  (('gnu _ ...) head)             ;must be that one
+                  (_ (loop next (cons head suggestions) visited)))))))))))
+
+(define* (display-hint message #:optional (port (current-error-port)))
+  "Display MESSAGE, a l10n message possibly containing Texinfo markup, to
+PORT."
+  (format port (G_ "hint: ~a~%")
+          ;; XXX: We should arrange so that the initial indent is wider.
+          (parameterize ((%text-width (max 15
+                                           (- (terminal-columns) 5))))
+            (texi->plain-text message))))
+
 (define* (report-load-error file args #:optional frame)
   "Report the failure to load FILE, a user-provided Scheme file.
 ARGS is the list of arguments received by the 'throw' handler."
@@ -256,16 +312,43 @@ ARGS is the list of arguments received by the 'throw' handler."
     (('system-error . rest)
      (let ((err (system-error-errno args)))
        (report-error (G_ "failed to load '~a': ~a~%") file (strerror err))))
+    (('read-error "scm_i_lreadparen" message _ ...)
+     ;; Guile's missing-paren messages are obscure so we make them more
+     ;; intelligible here.
+     (if (string-suffix? "end of file" message)
+         (let ((location (string-drop-right message
+                                            (string-length "end of file"))))
+           (format (current-error-port) (G_ "~amissing closing parenthesis~%")
+                   location))
+         (apply throw args)))
     (('syntax-error proc message properties form . rest)
      (let ((loc (source-properties->location properties)))
        (format (current-error-port) (G_ "~a: error: ~a~%")
                (location->string loc) message)))
+    (('unbound-variable proc message (variable) _ ...)
+     (match args
+       ((key . args)
+        (print-exception (current-error-port) frame key args)))
+     (match (known-variable-definition variable)
+       (#f
+        (display-hint (G_ "Did you forget a @code{use-modules} form?")))
+       (module
+        (display-hint (format #f (G_ "Did you forget @code{(use-modules ~a)}?")
+                              (module-name module))))))
     (('srfi-34 obj)
      (if (message-condition? obj)
-         (report-error (G_ "~a~%")
-                       (gettext (condition-message obj)
-                                %gettext-domain))
-         (report-error (G_ "exception thrown: ~s~%") obj)))
+         (if (error-location? obj)
+             (format (current-error-port)
+                     (G_ "~a: error: ~a~%")
+                     (location->string (error-location obj))
+                     (gettext (condition-message obj)
+                              %gettext-domain))
+             (report-error (G_ "~a~%")
+                           (gettext (condition-message obj)
+                                    %gettext-domain)))
+         (report-error (G_ "exception thrown: ~s~%") obj))
+     (when (fix-hint? obj)
+       (display-hint (condition-fix-hint obj))))
     ((error args ...)
      (report-error (G_ "failed to load '~a':~%") file)
      (apply display-error frame (current-error-port) args))))
@@ -324,7 +407,7 @@ exiting.  ARGS is the list of arguments received by the 'throw' handler."
   "Display version information for COMMAND and `(exit 0)'."
   (simple-format #t "~a (~a) ~a~%"
                  command %guix-package-name %guix-version)
-  (format #t "Copyright ~a 2017 ~a"
+  (format #t "Copyright ~a 2018 ~a"
           ;; TRANSLATORS: Translate "(C)" to the copyright symbol
           ;; (C-in-a-circle), if this symbol is available in the user's
           ;; locale.  Otherwise, do not translate "(C)"; leave it as-is.  */
@@ -439,6 +522,26 @@ interpreted."
           (x
            (leave (G_ "unknown unit: ~a~%") unit)))))))
 
+(define (display-collision-resolution-hint collision)
+  "Display hints on how to resolve COLLISION, a &profile-collistion-error."
+  (define (top-most-entry entry)
+    (let loop ((entry entry))
+      (match (force (manifest-entry-parent entry))
+        (#f entry)
+        (parent (loop parent)))))
+
+  (let* ((first  (profile-collision-error-entry collision))
+         (second (profile-collision-error-conflict collision))
+         (name1  (manifest-entry-name (top-most-entry first)))
+         (name2  (manifest-entry-name (top-most-entry second))))
+    (if (string=? name1 name2)
+        (display-hint (format #f (G_ "You cannot have two different versions
+or variants of @code{~a} in the same profile.")
+                              name1))
+        (display-hint (format #f (G_ "Try upgrading both @code{~a} and @code{~a},
+or remove one of them from the profile.")
+                              name1 name2)))))
+
 (define (call-with-error-handling thunk)
   "Call THUNK within a user-friendly error handler."
   (define (port-filename* port)
@@ -487,21 +590,27 @@ interpreted."
                                    (manifest-entry-version parent))
                      (report-parent-entries parent))))
 
-               (report-error (G_ "profile contains conflicting entries for ~a:~a~%")
+               (define (manifest-entry-output* entry)
+                 (match (manifest-entry-output entry)
+                   ("out"   "")
+                   (output (string-append ":" output))))
+
+               (report-error (G_ "profile contains conflicting entries for ~a~a~%")
                              (manifest-entry-name entry)
-                             (manifest-entry-output entry))
-               (report-error (G_ "  first entry: ~a@~a:~a ~a~%")
+                             (manifest-entry-output* entry))
+               (report-error (G_ "  first entry: ~a@~a~a ~a~%")
                              (manifest-entry-name entry)
                              (manifest-entry-version entry)
-                             (manifest-entry-output entry)
+                             (manifest-entry-output* entry)
                              (manifest-entry-item entry))
                (report-parent-entries entry)
-               (report-error (G_ "  second entry: ~a@~a:~a ~a~%")
+               (report-error (G_ "  second entry: ~a@~a~a ~a~%")
                              (manifest-entry-name conflict)
                              (manifest-entry-version conflict)
-                             (manifest-entry-output conflict)
+                             (manifest-entry-output* conflict)
                              (manifest-entry-item conflict))
                (report-parent-entries conflict)
+               (display-collision-resolution-hint c)
                (exit 1)))
             ((nar-error? c)
              (let ((file (nar-error-file c))
@@ -528,6 +637,20 @@ interpreted."
 directories:~{ ~a~}~%")
                     (file-search-error-file-name c)
                     (file-search-error-search-path c)))
+            ((and (error-location? c) (message-condition? c))
+             (format (current-error-port)
+                     (G_ "~a: error: ~a~%")
+                     (location->string (error-location c))
+                     (gettext (condition-message c) %gettext-domain))
+             (when (fix-hint? c)
+               (display-hint (condition-fix-hint c)))
+             (exit 1))
+            ((and (message-condition? c) (fix-hint? c))
+             (format (current-error-port) "~a: error: ~a~%"
+                     (program-name)
+                     (gettext (condition-message c) %gettext-domain))
+             (display-hint (condition-fix-hint c))
+             (exit 1))
             ((message-condition? c)
              ;; Normally '&message' error conditions have an i18n'd message.
              (leave (G_ "~a~%")
@@ -856,25 +979,6 @@ replacement if PORT is not Unicode-capable."
     (($ <location> file line column)
      (format #f "~a:~a:~a" file line column))))
 
-(define* (config-directory #:key (ensure? #t))
-  "Return the name of the configuration directory, after making sure that it
-exists if ENSURE? is true.  Honor the XDG specs,
-<http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>."
-  (let ((dir (and=> (or (getenv "XDG_CONFIG_HOME")
-                        (and=> (getenv "HOME")
-                               (cut string-append <> "/.config")))
-                    (cut string-append <> "/guix"))))
-    (catch 'system-error
-      (lambda ()
-        (when ensure?
-          (mkdir-p dir))
-        dir)
-      (lambda args
-        (let ((err (system-error-errno args)))
-          ;; ERR is necessarily different from EEXIST.
-          (leave (G_ "failed to create configuration directory `~a': ~a~%")
-                 dir (strerror err)))))))
-
 (define* (fill-paragraph str width #:optional (column 0))
   "Fill STR such that each line contains at most WIDTH characters, assuming
 that the first character is at COLUMN.
@@ -1044,6 +1148,52 @@ WIDTH columns.  EXTRA-FIELDS is a list of symbol/value pairs to emit."
                                          (string-length field))))))
             extra-fields)
   (newline port))
+
+(define (relevance obj regexps metrics)
+  "Compute a \"relevance score\" for OBJ as a function of its number of
+matches of REGEXPS and accordingly to METRICS.  METRICS is list of
+field/weight pairs, where FIELD is a procedure that returns a string
+describing OBJ, and WEIGHT is a positive integer denoting the weight of this
+field in the final score.
+
+A score of zero means that OBJ does not match any of REGEXPS.  The higher the
+score, the more relevant OBJ is to REGEXPS."
+  (define (score str)
+    (let ((counts (filter-map (lambda (regexp)
+                                (match (regexp-exec regexp str)
+                                  (#f #f)
+                                  (m  (match:count m))))
+                              regexps)))
+      ;; Compute a score that's proportional to the number of regexps matched
+      ;; and to the number of matches for each regexp.
+      (* (length counts) (reduce + 0 counts))))
+
+  (fold (lambda (metric relevance)
+          (match metric
+            ((field . weight)
+             (match (field obj)
+               (#f  relevance)
+               (str (+ relevance
+                       (* (score str) weight)))))))
+        0
+        metrics))
+
+(define %package-metrics
+  ;; Metrics used to compute the "relevance score" of a package against a set
+  ;; of regexps.
+  `((,package-name . 4)
+    (,package-synopsis-string . 3)
+    (,package-description-string . 2)
+    (,(lambda (type)
+        (match (and=> (package-location type) location-file)
+          ((? string? file) (basename file ".scm"))
+          (#f "")))
+     . 1)))
+
+(define (package-relevance package regexps)
+  "Return a score denoting the relevance of PACKAGE for REGEXPS.  A score of
+zero means that PACKAGE does not match any of REGEXPS."
+  (relevance package regexps %package-metrics))
 
 (define (string->generations str)
   "Return the list of generations matching a pattern in STR.  This function

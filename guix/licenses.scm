@@ -8,11 +8,12 @@
 ;;; Copyright © 2016 Leo Famulari <leo@famulari.name>
 ;;; Copyright © 2016 Fabian Harfert <fhmgufs@web.de>
 ;;; Copyright © 2016 Rene Saavedra <rennes@openmailbox.org>
-;;; Copyright © 2016, 2017 ng0 <ng0@libertad.pw>
+;;; Copyright © 2016, 2017 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Petter <petter@mykolab.ch>
 ;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -41,7 +42,8 @@
             cc0
             cc-by2.0 cc-by3.0 cc-by4.0
             cc-by-sa2.0 cc-by-sa3.0 cc-by-sa4.0
-            cddl1.0
+            cc-sampling-plus-1.0
+            cddl1.0 cddl1.1
             cecill cecill-b cecill-c
             artistic2.0 clarified-artistic
             copyleft-next
@@ -85,11 +87,13 @@
             tcl/tk
             unlicense
             vim
+            w3c
             x11 x11-style
             zpl2.1
             zlib
             fsf-free
             wtfpl2
+            wxwindows3.1+
             fsdg-compatible))
 
 (define-record-type <license>
@@ -206,9 +210,22 @@ at URI, which may be a file:// URI pointing the package's tree."
            "http://creativecommons.org/licenses/by/2.0/"
            "Creative Commons Attribution 2.0 Generic"))
 
+(define cc-sampling-plus-1.0
+  (license "CC-Sampling+ 1.0"
+           "https://creativecommons.org/licenses/sampling+/1.0"
+           "Creative Commons Sampling Plus 1.0"))
+
 (define cddl1.0
   (license "CDDL 1.0"
            "http://directory.fsf.org/wiki/License:CDDLv1.0"
+           "https://www.gnu.org/licenses/license-list#CDDL"))
+
+;; CDDL1.1 is the same as 1.0, except that "Sun Microsystems, Inc" becomes "Oracle",
+;; "LOST PROFITS" becoms "LOSS OF GOODWILL" and a section is added between 6.2
+;; and 6.3.
+(define cddl1.1
+  (license "CDDL 1.1"
+           "https://oss.oracle.com/licenses/CDDL+GPL-1.1"
            "https://www.gnu.org/licenses/license-list#CDDL"))
 
 (define cecill                                    ;copyleft
@@ -562,10 +579,20 @@ at URI, which may be a file:// URI pointing the package's tree."
            "https://unlicense.org/"
            "https://www.gnu.org/licenses/license-list.html#Unlicense"))
 
+(define w3c
+  (license "W3C Software Notice and License"
+           "https://directory.fsf.org/wiki/License:W3C_31Dec2002"
+           "https://www.gnu.org/licenses/license-list.en.html#W3C"))
+
 (define wtfpl2
   (license "WTFPL 2"
            "http://www.wtfpl.net"
            "http://www.wtfpl.net/about/"))
+
+(define wxwindows3.1+
+  (license "wxWindows 3.1+"
+           "https://wxwidgets.org/about/licence"
+           "https://www.gnu.org/licenses/license-list.html#Wxwind"))
 
 (define x11
   (license "X11"

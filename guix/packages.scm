@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2014, 2015, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2016 Alex Kost <alezost@gmail.com>
@@ -414,6 +414,13 @@ derivations."
   (let ((distro (resolve-interface '(gnu packages commencement))))
     (module-ref distro 'guile-final)))
 
+(define (guile-2.0)
+  "Return Guile 2.0."
+  ;; FIXME: This is used as a workaround for <https://bugs.gnu.org/28211> when
+  ;; grafting packages.
+  (let ((distro (resolve-interface '(gnu packages guile))))
+    (module-ref distro 'guile-2.0)))
+
 (define* (default-guile-derivation #:optional (system (%current-system)))
   "Return the derivation for SYSTEM of the default Guile package used to run
 the build code of derivation."
@@ -531,7 +538,8 @@ specifies modules in scope when evaluating SNIPPET."
               (setenv "LOCPATH"
                       (string-append #+locales "/lib/locale/"
                                      #+(and locales
-                                            (package-version locales))))
+                                            (version-major+minor
+                                             (package-version locales)))))
               (setlocale LC_ALL "en_US.utf8"))
 
             (setenv "PATH" (string-append #+xz "/bin" ":"
@@ -581,7 +589,12 @@ specifies modules in scope when evaluating SNIPPET."
                                                     #:fail-on-error? #t)))))
                         (zero? (apply system*
                                       (string-append #+tar "/bin/tar")
-                                      "cvfa" #$output
+                                      "cvf" #$output
+                                      ;; The bootstrap xz does not support
+                                      ;; threaded compression (introduced in
+                                      ;; 5.2.0), but it ignores the extra flag.
+                                      (string-append "--use-compress-program="
+                                                     #+xz "/bin/xz --threads=0")
                                       ;; avoid non-determinism in the archive
                                       "--mtime=@0"
                                       "--owner=root:0"
@@ -596,6 +609,7 @@ specifies modules in scope when evaluating SNIPPET."
       (gexp->derivation name build
                         #:graft? #f
                         #:system system
+                        #:deprecation-warnings #t ;to avoid a rebuild
                         #:guile-for-build guile-for-build))))
 
 (define (transitive-inputs inputs)
@@ -606,6 +620,9 @@ itself.
 This is implemented as a breadth-first traversal such that INPUTS is
 preserved, and only duplicate propagated inputs are removed."
   (define (seen? seen item outputs)
+    ;; FIXME: We're using pointer identity here, which is extremely sensitive
+    ;; to memoization in package-producing procedures; see
+    ;; <https://bugs.gnu.org/30155>.
     (match (vhash-assq item seen)
       ((_ . o) (equal? o outputs))
       (_       #f)))
@@ -772,7 +789,8 @@ when CUT? returns true for a given package."
           (location (package-location p))
           (inputs (map rewrite (package-inputs p)))
           (native-inputs (map rewrite (package-native-inputs p)))
-          (propagated-inputs (map rewrite (package-propagated-inputs p)))))))
+          (propagated-inputs (map rewrite (package-propagated-inputs p)))
+          (replacement (and=> (package-replacement p) proc))))))
 
   replace)
 
@@ -983,14 +1001,18 @@ and return it."
   "Fold PROC over the packages BAG depends on.  Each package is visited only
 once, in depth-first order.  If NATIVE? is true, restrict to native
 dependencies; otherwise, restrict to target dependencies."
+  (define bag-direct-inputs*
+    (if native?
+        (lambda (bag)
+          (append (bag-build-inputs bag)
+                  (bag-target-inputs bag)
+                  (if (bag-target bag)
+                      '()
+                      (bag-host-inputs bag))))
+        bag-host-inputs))
+
   (define nodes
-    (match (if native?
-               (append (bag-build-inputs bag)
-                       (bag-target-inputs bag)
-                       (if (bag-target bag)
-                           '()
-                           (bag-host-inputs bag)))
-               (bag-host-inputs bag))
+    (match (bag-direct-inputs* bag)
       (((labels things _ ...) ...)
        things)))
 
@@ -1003,7 +1025,7 @@ dependencies; otherwise, restrict to target dependencies."
       (((? package? head) . tail)
        (if (set-contains? visited head)
            (loop tail result visited)
-           (let ((inputs (bag-direct-inputs (package->bag head))))
+           (let ((inputs (bag-direct-inputs* (package->bag head))))
              (loop (match inputs
                      (((labels things _ ...) ...)
                       (append things tail)))
@@ -1140,7 +1162,7 @@ This is an internal procedure."
                   (()
                    drv)
                   (grafts
-                   (let ((guile (package-derivation store (default-guile)
+                   (let ((guile (package-derivation store (guile-2.0)
                                                     system #:graft? #f)))
                      ;; TODO: As an optimization, we can simply graft the tip
                      ;; of the derivation graph since 'graft-derivation'
@@ -1166,7 +1188,7 @@ system identifying string)."
                    (graft-derivation store drv grafts
                                      #:system system
                                      #:guile
-                                     (package-derivation store (default-guile)
+                                     (package-derivation store (guile-2.0)
                                                          system #:graft? #f))))
                 drv))))
 

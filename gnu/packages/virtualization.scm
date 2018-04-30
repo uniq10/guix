@@ -1,8 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2013, 2014, 2015, 2016 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015, 2016, 2017 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2017 Alex Vong <alexvong1995@gmail.com>
+;;; Copyright © 2017 Andy Patterson <ajpatter@uwaterloo.ca>
+;;; Copyright © 2017, 2018 Rutger Helling <rhelling@mykolab.com>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Danny Milosavljevic <dannym@scratchpost.org>
+;;; Copyright © 2018 Sou Bunnbu <iyzsong@member.fsf.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,18 +36,27 @@
   #:use-module (gnu packages cyrus-sasl)
   #:use-module (gnu packages disk)
   #:use-module (gnu packages dns)
+  #:use-module (gnu packages docbook)
+  #:use-module (gnu packages documentation)
+  #:use-module (gnu packages fontutils)
+  #:use-module (gnu packages gettext)
   #:use-module (gnu packages gl)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages gnome)
+  #:use-module (gnu packages golang)
   #:use-module (gnu packages gtk)
   #:use-module (gnu packages image)
   #:use-module (gnu packages libusb)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages ncurses)
+  #:use-module (gnu packages networking)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages polkit)
+  #:use-module (gnu packages protobuf)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
+  #:use-module (gnu packages pulseaudio)
   #:use-module (gnu packages selinux)
   #:use-module (gnu packages sdl)
   #:use-module (gnu packages spice)
@@ -51,9 +66,11 @@
   #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xml)
   #:use-module (guix build-system gnu)
+  #:use-module (guix build-system go)
   #:use-module (guix build-system python)
   #:use-module (guix download)
-  #:use-module ((guix licenses) #:select (gpl2 gpl2+ lgpl2.1+))
+  #:use-module ((guix licenses) #:select (gpl2 gpl2+ gpl3+ lgpl2.1 lgpl2.1+
+                                               asl2.0))
   #:use-module (guix packages)
   #:use-module (guix utils)
   #:use-module (srfi srfi-1))
@@ -71,27 +88,24 @@
 (define-public qemu
   (package
     (name "qemu")
-    (version "2.9.0")
+    (version "2.12.0")
     (source (origin
              (method url-fetch)
-             (uri (string-append "http://wiki.qemu-project.org/download/qemu-"
+             (uri (string-append "https://download.qemu.org/qemu-"
                                  version ".tar.xz"))
-             (patches (search-patches "qemu-CVE-2017-7493.patch"
-                                      "qemu-CVE-2017-8112.patch"
-                                      "qemu-CVE-2017-8309.patch"
-                                      "qemu-CVE-2017-8379.patch"
-                                      "qemu-CVE-2017-8380.patch"
-                                      "qemu-CVE-2017-9524.patch"
-                                      "qemu-CVE-2017-11334.patch"))
              (sha256
               (base32
-               "08mhfs0ndbkyqgw7fjaa9vjxf4dinrly656f6hjzvmaz7hzc677h"))))
+               "1z66spkm1prvhbq7h5mfnp0i6mmamsb938fqmdfvyrgzc7rh34z6"))))
     (build-system gnu-build-system)
     (arguments
      '(;; Running tests in parallel can occasionally lead to failures, like:
        ;; boot_sector_test: assertion failed (signature == SIGNATURE): (0x00000000 == 0x0000dead)
        #:parallel-tests? #f
-
+       #:configure-flags (list "--enable-usb-redir" "--enable-opengl"
+                               (string-append "--smbd="
+                                              (assoc-ref %outputs "out")
+                                              "/libexec/samba-wrapper")
+                               "--audio-drv-list=alsa,pa,sdl")
        #:phases
        (modify-phases %standard-phases
          (replace 'configure
@@ -117,6 +131,7 @@
                          "--disable-debug-info" ; save build space
                          "--enable-virtfs"      ; just to be sure
                          ,(string-append "--prefix=" out)
+                         ,(string-append "--sysconfdir=/etc")
                          ,@configure-flags))))))
          (add-after 'install 'install-info
            (lambda* (#:key inputs outputs #:allow-other-keys)
@@ -129,6 +144,20 @@
                                       (install-file info infodir))
                                     (find-files "." "\\.info"))
                           #t))))))
+         ;; Create a wrapper for Samba. This allows QEMU to use Samba without
+         ;; pulling it in as an input. Note that you need to explicitly install
+         ;; Samba in your Guix profile for Samba support.
+         (add-after 'install-info 'create-samba-wrapper
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((out    (assoc-ref %outputs "out"))
+                    (libexec (string-append out "/libexec")))
+               (call-with-output-file "samba-wrapper"
+                 (lambda (port)
+                   (format port "#!/bin/sh
+exec smbd $@")))
+               (chmod "samba-wrapper" #o755)
+               (install-file "samba-wrapper" libexec))
+             #t))
          (add-before 'check 'make-gtester-verbose
            (lambda _
              ;; Make GTester verbose to facilitate investigation upon failure.
@@ -145,28 +174,35 @@
      `(("alsa-lib" ,alsa-lib)
        ("attr" ,attr)
        ("glib" ,glib)
-       ;; ("libaio" ,libaio)
+       ("gtk+" ,gtk+)
+       ("libaio" ,libaio)
        ("libattr" ,attr)
        ("libcap" ,libcap)           ; virtfs support requires libcap & libattr
-       ("libjpeg" ,libjpeg-8)
+       ("libdrm" ,libdrm)
+       ("libepoxy" ,libepoxy)
+       ("libjpeg" ,libjpeg-turbo)
        ("libpng" ,libpng)
+       ("libseccomp" ,libseccomp)
        ("libusb" ,libusb)                         ;USB pass-through support
        ("mesa" ,mesa)
        ("ncurses" ,ncurses)
        ;; ("pciutils" ,pciutils)
        ("pixman" ,pixman)
-       ("sdl" ,sdl)
+       ("pulseaudio" ,pulseaudio)
+       ("sdl2" ,sdl2)
        ("spice" ,spice)
+       ("usbredir" ,usbredir)
        ("util-linux" ,util-linux)
        ;; ("vde2" ,vde2)
        ("virglrenderer" ,virglrenderer)
        ("zlib" ,zlib)))
-    (native-inputs `(("glib:bin" ,glib "bin") ; gtester, etc.
+    (native-inputs `(("gettext" ,gettext-minimal)
+                     ("glib:bin" ,glib "bin") ; gtester, etc.
                      ("perl" ,perl)
                      ("pkg-config" ,pkg-config)
-                     ("python" ,python-2) ; incompatible with Python 3 according to error message
+                     ("python-wrapper" ,python-wrapper)
                      ("texinfo" ,texinfo)))
-    (home-page "http://www.qemu-project.org")
+    (home-page "https://www.qemu.org")
     (synopsis "Machine emulator and virtualizer")
     (description
      "QEMU is a generic machine emulator and virtualizer.
@@ -193,14 +229,38 @@ server and embedded PowerPC, and S390 guests.")
     (name "qemu-minimal")
     (synopsis "Machine emulator and virtualizer (without GUI)")
     (arguments
-     `(#:configure-flags
-       ;; Restrict to the targets supported by Guix.
-       '("--target-list=i386-softmmu,x86_64-softmmu,mips64el-softmmu,arm-softmmu,aarch64-softmmu")
-       ,@(package-arguments qemu)))
+     (substitute-keyword-arguments (package-arguments qemu)
+       ((#:configure-flags _ '(list))
+        ;; Restrict to the targets supported by Guix.
+        ''("--target-list=i386-softmmu,x86_64-softmmu,mips64el-softmmu,arm-softmmu,aarch64-softmmu"))))
 
     ;; Remove dependencies on optional libraries, notably GUI libraries.
+    (native-inputs (fold alist-delete (package-native-inputs qemu)
+                  '("gettext")))
     (inputs (fold alist-delete (package-inputs qemu)
-                  '("libusb" "mesa" "sdl" "spice" "virglrenderer")))))
+                  '("libusb" "mesa" "sdl2" "spice" "virglrenderer" "gtk+"
+                    "usbredir" "libdrm" "libepoxy" "pulseaudio")))))
+
+;; The GRUB test suite fails with later versions of Qemu, so we
+;; keep it at 2.10 for now.  See
+;; <https://lists.gnu.org/archive/html/bug-grub/2018-02/msg00004.html>.
+;; This package is hidden since we do not backport updates to it.
+(define-public qemu-minimal-2.10
+  (hidden-package
+   (package
+    (inherit qemu-minimal)
+    (version "2.10.2")
+    (source (origin
+             (method url-fetch)
+             (uri (string-append "https://download.qemu.org/qemu-"
+                                 version ".tar.xz"))
+             (sha256
+              (base32
+               "17w21spvaxaidi2am5lpsln8yjpyp2zi3s3gc6nsxj5arlgamzgw"))))
+    ;; qemu-minimal-2.10 needs Python 2. Remove below once no longer necessary.
+    (native-inputs `(("python-2" ,python-2)
+                     ,@(fold alist-delete (package-native-inputs qemu)
+                             '("python-wrapper")))))))
 
 (define-public libosinfo
   (package
@@ -251,11 +311,11 @@ server and embedded PowerPC, and S390 guests.")
        ("usb.ids"
         ,(origin
            (method url-fetch)
-           (uri "http://linux-usb.cvs.sourceforge.net/viewvc/linux-usb/htdocs/usb.ids?revision=1.551")
+           (uri "https://svn.code.sf.net/p/linux-usb/repo/trunk/htdocs/usb.ids?r=2681")
            (file-name "usb.ids")
            (sha256
             (base32
-             "17rg5i0wbyk289gr8v4kgvnc9q5bidz7ldcvv9x58l083wn16hq3"))))))
+             "1m6yhvz5k8aqzxgk7xj3jkk8frl1hbv0h3vgj4wbnvnx79qnvz3r"))))))
     (home-page "https://libosinfo.org/")
     (synopsis "Operating system information database")
     (description "libosinfo is a GObject based library API for managing
@@ -271,7 +331,7 @@ all common programming languages.  Vala bindings are also provided.")
 (define-public lxc
   (package
     (name "lxc")
-    (version "2.0.8")
+    (version "2.1.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -279,7 +339,7 @@ all common programming languages.  Vala bindings are also provided.")
                     version ".tar.gz"))
               (sha256
                (base32
-                "15449r56rqg3487kzsnfvz0w4p5ajrq0krcsdh6c9r6g0ark93hd"))))
+                "1xpghrinxhm2072fwmn42pxhjwh7qx6cbsipw4s6g38a8mkklrk8"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -317,14 +377,14 @@ manage system or application containers.")
 (define-public libvirt
   (package
     (name "libvirt")
-    (version "3.5.0")
+    (version "4.2.0")
     (source (origin
               (method url-fetch)
-              (uri (string-append "http://libvirt.org/sources/libvirt-"
+              (uri (string-append "https://libvirt.org/sources/libvirt-"
                                   version ".tar.xz"))
               (sha256
                (base32
-                "05mm4xdw6g960rwvc9189nhxpm1vrilnmpl4h4m1lha11pivlqr9"))))
+                "0nq1iz5iic466qahp0i8dlvyd6li0b0pdrvvrz9286l12x2fm61s"))))
     (build-system gnu-build-system)
     (arguments
      `(;; FAIL: virshtest
@@ -334,7 +394,7 @@ manage system or application containers.")
        ;; FAIL: networkxml2firewalltest
        ;; FAIL: nwfilterebiptablestest
        ;; FAIL: nwfilterxml2firewalltest
-       ;; Times out after PASS: virsh-vcpupin
+       ;; Time-out while running commandtest.
        #:tests? #f
        #:configure-flags
        (list "--with-polkit"
@@ -354,15 +414,23 @@ manage system or application containers.")
            ;; at runtime, we must prevent writing to them at installation
            ;; time.
            (lambda _
-             (zero? (system* "make" "install"
-                             "sysconfdir=/tmp/etc"
-                             "localstatedir=/tmp/var")))))))
+             (invoke "make" "install"
+                            "sysconfdir=/tmp/etc"
+                            "localstatedir=/tmp/var")))
+         (add-after 'install 'wrap-libvirtd
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (wrap-program (string-append out "/sbin/libvirtd")
+                 `("PATH" = (,(string-append (assoc-ref inputs "iproute")
+                                             "/sbin")
+                             ,(string-append (assoc-ref inputs "qemu")
+                                             "/bin"))))
+               #t))))))
     (inputs
      `(("libxml2" ,libxml2)
        ("gnutls" ,gnutls)
        ("dbus" ,dbus)
        ("qemu" ,qemu)
-       ("polkit" ,polkit)
        ("libpcap" ,libpcap)
        ("libnl" ,libnl)
        ("libuuid" ,util-linux)
@@ -370,8 +438,6 @@ manage system or application containers.")
        ("curl" ,curl)
        ("openssl" ,openssl)
        ("cyrus-sasl" ,cyrus-sasl)
-       ("perl" ,perl)
-       ("python" ,python-2)
        ("libyajl" ,libyajl)
        ("audit" ,audit)
        ("dmidecode" ,dmidecode)
@@ -380,8 +446,12 @@ manage system or application containers.")
        ("iproute" ,iproute)
        ("iptables" ,iptables)))
     (native-inputs
-     `(("pkg-config" ,pkg-config)))
-    (home-page "http://libvirt.org")
+     `(("xsltproc" ,libxslt)
+       ("perl" ,perl)
+       ("pkg-config" ,pkg-config)
+       ("polkit" ,polkit)
+       ("python" ,python)))
+    (home-page "https://libvirt.org")
     (synopsis "Simple API for virtualization")
     (description "Libvirt is a C toolkit to interact with the virtualization
 capabilities of recent versions of Linux.  The library aims at providing long
@@ -423,7 +493,7 @@ to integrate other virtualization mechanisms if needed.")
        ("intltool" ,intltool)
        ("glib" ,glib "bin")
        ("vala" ,vala)))
-    (home-page "http://libvirt.org")
+    (home-page "https://libvirt.org")
     (synopsis "GLib wrapper around libvirt")
     (description "libvirt-glib wraps the libvirt library to provide a
 high-level object-oriented API better suited for glib-based applications, via
@@ -440,13 +510,13 @@ three libraries:
 (define-public python-libvirt
   (package
     (name "python-libvirt")
-    (version "3.4.0")
+    (version "4.1.0")
     (source (origin
               (method url-fetch)
               (uri (pypi-uri "libvirt-python" version))
               (sha256
                (base32
-                "04dma3979171p9yf0cg7m03shk038hc9vyfm9lb8z60qyn0pg9xg"))))
+                "1ixqhxjkczl8vk9wjx4cknw4374cw5nnsacbd2s755kpd0ys7hny"))))
     (build-system python-build-system)
     (arguments
      `(#:phases
@@ -466,7 +536,7 @@ three libraries:
     (native-inputs
      `(("pkg-config" ,pkg-config)
        ("python-nose" ,python-nose)))
-    (home-page "http://libvirt.org")
+    (home-page "https://libvirt.org")
     (synopsis "Python bindings to libvirt")
     (description "This package provides Python bindings to the libvirt
 virtualization library.")
@@ -478,7 +548,7 @@ virtualization library.")
 (define-public virt-manager
   (package
     (name "virt-manager")
-    (version "1.4.1")
+    (version "1.5.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://virt-manager.org/download/sources"
@@ -486,7 +556,7 @@ virtualization library.")
                                   version ".tar.gz"))
               (sha256
                (base32
-                "0i1rkxz730vw1nqghrp189jhhp53pw81k0h71hhxmyqlkyclkig6"))))
+                "1ardmd4sxdmd57y7qpka44gf09c1yq2g0xs074d3k1h925crv27f"))))
     (build-system python-build-system)
     (arguments
      `(#:python ,python-2
@@ -494,9 +564,12 @@ virtualization library.")
        ;; Some of the tests seem to require network access to install virtual
        ;; machines.
        #:tests? #f
+       #:imported-modules ((guix build glib-or-gtk-build-system)
+                           ,@%python-build-system-modules)
        #:modules ((ice-9 match)
                   (srfi srfi-26)
                   (guix build python-build-system)
+                  ((guix build glib-or-gtk-build-system) #:prefix glib-or-gtk:)
                   (guix build utils))
        #:phases
        (modify-phases %standard-phases
@@ -504,6 +577,13 @@ virtualization library.")
            (lambda* (#:key outputs #:allow-other-keys)
              (substitute* "virtcli/cliconfig.py"
                (("/usr") (assoc-ref outputs "out")))
+             #t))
+         (add-after 'unpack 'fix-default-uri
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; xen is not available for now - so only patch qemu
+             (substitute* "virtManager/connect.py"
+               (("/usr(/bin/qemu-system)" _ suffix)
+                (string-append (assoc-ref inputs "qemu") suffix)))
              #t))
          (add-before 'wrap 'wrap-with-GI_TYPELIB_PATH
            (lambda* (#:key inputs outputs #:allow-other-keys)
@@ -523,9 +603,14 @@ virtualization library.")
                              `("GI_TYPELIB_PATH" ":" prefix
                                ,(filter identity paths))))
                          bin-files))
-             #t)))))
+             #t))
+         (add-after 'install 'glib-or-gtk-compile-schemas
+           (assoc-ref glib-or-gtk:%standard-phases 'glib-or-gtk-compile-schemas))
+         (add-after 'install 'glib-or-gtk-wrap
+           (assoc-ref glib-or-gtk:%standard-phases 'glib-or-gtk-wrap)))))
     (inputs
-     `(("gtk+" ,gtk+)
+     `(("dconf" ,dconf)
+       ("gtk+" ,gtk+)
        ("gtk-vnc" ,gtk-vnc)
        ("libvirt" ,libvirt)
        ("libvirt-glib" ,libvirt-glib)
@@ -535,8 +620,10 @@ virtualization library.")
        ("python2-libvirt" ,python2-libvirt)
        ("python2-requests" ,python2-requests)
        ("python2-ipaddr" ,python2-ipaddr)
+       ("python2-pycairo" ,python2-pycairo)
        ("python2-pygobject" ,python2-pygobject)
-       ("python2-libxml2" ,python2-libxml2)))
+       ("python2-libxml2" ,python2-libxml2)
+       ("spice-gtk" ,spice-gtk)))
     ;; virt-manager searches for qemu-img or kvm-img in the PATH.
     (propagated-inputs
      `(("qemu" ,qemu)))
@@ -553,3 +640,221 @@ virtual machines through libvirt.  It primarily targets KVM VMs, but also
 manages Xen and LXC (Linux containers).  It presents a summary view of running
 domains, their live performance and resource utilization statistics.")
     (license gpl2+)))
+
+(define-public criu
+  (package
+    (name "criu")
+    (version "3.7")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "http://download.openvz.org/criu/criu-"
+                                  version ".tar.bz2"))
+              (sha256
+               (base32
+                "0qrpz7pvnks34v7d8lb73flz3mb7qwnib94pdwaxh0mskn8470fq"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:test-target "test"
+       #:tests? #f ; tests require mounting as root
+       #:make-flags
+       (list (string-append "PREFIX=" (assoc-ref %outputs "out"))
+             (string-append "LIBDIR=" (assoc-ref %outputs "out")
+                            "/lib"))
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; The includes for libnl are located in a sub-directory.
+             (setenv "C_INCLUDE_PATH"
+                     (string-append (assoc-ref inputs "libnl")
+                                    "/include/libnl3:"
+                                    (getenv "C_INCLUDE_PATH")))
+             ;; Prevent xmlto from failing the install phase.
+             (substitute* "Documentation/Makefile"
+               (("XMLTO.*:=.*")
+                (string-append "XMLTO:="
+                               (assoc-ref inputs "xmlto")
+                               "/bin/xmlto"
+                               " --skip-validation "
+                               " -x "
+                               (assoc-ref inputs "docbook-xsl")
+                               "/xml/xsl/docbook-xsl-"
+                               ,(package-version docbook-xsl)
+                               "/manpages/docbook.xsl")))
+             #t))
+         (add-before 'build 'fix-symlink
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; The file 'images/google/protobuf/descriptor.proto' points to
+             ;; /usr/include/..., which obviously does not exist.
+             (let* ((file "google/protobuf/descriptor.proto")
+                    (target (string-append "images/" file))
+                    (source (string-append (assoc-ref inputs "protobuf")
+                                           "/include/" file)))
+               (delete-file target)
+               (symlink source target)
+               #t)))
+         (add-after 'install 'wrap
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             ;; Make sure 'crit' runs with the correct PYTHONPATH.
+             (let* ((out (assoc-ref outputs "out"))
+                    (path (string-append out
+                                         "/lib/python"
+                                         (string-take (string-take-right
+                                                       (assoc-ref inputs "python") 5) 3)
+                                         "/site-packages:"
+                                         (getenv "PYTHONPATH"))))
+               (wrap-program (string-append out "/bin/crit")
+                 `("PYTHONPATH" ":" prefix (,path))))
+             #t)))))
+    (inputs
+     `(("protobuf" ,protobuf)
+       ("python" ,python-2)
+       ("python2-protobuf" ,python2-protobuf)
+       ("python2-ipaddr" ,python2-ipaddr)
+       ("iproute" ,iproute)
+       ("libaio" ,libaio)
+       ("libcap" ,libcap)
+       ("libnet" ,libnet)
+       ("libnl" ,libnl)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("perl" ,perl)
+       ("protobuf-c" ,protobuf-c)
+       ("asciidoc" ,asciidoc)
+       ("xmlto" ,xmlto)
+       ("docbook-xml" ,docbook-xml)
+       ("docbook-xsl" ,docbook-xsl)))
+    (home-page "https://criu.org")
+    (synopsis "Checkpoint and restore in user space")
+    (description "Using this tool, you can freeze a running application (or
+part of it) and checkpoint it to a hard drive as a collection of files.  You
+can then use the files to restore and run the application from the point it
+was frozen at.  The distinctive feature of the CRIU project is that it is
+mainly implemented in user space.")
+    ;; The project is licensed under GPLv2; files in the lib/ directory are
+    ;; LGPLv2.1.
+    (license (list gpl2 lgpl2.1))))
+
+(define-public qmpbackup
+  (package
+    (name "qmpbackup")
+    (version "0.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/abbbi/qmpbackup/archive/"
+                                  version ".tar.gz"))
+              (sha256
+               (base32
+                "10k9mnb1yrg4gw1rvz4kw4dxc4aajl8gnjrpm3axqkg63qmxj3qn"))
+              (file-name (string-append name "-" version ".tar.gz"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:python ,python-2))
+    (home-page "https://github.com/abbbi/qmpbackup")
+    (synopsis "Backup and restore QEMU machines")
+    (description "qmpbackup is designed to create and restore full and
+incremental backups of running QEMU virtual machines via QMP, the QEMU
+Machine Protocol.")
+    (license gpl3+)))
+
+(define-public lookingglass
+  (package
+   (name "lookingglass")
+   (version "a10")
+   (source
+    (origin
+     (method url-fetch)
+     (uri (string-append "https://github.com/gnif/LookingGlass/archive/"
+                         version ".tar.gz"))
+     (file-name (string-append name "-" version))
+     (sha256
+      (base32
+       "0zlxg9ibzr0a598wr5nl1pb4l7mzsqn8ip72v4frph0vwsm5il6c"))))
+   (build-system gnu-build-system)
+   (inputs `(("fontconfig" ,fontconfig)
+             ("glu" ,glu)
+             ("mesa" ,mesa)
+             ("openssl" ,openssl)
+             ("sdl2" ,sdl2)
+             ("sdl2-ttf" ,sdl2-ttf)
+             ("spice-protocol" ,spice-protocol)))
+   (native-inputs `(("pkg-config" ,pkg-config)))
+   (arguments
+    `(#:tests? #f ;; No tests are available.
+      #:phases (modify-phases %standard-phases
+                 (replace 'configure
+                   (lambda* (#:key outputs #:allow-other-keys)
+                     (chdir "client")
+                     #t))
+                 (replace 'install
+                   (lambda* (#:key outputs #:allow-other-keys)
+                     (install-file "bin/looking-glass-client"
+                                   (string-append (assoc-ref outputs "out")
+                                                  "/bin"))
+                     #t)))))
+   (home-page "https://looking-glass.hostfission.com")
+   (synopsis "KVM Frame Relay (KVMFR) implementation")
+   (description "Looking Glass allows the use of a KVM (Kernel-based Virtual
+Machine) configured for VGA PCI Pass-through without an attached physical
+monitor, keyboard or mouse.  It displays the VM's rendered contents on your main
+monitor/GPU.")
+   ;; This package requires SSE instructions.
+   (supported-systems '("i686-linux" "x86_64-linux"))
+   (license gpl2+)))
+
+(define-public runc
+  (package
+    (name "runc")
+    (version "1.0.0-rc5")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/opencontainers/runc/releases/"
+                    "download/v" version "/runc.tar.xz"))
+              (sha256
+               (base32
+                "081avdzwnqpk368wbaihlzsypaxpj42d7699h7jgp0fks14x4103"))))
+    (build-system go-build-system)
+    (arguments
+     '(#:import-path "github.com/opencontainers/runc"
+       #:install-source? #f
+       ;; XXX: 20/139 tests fail due to missing /var, cgroups and apparmor in
+       ;; the build environment.
+       #:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (replace 'unpack
+           (lambda* (#:key source import-path #:allow-other-keys)
+             ;; Unpack the tarball into 'runc' instead of 'runc-1.0.0-rc5'.
+             (let ((dest (string-append "src/" import-path)))
+               (mkdir-p dest)
+               (invoke "tar" "-C" (string-append "src/" import-path)
+                       "--strip-components=1"
+                       "-xvf" source))))
+         (replace 'build
+           (lambda* (#:key import-path #:allow-other-keys)
+             (chdir (string-append "src/" import-path))
+             ;; XXX: requires 'go-md2man'.
+             ;; (invoke "make" "man")
+             (invoke "make")))
+         ;; (replace 'check
+         ;;   (lambda _
+         ;;     (invoke "make" "localunittest")))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+              (invoke "make" "install" "install-bash"
+                      (string-append "PREFIX=" out))))))))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("libseccomp" ,libseccomp)))
+    (synopsis "Open container initiative runtime")
+    (home-page "https://www.opencontainers.org/")
+    (description
+     "@command{runc} is a command line client for running applications
+packaged according to the
+@uref{https://github.com/opencontainers/runtime-spec/blob/master/spec.md, Open
+Container Initiative (OCI) format} and is a compliant implementation of the
+Open Container Initiative specification.")
+    (license asl2.0)))

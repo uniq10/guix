@@ -1,5 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2015, 2016 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Nils Gillmann <ng0@n0.is>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -19,6 +21,7 @@
 (define-module (gnu packages language)
   #:use-module (gnu packages)
   #:use-module (gnu packages perl)
+  #:use-module (gnu packages perl-check)
   #:use-module (gnu packages web)
   #:use-module (guix packages)
   #:use-module (guix build-system perl)
@@ -50,7 +53,7 @@ manipulating such numbers.")
 (define-public perl-lingua-en-inflect
   (package
     (name "perl-lingua-en-inflect")
-    (version "1.901")
+    (version "1.903")
     (source
      (origin
        (method url-fetch)
@@ -58,7 +61,7 @@ manipulating such numbers.")
                            "Lingua-EN-Inflect-" version ".tar.gz"))
        (sha256
         (base32
-         "0mcwlgf6hkh4zm3s1x899f25xj4hyzrc2vssiwfxysqja36yf5ys"))))
+         "0j8d1f1wvmgc11d71pc8xp8fv5a1nb2yfw1dgd19xhscn1klpvzw"))))
     (build-system perl-build-system)
     (native-inputs `(("perl-module-build" ,perl-module-build)))
     (home-page "http://search.cpan.org/dist/Lingua-EN-Inflect")
@@ -95,7 +98,7 @@ converting a word to singular or plural.")
 (define-public perl-lingua-en-inflect-phrase
   (package
     (name "perl-lingua-en-inflect-phrase")
-    (version "0.18")
+    (version "0.20")
     (source
      (origin
        (method url-fetch)
@@ -103,7 +106,7 @@ converting a word to singular or plural.")
                            "Lingua-EN-Inflect-Phrase-" version ".tar.gz"))
        (sha256
         (base32
-         "19prg6pkgnznrc82ymdkdi3l9schg815axjig7adca5yqa7mn2i9"))))
+         "1a6y1l2pjim2242wcpgz066di4pbzfgsjjdl7vg5a5wzm48qj1am"))))
     (build-system perl-build-system)
     (native-inputs
      `(("perl-test-nowarnings" ,perl-test-nowarnings)))
@@ -195,15 +198,15 @@ both ordinal and cardinal numbers, negative numbers, and very large numbers.")
 (define-public perl-lingua-pt-stemmer
   (package
     (name "perl-lingua-pt-stemmer")
-    (version "0.01")
+    (version "0.02")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "mirror://cpan/authors/id/X/XE/XERN/"
+       (uri (string-append "mirror://cpan/authors/id/N/NE/NEILB/"
                            "Lingua-PT-Stemmer-" version ".tar.gz"))
        (sha256
         (base32
-         "11rqc5pqnkl9c13vy7sihiyas14ci0pj3k6chrgrgjv5sjv2m4a5"))))
+         "17c48sfbgwd2ivlgf59sr6jdhwa3aim8750f8pyzz7xpi8gz0var"))))
     (build-system perl-build-system)
     (home-page "http://search.cpan.org/dist/Lingua-PT-Stemmer")
     (synopsis "Portuguese language stemming")
@@ -283,15 +286,15 @@ parameters, returning the stemmed Italian word.")
 (define-public perl-lingua-stem-ru
   (package
     (name "perl-lingua-stem-ru")
-    (version "0.01")
+    (version "0.04")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "mirror://cpan/authors/id/A/AL/ALGDR/"
+       (uri (string-append "mirror://cpan/authors/id/N/NE/NEILB/"
                            "Lingua-Stem-Ru-" version ".tar.gz"))
        (sha256
         (base32
-         "0pqgg442fkf12ayh9fgmpa8q9x0iqx6s96181r52yn7s7pcs61h6"))))
+         "0a2jmdz7jn32qj5hyiw5kbv8fvlpmws8i00a6xcbkzb48yvwww0j"))))
     (build-system perl-build-system)
     (home-page "http://search.cpan.org/dist/Lingua-Stem-Ru")
     (synopsis "Porter's stemming algorithm for Russian")
@@ -362,7 +365,7 @@ stemmer at http://snowball.sourceforge.net.")
 (define-public perl-string-toidentifier-en
   (package
     (name "perl-string-toidentifier-en")
-    (version "0.11")
+    (version "0.12")
     (source
      (origin
        (method url-fetch)
@@ -370,7 +373,7 @@ stemmer at http://snowball.sourceforge.net.")
                            "String-ToIdentifier-EN-" version ".tar.gz"))
        (sha256
         (base32
-         "1bawghkgkkx7j3avnrj5sg3vix1z5564ks6wf9az3jc2knh8s5nh"))))
+         "12nw7h2yiybhdw0vnnpc7bif8ylhsn6kqf6s39dsrf9h54iq9yrs"))))
     (build-system perl-build-system)
     (propagated-inputs
      `(("perl-lingua-en-inflect-phrase" ,perl-lingua-en-inflect-phrase)

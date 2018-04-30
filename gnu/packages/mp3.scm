@@ -3,6 +3,9 @@
 ;;; Copyright © 2014, 2015, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2017 Pierre Langlois <pierre.langlois@gmx.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -42,6 +45,7 @@
   #:use-module (gnu packages video)               ;ffmpeg
   #:use-module (guix packages)
   #:use-module (guix download)
+  #:use-module (guix utils)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system python)
   #:use-module (guix build-system cmake))
@@ -65,12 +69,12 @@
    (build-system gnu-build-system)
    (arguments
     `(#:phases
-       (alist-cons-before
-        'configure 'remove-unsupported-gcc-flags
-        (lambda _
-          ;; remove option that is not supported by gcc any more
-          (substitute* "configure" ((" -fforce-mem") "")))
-       %standard-phases)))
+      (modify-phases %standard-phases
+        (add-before 'configure 'remove-unsupported-gcc-flags
+          (lambda _
+            ;; remove option that is not supported by gcc any more
+            (substitute* "configure" ((" -fforce-mem") ""))
+            #t)))))
    (synopsis "MPEG audio decoder")
    (description
     "MAD (MPEG Audio Decoder) supports MPEG-1 and the MPEG-2 extension to
@@ -114,24 +118,28 @@ versions of ID3v2.")
             (sha256
              (base32
               "0yfhqwk0w8q2hyv1jib1008jvzmwlpsxvc8qjllhna6p1hycqj97"))
+            (modules '((guix build utils)))
+            ;; Don't use bundled zlib
+            (snippet '(delete-file-recursively "zlib"))
             (patches (search-patches "id3lib-CVE-2007-4460.patch"))))
    (build-system gnu-build-system)
+   (inputs `(("zlib" ,zlib)))
    (arguments
     `(#:phases
-       (alist-cons-before
-        'configure 'apply-patches
-        ;; TODO: create a patch for origin instead?
-        (lambda _
-          (substitute* "configure"
-            (("iomanip.h") "")) ; drop check for unused header
-          ;; see http://www.linuxfromscratch.org/patches/downloads/id3lib/
-          (substitute* "include/id3/id3lib_strings.h"
-            (("include <string>") "include <cstring>\n#include <string>"))
-          (substitute* "include/id3/writers.h"
-            (("//\\#include <string.h>") "#include <cstring>"))
-          (substitute* "examples/test_io.cpp"
-            (("dami;") "dami;\nusing namespace std;")))
-         %standard-phases)))
+      (modify-phases %standard-phases
+        (add-before 'configure 'apply-patches
+          ;; TODO: create a patch for origin instead?
+          (lambda _
+            (substitute* "configure"
+              (("iomanip.h") "")) ; drop check for unused header
+            ;; see http://www.linuxfromscratch.org/patches/downloads/id3lib/
+            (substitute* "include/id3/id3lib_strings.h"
+              (("include <string>") "include <cstring>\n#include <string>"))
+            (substitute* "include/id3/writers.h"
+              (("//\\#include <string.h>") "#include <cstring>"))
+            (substitute* "examples/test_io.cpp"
+              (("dami;") "dami;\nusing namespace std;"))
+            #t)))))
    (synopsis "Library for reading, writing, and manipulating ID3v1 and ID3v2 tags")
    (description
     "Id3lib is a cross-platform software development library for reading,
@@ -145,18 +153,20 @@ a highly stable and efficient implementation.")
 (define-public taglib
   (package
     (name "taglib")
-    (version "1.10")
+    (version "1.11.1")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://taglib.github.io/releases/taglib-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "1alv6vp72p0x9i9yscmz2a71anjwqy53y9pbcbqxvc1c0i82vhr4"))))
+                "0ssjcdjv4qf9liph5ry1kngam1y7zp8fzr9xv4wzzrma22kabldn"))))
     (build-system cmake-build-system)
-    (arguments '(#:tests? #f))                    ;no 'test' target
+    (arguments
+      '(#:tests? #f ; Tests are not ran with BUILD_SHARED_LIBS on.
+        #:configure-flags (list "-DBUILD_SHARED_LIBS=ON")))
     (inputs `(("zlib" ,zlib)))
-    (home-page "http://developer.kde.org/~wheeler/taglib.html")
+    (home-page "http://taglib.org")
     (synopsis "Library to access audio file meta-data")
     (description
      "TagLib is a C++ library for reading and editing the meta-data of several
@@ -189,29 +199,30 @@ Speex, WavPack TrueAudio, WAV, AIFF, MP4 and ASF files.")
     (build-system gnu-build-system)
     (outputs '("out" "gui"))                      ;GTK+ interface in "gui"
     (arguments
-     '(#:phases (alist-replace
-                 'configure
-                 (lambda* (#:key outputs #:allow-other-keys)
-                   (let ((out (assoc-ref outputs "out")))
-                     (substitute* "Makefile"
-                       (("prefix=.*")
-                        (string-append "prefix := " out "\n")))))
-                 (alist-cons-before
-                  'install 'pre-install
-                  (lambda* (#:key outputs #:allow-other-keys)
-                    (let ((out (assoc-ref outputs "out")))
-                      (mkdir-p (string-append out "/bin"))
-                      (mkdir-p (string-append out "/share/man/man1"))))
-                  (alist-cons-after
-                   'install 'post-install
-                   (lambda* (#:key outputs #:allow-other-keys)
-                     ;; Move the GTK+ interface to "gui".
-                     (let ((out (assoc-ref outputs "out"))
-                           (gui (assoc-ref outputs "gui")))
-                       (mkdir-p (string-append gui "/bin"))
-                       (rename-file (string-append out "/bin/gmp3info")
-                                    (string-append gui "/bin/gmp3info"))))
-                   %standard-phases)))
+     '(#:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (substitute* "Makefile"
+                 (("prefix=.*")
+                  (string-append "prefix := " out "\n"))))
+             #t))
+         (add-before 'install 'pre-install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out")))
+               (mkdir-p (string-append out "/bin"))
+               (mkdir-p (string-append out "/share/man/man1")))
+             #t))
+         (add-after 'install 'post-install
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; Move the GTK+ interface to "gui".
+             (let ((out (assoc-ref outputs "out"))
+                   (gui (assoc-ref outputs "gui")))
+               (mkdir-p (string-append gui "/bin"))
+               (rename-file (string-append out "/bin/gmp3info")
+                            (string-append gui "/bin/gmp3info")))
+             #t)))
         #:tests? #f))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -290,7 +301,7 @@ This package contains the binary.")
 (define-public mpg123
   (package
     (name "mpg123")
-    (version "1.25.2")
+    (version "1.25.10")
     (source (origin
               (method url-fetch)
               (uri (list (string-append "mirror://sourceforge/mpg123/mpg123/"
@@ -300,13 +311,13 @@ This package contains the binary.")
                           version ".tar.bz2")))
               (sha256
                (base32
-                "0f7fib7qyd9lah3fqcsjlqcni4bip4hw7iglkz3vz4fjibxv052k"))))
+                "08vhp8lz7d9ybhxcmkq3adwfryhivfvp0745k4r9kgz4wap3f4vc"))))
     (build-system gnu-build-system)
     (arguments '(#:configure-flags '("--with-default-audio=pulse")))
     (native-inputs `(("pkg-config" ,pkg-config)))
     (inputs `(("pulseaudio" ,pulseaudio)
               ("alsa-lib" ,alsa-lib)))
-    (home-page "http://www.mpg123.org/")
+    (home-page "https://www.mpg123.org/")
     (synopsis "Console MP3 player and decoder library")
     (description
      "Mpg123 is a real time MPEG 1.0/2.0/2.5 audio player/decoder for layers
@@ -342,21 +353,16 @@ use with CD-recording software).")
 (define-public lame
   (package
     (name "lame")
-    (version "3.99.5")
+    (version "3.100")
     (source (origin
              (method url-fetch)
-             (uri (string-append "mirror://sourceforge/lame/lame/3.99/lame-"
+             (uri (string-append "mirror://sourceforge/lame/lame/"
+                                 (version-major+minor version) "/lame-"
                                  version ".tar.gz"))
              (sha256
               (base32
-               "1zr3kadv35ii6liia0bpfgxpag27xcivp571ybckpbz4b10nnd14"))))
+               "07nsn5sy3a8xbmw1bidxnsj5fj6kg9ai04icmqw40ybkp353dznx"))))
     (build-system gnu-build-system)
-    ;; XXX FIXME: Use gcc-4.8 on i686 to work around
-    ;; <http://bugs.gnu.org/20856>.
-    (native-inputs (if (and (not (%current-target-system))
-                            (string-prefix? "i686-" (%current-system)))
-                       `(("gcc" ,(canonical-package gcc-4.8)))
-                       '()))
     (home-page "http://lame.sourceforge.net/")
     (synopsis "MPEG Audio Layer III (MP3) encoder")
     (description "LAME is a high quality MPEG Audio Layer III (MP3) encoder.")
@@ -462,22 +468,21 @@ compression format (.mpc files).")
 (define-public eyed3
   (package
     (name "eyed3")
-    (version "0.7.10")
+    (version "0.8.5")
     (source (origin
              (method url-fetch)
-             (uri (string-append
-                  "http://eyed3.nicfit.net/releases/eyeD3-"
-                  version ".tar.gz"))
+             (uri (pypi-uri "eyeD3" version))
              (sha256
               (base32
-               "0wjicszs64ksj2y5jbk09yjd08znc1qnarlq8ssmx13f2d4x59wq"))))
+               "0rkx859z82wqnfb0dzpa1647cq43aqb39ri9rd5r3jz597qr9zdd"))))
     (build-system python-build-system)
     (arguments
-     `(#:python ,python-2))
-    (native-inputs
-     `(("python2-nose" ,python2-nose)
-       ("python2-sphinx" ,python2-sphinx)
-       ("python2-coverage" ,python2-coverage)))
+     `(#:tests? #f)) ; the required test data contains copyrighted material.
+    (propagated-inputs
+     `(("python-grako" ,python-grako)
+       ("python-magic" ,python-magic)
+       ("python-pathlib" ,python-pathlib)
+       ("python-six" ,python-six)))
     (synopsis "MP3 tag ID3 metadata editor")
     (description "eyeD3 is a Python tool for working with audio files,
 specifically mp3 files containing ID3 metadata (i.e. song info).  It provides a
@@ -490,24 +495,26 @@ command-line tool.")
 (define-public chromaprint
   (package
     (name "chromaprint")
-    (version "1.3.2")
+    (version "1.4.3")
     (source (origin
       (method url-fetch)
       (uri (string-append
-            "https://bitbucket.org/acoustid/chromaprint/downloads/"
-            "chromaprint-" version ".tar.gz"))
+            "https://github.com/acoustid/chromaprint/releases/download/v"
+            version "/chromaprint-" version ".tar.gz"))
       (sha256
-       (base32 "0lln8dh33gslb9cbmd1hcv33pr6jxdwipd8m8gbsyhksiq6r1by3"))))
+       (base32
+        "10kz8lncal4s2rp2rqpgc6xyjp0jzcrihgkx7chf127vfs5n067a"))))
     (build-system cmake-build-system)
     (arguments
      `(#:tests? #f ; tests require googletest *sources*
        ;;#:configure-flags '("-DBUILD_TESTS=ON") ; for building the tests
+       #:configure-flags '("-DBUILD_TOOLS=ON") ; for fpcalc
        #:test-target "check"))
     (inputs
      ;; requires one of FFmpeg (prefered), FFTW3 or vDSP
      ;; use the same ffmpeg version as for acoustid-fingerprinter
      `(("ffmpeg" ,ffmpeg)
-       ("boots" ,boost)))
+       ("boost" ,boost)))
     (home-page "https://acoustid.org/chromaprint")
     (synopsis "Audio fingerprinting library")
     (description "Chromaprint is a library for calculating audio

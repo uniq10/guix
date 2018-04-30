@@ -1,5 +1,5 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -96,7 +96,10 @@
 (test-skip (if %store 0 12))
 
 (test-assert "add-to-store, flat"
-  (let* ((file (search-path %load-path "language/tree-il/spec.scm"))
+  ;; Use 'readlink*' in case spec.scm is a symlink, as is the case when Guile
+  ;; was installed with Stow.
+  (let* ((file (readlink*
+                (search-path %load-path "language/tree-il/spec.scm")))
          (drv  (add-to-store %store "flat-test" #f "sha256" file)))
     (and (eq? 'regular (stat:type (stat drv)))
          (valid-path? %store drv)
@@ -104,7 +107,9 @@
                  (call-with-input-file drv get-bytevector-all)))))
 
 (test-assert "add-to-store, recursive"
-  (let* ((dir (dirname (search-path %load-path "language/tree-il/spec.scm")))
+  (let* ((dir (dirname
+               (readlink* (search-path %load-path
+                                       "language/tree-il/spec.scm"))))
          (drv (add-to-store %store "dir-tree-test" #t "sha256" dir)))
     (and (eq? 'directory (stat:type (stat drv)))
          (valid-path? %store drv)
@@ -222,7 +227,7 @@
       (build-derivations %store (list drv))
       #f)))
 
-(unless (force %http-server-socket)
+(unless (http-server-can-listen?)
   (test-skip 1))
 (test-assert "'download' built-in builder"
   (let ((text (random-text)))
@@ -238,7 +243,7 @@
                          get-string-all)
                        text))))))
 
-(unless (force %http-server-socket)
+(unless (http-server-can-listen?)
   (test-skip 1))
 (test-assert "'download' built-in builder, invalid hash"
   (with-http-server 200 "hello, world!"
@@ -253,7 +258,7 @@
         (build-derivations %store (list drv))
         #f))))
 
-(unless (force %http-server-socket)
+(unless (http-server-can-listen?)
   (test-skip 1))
 (test-assert "'download' built-in builder, not found"
   (with-http-server 404 "not found"
@@ -279,7 +284,7 @@
       (build-derivations %store (list drv))
       #f)))
 
-(unless (force %http-server-socket)
+(unless (http-server-can-listen?)
   (test-skip 1))
 (test-assert "'download' built-in builder, check mode"
   ;; Make sure rebuilding the 'builtin:download' derivation in check mode

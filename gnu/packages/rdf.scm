@@ -1,6 +1,7 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013, 2014, 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015, 2016 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -30,6 +31,7 @@
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages boost)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages curl)
   #:use-module (gnu packages cyrus-sasl)
@@ -41,7 +43,9 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages qt)
+  #:use-module (gnu packages time)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages xml))
 
@@ -116,41 +120,32 @@ Java Lucene text search engine API to C++.")
 (define-public lrdf
   (package
     (name "lrdf")
-    (version "0.5.0")
+    (version "0.6.1")
     (source (origin
               (method url-fetch)
-              (uri (string-append "https://github.com/swh/LRDF/archive/"
+              (uri (string-append "https://github.com/swh/LRDF/archive/v"
                                   version ".tar.gz"))
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "18p2flb2sv2hq6w2qkd29z9c7knnwqr3f12i2srshlzx6vwkm05s"))))
+                "1vxii4mlcpyi16dizcmnqfl2j9gffgr986yd8ic67hvs8xy42yfm"))))
     (build-system gnu-build-system)
     (arguments
-     '(#:phases (alist-cons-after
-                 'remove-out-of-tree-references 'autoreconf
-                 (lambda _
-                   (zero? (system* "autoreconf" "-vfi")))
-                 (alist-cons-after
-                  'unpack 'remove-out-of-tree-references
-                  (lambda _
-                    ;; remove symlinks to files in /usr/
-                    (delete-file-recursively "m4")
-                    (for-each delete-file '("config.guess"
-                                            "config.sub"
-                                            "depcomp"
-                                            "install-sh"
-                                            "ltmain.sh"
-                                            "missing"))
-                    ;; remove_test depends on an out-of-tree RDF file
-                    (substitute* "examples/Makefile.am"
-                      (("instances_test remove_test") "instances_test")
-                      (("\\$\\(TESTS\\) remove_test") "$(TESTS)")))
-                  %standard-phases))))
+     '(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'remove-out-of-tree-references
+           (lambda _
+             ;; remove_test depends on an out-of-tree RDF file
+             (substitute* "examples/Makefile.am"
+               (("instances_test remove_test") "instances_test")
+               (("\\$\\(TESTS\\) remove_test") "$(TESTS)"))
+             #t))
+         (add-after 'remove-out-of-tree-references 'autoreconf
+           (lambda _
+             (zero? (system* "autoreconf" "-vfi")))))))
     (inputs
      `(("raptor" ,raptor2)
        ("cyrus-sasl" ,cyrus-sasl)
-       ("openssl" ,openssl)
        ("zlib" ,zlib)))
     (native-inputs
      `(("autoconf" ,autoconf)
@@ -235,14 +230,14 @@ and triple stores.")
 (define-public serd
   (package
     (name "serd")
-    (version "0.26.0")
+    (version "0.28.0")
     (source (origin
              (method url-fetch)
              (uri (string-append "http://download.drobilla.net/serd-"
                                  version ".tar.bz2"))
              (sha256
               (base32
-               "164j43am4hka2vbzw4n52zy7rafgp6kmkgbcbvap368az644mr73"))))
+               "1v4ai4zyj1q3255nghicns9817jkwb3bh60ssprsjmnjfj41mwhx"))))
     (build-system waf-build-system)
     (arguments
      `(#:tests? #f ; no check target

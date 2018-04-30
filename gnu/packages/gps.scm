@@ -1,6 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Mathieu Othacehe <m.othacehe@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,9 +25,11 @@
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
   #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (gnu packages)
   #:use-module (gnu packages base)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages databases)
   #:use-module (gnu packages docbook)
   #:use-module (gnu packages image)
   #:use-module (gnu packages xml)
@@ -35,7 +39,7 @@
 (define-public gpsbabel
   (package
     (name "gpsbabel")
-    (version "1.5.2")
+    (version "1.5.4")
     (source (origin
               (method url-fetch)
               ;; XXX: Downloads from gpsbabel.org are hidden behind a POST, so
@@ -45,8 +49,21 @@
                     version ".orig.tar.gz"))
               (sha256
                (base32
-                "0xf7wmy2m29g2lm8lqc74yf8rf7sxfl3cfwbk7dpf0yf42pb0b6w"))))
+                "19hykxhyl567gf8qcrl33qhv95w0g4vxw9r3h9b8d8plx9bnaf8l"))
+              (patches (search-patches
+                        "gpsbabel-minizip.patch"
+                        ;; XXX: Remove this patch on the next release.
+                        "gpsbabel-qstring.patch"))
+              (modules '((guix build utils)))
+              (snippet
+               '(begin
+                  ;; Delete files under GPL-compatible licences but never used
+                  ;; on GNU systems, rather than bloating the LICENSE field.
+                  (delete-file "gui/serial_mac.cc")           ; Apple MIT
+                  (delete-file "mingw/include/ddk/hidsdi.h") ; public domain
+                  #t))))
     (build-system gnu-build-system)
+    ;; TODO: "make doc" requires Docbook & co.
     (arguments
      `(#:configure-flags
        '("--with-zlib=system"
@@ -54,13 +71,6 @@
          ;; recent binutils:
          ;; https://codereview.qt-project.org/#/c/111787/
          "CXXFLAGS=-std=gnu++11 -fPIC")
-       #:phases
-       (modify-phases %standard-phases
-        (add-before 'configure 'pre-configure
-                    (lambda _
-                      (chdir "gpsbabel"))))
-                    ;; TODO: "make doc" requires Docbook & co.
-
        ;; On i686, 'raymarine.test' fails because of a rounding error:
        ;; <http://hydra.gnu.org/build/133040>.  As a workaround, disable tests
        ;; on these platforms.
@@ -75,7 +85,7 @@
     (native-inputs
      `(("which" ,which)
        ("libxml2" ,libxml2)))              ;'xmllint' needed for the KML tests
-    (home-page "http://www.gpsbabel.org/")
+    (home-page "https://www.gpsbabel.org/")
     (synopsis "Convert and exchange data with GPS and map programs")
     (description
      "GPSBabel converts waypoints, tracks, and routes between hundreds of
@@ -83,7 +93,8 @@ popular GPS receivers and mapping programs.  It contains extensive data
 manipulation abilities making it a convenient for server-side processing or as
 the back-end for other tools.  It does not convert, transfer, send, or
 manipulate maps.")
-    (license license:gpl2+)))
+    (license (list license:expat        ; shapelib/*.[ch]
+                   license:gpl2+))))    ; everything else
 
 (define-public gpscorrelate
   ;; This program is "lightly maintained", so to speak, so we end up taking it
@@ -97,20 +108,22 @@ manipulate maps.")
                 (uri (git-reference
                       (url "https://github.com/freefoote/gpscorrelate")
                       (commit commit)))
+                (file-name (git-file-name name version))
                 (sha256
                  (base32
                   "006a6l8p38a4h7y2959sqrmjjn29d8pd50zj9nypcp5ph18nybjb"))))
       (build-system gnu-build-system)
       (arguments
-       `(#:phases (alist-replace
-                   'configure
-                   (lambda* (#:key inputs outputs #:allow-other-keys)
-                     ;; This is a rudimentary build system.
-                     (substitute* "Makefile"
-                       (("prefix[[:blank:]]*=.*$")
-                        (string-append "prefix = " (assoc-ref outputs "out")
-                                       "\n"))))
-                   %standard-phases)
+       `(#:phases
+         (modify-phases %standard-phases
+           (replace 'configure
+             (lambda* (#:key inputs outputs #:allow-other-keys)
+               ;; This is a rudimentary build system.
+               (substitute* "Makefile"
+                 (("prefix[[:blank:]]*=.*$")
+                  (string-append "prefix = " (assoc-ref outputs "out")
+                                 "\n")))
+               #t)))
          #:tests? #f))
       (inputs
        `(("gtk+" ,gtk+-2)
@@ -130,3 +143,79 @@ the photo was taken.  It does this by using the timestamp in the photo and
 finding a data point in the GPS track that matches, or interpolating a point
 between two other data points.")
       (license license:gpl2+))))
+
+(define-public gama
+  (package
+    (name "gama")
+    (version "1.22")
+    (source
+      (origin
+        (method url-fetch)
+        (uri (string-append "mirror://gnu/gama/gama-"
+                            version ".tar.gz"))
+        (sha256
+         (base32
+          "01q3g2zi5d5r2l10hc8jwwz6w61dwkv7nyj9xd67vvq0gajw0a7r"))))
+    (build-system gnu-build-system)
+    (arguments '(#:parallel-tests? #f)) ; race condition
+    (native-inputs
+     `(("libxml2" ,libxml2)))
+    (inputs
+     `(("expat" ,expat)
+       ("sqlite" ,sqlite)))
+    (home-page "https://www.gnu.org/software/gama")
+    (synopsis "Adjustment of geodetic networks")
+    (description
+     "GNU Gama is a program for the adjustment of geodetic networks.  It is
+useful in measurements where Global Positioning System (GPS) is not available,
+such as underground.  It features the ability to adjust in local Cartesian
+coordinates as well as partial support for adjustments in global coordinate systems.")
+    (license license:gpl3+)))
+
+(define-public gpxsee
+  (package
+    (name "gpxsee")
+    (version "4.19")
+    (source (origin
+              (method url-fetch)
+              (uri
+               (string-append "https://github.com/tumic0/GPXSee/archive/"
+                              version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "00j0gjldw1kn3i45dppld1pz8r4s1g7lw89k7gfvvqbjjyjih1wg"))))
+    (build-system gnu-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           ;; Use lrelease to convert TS translation files into QM files.
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (for-each (lambda (file)
+                         (system* "lrelease" file))
+                       (find-files "lang" "\\.ts"))
+             (substitute* "src/config.h"
+               (("/usr/share/gpxsee")
+                (string-append
+                 (assoc-ref outputs "out") "/share/gpxsee")))
+             (invoke "qmake"
+                     (string-append "PREFIX="
+                                    (assoc-ref outputs "out")))))
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (share (string-append out "/share/gpxsee/")))
+               (install-file "GPXSee" (string-append out "/bin/GPXSee"))
+               (install-file "pkg/maps.txt" share))
+             #t)))))
+    (inputs
+     `(("qtbase" ,qtbase)))
+    (native-inputs
+     `(("qttools" ,qttools)))
+    (home-page "http://www.gpxsee.org")
+    (synopsis "GPX file viewer and analyzer")
+    (description
+     "GPXSee is a Qt-based GPS log file viewer and analyzer that supports GPX,
+TCX, KML, FIT, IGC and NMEA files.")
+    (license license:gpl3)))

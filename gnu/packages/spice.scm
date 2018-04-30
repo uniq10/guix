@@ -1,5 +1,6 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016 David Craven <david@craven.ch>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -68,6 +69,7 @@
                 (uri (git-reference
                         (url "https://anongit.freedesktop.org/git/spice/usbredir.git")
                         (commit commit)))
+                (file-name (git-file-name name version))
                 (sha256
                  (base32
                   "052fywgi72j68dr5ybldncg4vk8iqfrh58la7iazyxxpph9aag1g"))))
@@ -84,6 +86,10 @@
          (modify-phases %standard-phases
            (add-after 'unpack 'autogen
              (lambda _
+               ;; Build without '-Werror', in particular to avoid errors due
+               ;; to the use of the deprecated 'libusb_set_debug' function.
+               (substitute* "configure.ac"
+                 (("-Werror") ""))
                (zero? (system* "autoreconf" "-vfi")))))))
       (synopsis "Tools for sending USB device traffic over a network")
       (description "Usbredir is a network protocol for sending USB device traffic
@@ -142,7 +148,7 @@ which allows users to view a desktop computing environment.")
 (define-public spice-gtk
   (package
     (name "spice-gtk")
-    (version "0.33")
+    (version "0.34")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -150,7 +156,7 @@ which allows users to view a desktop computing environment.")
                 "spice-gtk-" version ".tar.bz2"))
               (sha256
                (base32
-                "0fdgx9k4vgmasp8i2n0swrkapq8f212igcg7wsgvr3mbhsvk7bvx"))))
+                "1vknp72pl6v6nf3dphhwp29hk6gv787db2pmyg4m312z2q0hwwp9"))))
     (build-system gnu-build-system)
     (propagated-inputs
       `(("gstreamer" ,gstreamer)
@@ -162,6 +168,7 @@ which allows users to view a desktop computing environment.")
         ("spice-protocol" ,spice-protocol)))
     (inputs
       `(("glib-networking" ,glib-networking)
+        ("gobject-introspection" ,gobject-introspection)
         ("gtk+" ,gtk+)
         ("libepoxy" ,libepoxy)
         ("libjpeg" ,libjpeg)
@@ -182,7 +189,8 @@ which allows users to view a desktop computing environment.")
       `(#:configure-flags
         '("--enable-gstaudio"
           "--enable-gstvideo"
-          "--enable-pulse")
+          "--enable-pulse"
+          "--enable-introspection")
         #:phases
          (modify-phases %standard-phases
            (add-after
@@ -201,20 +209,15 @@ which allows users to view a desktop computing environment.")
 (define-public spice
   (package
     (name "spice")
-    (version "0.12.8")
+    (version "0.14.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
-                "http://www.spice-space.org/download/releases/"
+                "https://www.spice-space.org/download/releases/"
                 "spice-" version ".tar.bz2"))
               (sha256
                (base32
-                "0za03i77j8i3g5l2np2j7vy8cqsdbkm9wbv4hjnaqq9xhz2sa0gr"))
-              (patches
-               (search-patches "spice-CVE-2017-7506.patch"
-                               "spice-CVE-2016-9577.patch"
-                               "spice-CVE-2016-9578-1.patch"
-                               "spice-CVE-2016-9578-2.patch"))))
+                "0j5q7cp5p95jk8fp48gz76rz96lifimdsx1wnpmfal0nnnar9nrs"))))
     (build-system gnu-build-system)
     (propagated-inputs
       `(("openssl" ,openssl)
@@ -226,6 +229,7 @@ which allows users to view a desktop computing environment.")
         ("libjpeg-turbo" ,libjpeg-turbo)
         ("lz4" ,lz4)
         ("opus" ,opus)
+        ("orc" ,orc)
         ("zlib" ,zlib)))
     (native-inputs
       `(("pkg-config" ,pkg-config)
@@ -241,7 +245,7 @@ which allows users to view a desktop computing environment.")
 environments which allows you to view a computing 'desktop' environment
 not only on the machine where it is running, but from anywhere on the
 Internet and from a wide variety of machine architectures.")
-    (home-page "http://www.spice-space.org")
+    (home-page "https://www.spice-space.org")
     (license (list license:lgpl2.1+ license:lgpl2.0+))))
 
 (define-public spice-vdagent
@@ -292,13 +296,13 @@ Internet and from a wide variety of machine architectures.")
     (synopsis "Spice agent for Linux")
     (description "Spice-vdagent enables sharing the clipboard and guest display
 resolution scaling on graphical console window resize.")
-    (home-page "http://www.spice-space.org")
+    (home-page "https://www.spice-space.org")
     (license license:gpl3+)))
 
 (define-public virt-viewer
   (package
     (name "virt-viewer")
-    (version "5.0")
+    (version "6.0")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -306,7 +310,7 @@ resolution scaling on graphical console window resize.")
                 "virt-viewer-" version ".tar.gz"))
               (sha256
                (base32
-                "0blbp1wkw8ahss9va0bmcz2yx18j0mvm6fzrzhh2ly3sja5ysb8b"))))
+                "1chqrf658niivzfh85cbwkbv9vyg8sv1mv3i31vawkfsfdvvsdwh"))))
     (build-system gnu-build-system)
     (inputs
       `(("gtk+" ,gtk+)

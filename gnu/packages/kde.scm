@@ -1,6 +1,8 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016, 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2017 Mark Meyer <mark@ofosos.org>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,23 +25,34 @@
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (guix utils)
+  #:use-module (gnu packages algebra)
   #:use-module (gnu packages apr)
   #:use-module (gnu packages boost)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages curl)
   #:use-module (gnu packages documentation)
+  #:use-module (gnu packages gettext)
+  #:use-module (gnu packages ghostscript)
   #:use-module (gnu packages gl)
   #:use-module (gnu packages gnome)
+  #:use-module (gnu packages graphics)
+  #:use-module (gnu packages image)
   #:use-module (gnu packages kde-frameworks)
   #:use-module (gnu packages llvm)
+  #:use-module (gnu packages maths)
+  #:use-module (gnu packages pdf)
+  #:use-module (gnu packages perl)
+  #:use-module (gnu packages photo)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages qt)
-  #:use-module (gnu packages version-control))
+  #:use-module (gnu packages version-control)
+  #:use-module (gnu packages xorg))
 
 (define-public kdevelop
   (package
     (name "kdevelop")
-    (version "5.1.1")
+    (version "5.1.2")
     (source
       (origin
         (method url-fetch)
@@ -48,7 +61,7 @@
                             version ".tar.xz"))
         (sha256
          (base32
-          "0m6pnmylp1gij5cr75waz8hjry5894qillj5977h467hnbzs808a"))))
+          "1iqaq0ilijjigqb34v5wq9in6bnjs0p9cmgbygjmy53xhh3yhm5g"))))
     (build-system cmake-build-system)
     (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
@@ -102,17 +115,16 @@
                     (qtquickcontrols (assoc-ref inputs "qtquickcontrols"))
                     (qtbase (assoc-ref inputs "qtbase"))
                     (qtdeclarative (assoc-ref inputs "qtdeclarative"))
-                    (profile "$HOME/.guix-profile")
                     (qml "/qml"))
                (wrap-program (string-append out "/bin/kdevelop")
                  `("XDG_DATA_DIRS" ":" prefix
                    ,(map (lambda (s) (string-append s "/share"))
-                         (list profile out kdevplatform kcmutils)))
+                         (list out kdevplatform kcmutils)))
                  `("QT_QPA_PLATFORM_PLUGIN_PATH" ":" =
                    (,(string-append qtbase "/plugins/platforms")))
                  `("QT_PLUGIN_PATH" ":" prefix
                    ,(map (lambda (s) (string-append s "/lib/plugins"))
-                         (list profile out kdevplatform kio)))
+                         (list out kdevplatform kio)))
                  `("QML2_IMPORT_PATH" ":" prefix
                    (,(string-append qtquickcontrols qml)
                     ,(string-append qtdeclarative qml))))))))))
@@ -151,7 +163,7 @@ for some KDevelop language plugins (Ruby, PHP, CSS...).")
 (define-public kdevplatform
   (package
     (name "kdevplatform")
-    (version "5.1.1")
+    (version "5.1.2")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://kde/stable/kdevelop"
@@ -159,7 +171,7 @@ for some KDevelop language plugins (Ruby, PHP, CSS...).")
                                   version ".tar.xz"))
               (sha256
                (base32
-                "09p7lvniw55g6x8v8wl3azlps8c13yx03x1m9cd3qdxi282l8n9i"))))
+                "0jk6g1kiqpyjy8pca0236b9944gxqnymqv8ny6m8nrraannxs8p6"))))
     (build-system cmake-build-system)
     (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
@@ -221,19 +233,167 @@ for some KDevelop language plugins (Ruby, PHP, CSS...).")
 plugins, as well as code to create plugins, or complete applications.")
     (license license:gpl3+)))
 
+(define-public krita
+  (package
+    (name "krita")
+    (version "4.0.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "mirror://kde/stable/krita/"
+                    (version-prefix version 3)
+                    "/" name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0k55ybvna40dx4fqygnix7bnhjaanak3ckb108hny2k7sspy62pc"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:tests? #f
+       #:configure-flags
+       (list "-DBUILD_TESTING=OFF" "-DKDE4_BUILD_TESTS=OFF"
+             (string-append "-DWITH_FFTW3="
+                            (assoc-ref %build-inputs "fftw"))
+             (string-append "-DWITH_GSL="
+                            (assoc-ref %build-inputs "gsl"))
+             (string-append "-DWITH_LibRaw="
+                            (assoc-ref %build-inputs "libraw"))
+             (string-append "-DWITH_TIFF="
+                            (assoc-ref %build-inputs "libtiff"))
+             (string-append "-DCMAKE_CXX_FLAGS=-I"
+                            (assoc-ref %build-inputs "ilmbase")
+                            "/include/OpenEXR"))
+       #:phases
+       (modify-phases %standard-phases
+         ;; Ensure that icons are found at runtime.
+         ;; This works around <https://bugs.gnu.org/22138>.
+         (add-after 'install 'wrap-executable
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let ((out (assoc-ref outputs "out"))
+                   (qt '("qtbase" "qtsvg")))
+               (wrap-program (string-append out "/bin/krita")
+                 `("QT_PLUGIN_PATH" ":" prefix
+                   ,(map (lambda (label)
+                           (string-append (assoc-ref inputs label)
+                                          "/lib/qt5/plugins/"))
+                         qt)))
+               #t))))))
+    (native-inputs
+     `(("curl" ,curl)
+       ("eigen" ,eigen)
+       ("extra-cmake-modules" ,extra-cmake-modules)
+       ("gettext-minimal" ,gettext-minimal)
+       ("kitemmodels" ,kitemmodels)
+       ("qwt" ,qwt)
+       ("vc" ,vc)))
+    (inputs
+     `(("qtbase" ,qtbase)
+       ("qtdeclarative" ,qtdeclarative)
+       ("qtmultimedia" ,qtmultimedia)
+       ("qtx11extras" ,qtx11extras)
+       ("qtsvg" ,qtsvg)
+       ("karchive" ,karchive)
+       ("kcompletion" ,kcompletion)
+       ("kconfig" ,kconfig)
+       ("kcoreaddons" ,kcoreaddons)
+       ("kcrash" ,kcrash)
+       ("kguiaddons" ,kguiaddons)
+       ("ki18n" ,ki18n)
+       ("kiconthemes" ,kiconthemes)
+       ("kio" ,kio)
+       ("kitemviews" ,kitemviews)
+       ("kwidgetsaddons" ,kwidgetsaddons)
+       ("kwindowsystem" ,kwindowsystem)
+       ("kxmlgui" ,kxmlgui)
+       ("boost" ,boost)
+       ("exiv2" ,exiv2)
+       ("lcms" ,lcms)
+       ("libpng" ,libpng)
+       ("libjpeg-turbo" ,libjpeg-turbo)
+       ("zlib" ,zlib)
+       ("libx11" ,libx11)
+       ("libxcb" ,libxcb)
+       ("libxi" ,libxi)
+       ("fftw" ,fftw)
+       ("gsl" ,gsl)
+       ("poppler-qt5" ,poppler-qt5)
+       ("libraw" ,libraw)
+       ("libtiff" ,libtiff)
+       ("perl" ,perl)
+       ("ilmbase" ,ilmbase)
+       ("openexr" ,openexr)))
+    (home-page "https://krita.org")
+    (synopsis "Digital painting application")
+    (description
+     "Krita is a professional painting tool designed for concept artists,
+illustrators, matte and texture artists, and the VFX industry.  Notable
+features include brush stabilizers, brush engines and wrap-around mode.")
+    (license license:gpl2+)))
+
+;; Krita 3 and 4's file formats are incompatible, so we are keeping Krita 3
+;; for now.
+(define-public krita-3
+  (package
+    (inherit krita)
+    (name "krita")
+    (version "3.3.3")
+    (source (origin
+              (inherit (package-source krita))
+              (uri (string-append
+                    "mirror://kde/stable/krita/"
+                    (version-prefix version 3)
+                    "/" name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0pc6hnakkqy81x5b5ncivaps6hqv43i50sjwgi3i3cz9j8rlxh5y"))))))
+
+(define-public kholidays
+  (package
+    (name "kholidays")
+    (version "17.12.1")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://kde/stable/applications/" version "/src/"
+             name "-" version ".tar.xz"))
+       (sha256
+        (base32 "0595d7wbnz8kyq1bnivdrp20lwdp8ykvdll1fmb0fgm4q24z0cl8"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'check 'check-setup
+           (lambda _
+             ;; blacklist a failing test function TODO: make it pass
+             (with-output-to-file "autotests/BLACKLIST"
+               (lambda _
+                 (display "[testDefaultRegions]\n*\n")))
+             #t)))))
+    (native-inputs
+     `(("extra-cmake-modules" ,extra-cmake-modules)
+       ("qttools" ,qttools)))
+    (inputs
+     `(("qtbase" ,qtbase)
+       ("qtdeclarative" ,qtdeclarative)))
+    (home-page "https://cgit.kde.org/kholidays.git")
+    (synopsis "Library for regional holiday information")
+    (description "This library provides a C++ API that determines holiday and
+other special events for a geographical region.")
+    (license license:lgpl2.0+)))
+
 (define-public libkomparediff2
   (package
     (name "libkomparediff2")
-    (version "16.08.2")
+    (version "17.12.3")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "https://github.com/KDE/libkomparediff2/archive/v"
-                            version ".tar.gz"))
+        (uri (string-append "mirror://kde/stable/applications"
+                            "/" version "/src/" name "-" version ".tar.xz"))
         (file-name (string-append name "-" version ".tar.gz"))
         (sha256
          (base32
-          "1lafifrwfxvn0jwhz67kwv7m38lm4syips3fq77rwcvfhmkiijmh"))))
+          "0w6p8lvm2rn7y4qz0x3s87lwh1758xnyhwkkkng55n8v9rpjjw7l"))))
     (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
        ("pkg-config" ,pkg-config)))
@@ -258,7 +418,7 @@ used in KDE development tools Kompare and KDevelop.")
 (define-public libksysguard
   (package
     (name "libksysguard")
-    (version "5.8.2")
+    (version "5.11.5")
     (source
      (origin
        (method url-fetch)
@@ -266,7 +426,7 @@ used in KDE development tools Kompare and KDevelop.")
                            "/libksysguard-" version ".tar.xz"))
        (sha256
         (base32
-         "158n30wbpsgbw3axhhsc58hnwhwdd02j3zc9hhcybmnbkfl5c96l"))))
+         "0f2py4zkqzpxxf3mqaij0q8ka0v3nschj17dv6rbzzmr5mjv825f"))))
     (native-inputs
      `(("extra-cmake-modules" ,extra-cmake-modules)
        ("pkg-config" ,pkg-config)))
@@ -300,10 +460,15 @@ used in KDE development tools Kompare and KDevelop.")
              ;; KF5AuthConfig.cmake.in contains this already.
              (substitute* "processcore/CMakeLists.txt"
                (("KAUTH_HELPER_INSTALL_DIR") "KDE_INSTALL_LIBEXECDIR"))))
+         (add-before 'check 'check-setup
+           (lambda _
+             ;; make Qt render "offscreen", required for tests
+             (setenv "QT_QPA_PLATFORM" "offscreen")))
          (replace 'check
-           (lambda _         ;other tests require a display and therefore fail
-             (zero? (system* "ctest" "-R" "chronotest")))))))
-    (home-page "https://www.kde.org/info/plasma-5.8.2.php")
+           (lambda _
+             ;; TODO: Fix this failing test-case
+             (zero? (system* "ctest" "-E" "processtest")))))))
+    (home-page "https://www.kde.org/info/plasma-5.11.5.php")
     (synopsis "Network enabled task and system monitoring")
     (description "KSysGuard can obtain information on system load and
 manage running processes.  It obtains this information by interacting
@@ -317,7 +482,7 @@ with a ksysguardd daemon, which may also run on a remote system.")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "http://download.kde.org/stable/qca/" version
+        (uri (string-append "mirror://kde/stable/qca/" version
                             "/src/qca-" version ".tar.xz"))
         (sha256
          (base32
@@ -343,7 +508,7 @@ cards.")
     (source
       (origin
         (method url-fetch)
-        (uri (string-append "http://download.kde.org/stable/snorenotify/"
+        (uri (string-append "mirror://kde/stable/snorenotify/"
                             version "/src/snorenotify-" version ".tar.xz"))
         (sha256
          (base32

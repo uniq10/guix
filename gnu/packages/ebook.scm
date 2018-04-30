@@ -4,6 +4,7 @@
 ;;; Copyright © 2016, 2017 Alex Griffin <a@ajgrf.com>
 ;;; Copyright © 2017 Brendan Tildesley <brendan.tildesley@openmailbox.org>
 ;;; Copyright © 2017 Roel Janssen <roel@gnu.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -28,10 +29,14 @@
   #:use-module (gnu packages)
   #:use-module (guix build-system python)
   #:use-module (gnu packages)
+  #:use-module (gnu packages compression)
+  #:use-module (gnu packages curl)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages fonts)
   #:use-module (gnu packages fontutils)
   #:use-module (gnu packages freedesktop)
+  #:use-module (gnu packages fribidi)
+  #:use-module (gnu packages gtk)
   #:use-module (gnu packages gnome)
   #:use-module (gnu packages glib)
   #:use-module (gnu packages icu4c)
@@ -40,9 +45,13 @@
   #:use-module (gnu packages pdf)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages qt)
+  #:use-module (gnu packages serialization)
+  #:use-module (gnu packages time)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages web)
+  #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg))
 
 (define-public chmlib
@@ -66,7 +75,7 @@
 (define-public calibre
   (package
     (name "calibre")
-    (version "3.0.0")
+    (version "3.17.0")
     (source
       (origin
         (method url-fetch)
@@ -75,21 +84,19 @@
                             version ".tar.xz"))
         (sha256
          (base32
-          "1zhk7bvgr973dd18x4wp48kzai29qqqi5qcy72sxc4wcbk2sbnkw"))
+          "1w6hw1s0d4daa4q2ykzhxdndiq61l8z7ls7rxh7k7p62ia0i5sxp"))
         ;; Remove non-free or doubtful code, see
         ;; https://lists.gnu.org/archive/html/guix-devel/2015-02/msg00478.html
         (modules '((guix build utils)))
         (snippet
           '(begin
             (delete-file-recursively "src/calibre/ebooks/markdown")
-            (delete-file-recursively "src/unrar")
             (delete-file "src/odf/thumbnail.py")
             (delete-file-recursively "resources/fonts/liberation")
             (substitute* (find-files "." "\\.py")
               (("calibre\\.ebooks\\.markdown") "markdown"))
             #t))
-        (patches (search-patches "calibre-drop-unrar.patch"
-                                 "calibre-use-packaged-feedparser.patch"
+        (patches (search-patches "calibre-use-packaged-feedparser.patch"
                                  "calibre-no-updates-dialog.patch"))))
     (build-system python-build-system)
     (native-inputs
@@ -112,6 +119,7 @@
        ("libusb" ,libusb)
        ("libxrender" ,libxrender)
        ("openssl" ,openssl)
+       ("optipng" ,optipng)
        ("podofo" ,podofo)
        ("poppler" ,poppler)
        ("python" ,python-2)
@@ -122,16 +130,23 @@
        ("python2-dateutil" ,python2-dateutil)
        ("python2-dbus" ,python2-dbus)
        ("python2-dnspython" ,python2-dnspython)
+       ("python2-dukpy" ,python2-dukpy)
        ("python2-feedparser" ,python2-feedparser)
+       ("python2-html5-parser" ,python2-html5-parser)
        ("python2-lxml" ,python2-lxml)
        ("python2-markdown" ,python2-markdown)
        ("python2-mechanize" ,python2-mechanize)
+       ;; python2-msgpack is needed for the network content server to work.
+       ("python2-msgpack" ,python2-msgpack)
        ("python2-netifaces" ,python2-netifaces)
        ("python2-pillow" ,python2-pillow)
        ("python2-pygments" ,python2-pygments)
        ("python2-pyqt" ,python2-pyqt)
        ("python2-sip" ,python2-sip)
        ("python2-regex" ,python2-regex)
+       ;; python2-unrardll is needed for decompressing RAR files.
+       ;; A program called 'pdf2html' is needed for reading PDF books
+       ;; in the web interface.
        ("sqlite" ,sqlite)))
     (arguments
      `(#:python ,python-2
@@ -161,7 +176,8 @@
               (substitute* "setup/build_environment.py"
                 (("sys.prefix") (string-append "'" pyqt "'")))
               (setenv "PODOFO_INC_DIR" (string-append podofo "/include/podofo"))
-              (setenv "PODOFO_LIB_DIR" (string-append podofo "/lib")))))
+              (setenv "PODOFO_LIB_DIR" (string-append podofo "/lib"))
+              #t)))
          (add-after 'install 'install-font-liberation
            (lambda* (#:key inputs outputs #:allow-other-keys)
              (for-each (lambda (file)
@@ -171,14 +187,20 @@
                        (find-files (string-append
                                     (assoc-ref inputs "font-liberation")
                                     "/share/fonts/truetype")))
+             #t))
+         (add-after 'install-font-liberation 'install-mimetypes
+           (lambda* (#:key outputs #:allow-other-keys)
+             (install-file "resources/calibre-mimetypes.xml"
+                           (string-append (assoc-ref outputs "out")
+                                          "/share/mime/packages"))
              #t)))))
     (home-page "http://calibre-ebook.com/")
     (synopsis "E-book library management software")
-    (description "Calibre is an ebook library manager.  It can view, convert
-and catalog ebooks in most of the major ebook formats.  It can also talk
-to many ebook reader devices.  It can go out to the Internet and fetch
+    (description "Calibre is an e-book library manager.  It can view, convert
+and catalog e-books in most of the major e-book formats.  It can also talk
+to many e-book reader devices.  It can go out to the Internet and fetch
 metadata for books.  It can download newspapers and convert them into
-ebooks for convenient reading.")
+e-books for convenient reading.")
     ;; Calibre is largely GPL3+, but includes a number of components covered
     ;; by other licenses. See COPYRIGHT for more details.
     (license (list license:gpl3+
@@ -192,3 +214,80 @@ ebooks for convenient reading.")
                    license:public-domain
                    license:silofl1.1
                    license:cc-by-sa3.0))))
+
+(define-public liblinebreak
+  (package
+    (name "liblinebreak")
+    (version "2.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "mirror://sourceforge/vimgadgets"
+                                  "/liblinebreak/" version
+                                  "/liblinebreak-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1f36dbq7nc77lln1by2n1yl050g9dc63viawhs3gc3169mavm36x"))))
+    (build-system gnu-build-system)
+    (home-page "http://vimgadgets.sourceforge.net/liblinebreak/")
+    (synopsis "Library for detecting where linebreaks are allowed in text")
+    (description "@code{liblinebreak} is an implementation of the line
+breaking algorithm as described in Unicode 6.0.0 Standard Annex 14,
+Revision 26.  It breaks lines that contain Unicode characters.  It is
+designed to be used in a generic text renderer.")
+    (license license:zlib)))
+
+(define-public fbreader
+  (package
+    (name "fbreader")
+    (version "0.99.6")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/geometer/FBReader/"
+                                  "archive/" version "-freebsdport.tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "0gf1nl562fqkwlzcn6rgkp1j8jcixzmfsnwxbc0sm49zh8n3zqib"))))
+    (build-system gnu-build-system)
+    (inputs
+     `(("curl" ,curl)
+       ("expat" ,expat)
+       ("fribidi" ,fribidi)
+       ("glib" ,glib)
+       ("gtk+-2" ,gtk+-2)
+       ("libjpeg" ,libjpeg)
+       ("liblinebreak" ,liblinebreak)
+       ("libxft" ,libxft)
+       ("sqlite" ,sqlite)
+       ("zlib" ,zlib)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (arguments
+     `(#:tests? #f ; No tests exist.
+       #:make-flags `("CC=gcc" "TARGET_ARCH=desktop" "UI_TYPE=gtk"
+                      "TARGET_STATUS=release"
+                      ,(string-append "INSTALLDIR="
+                                      (assoc-ref %outputs "out"))
+                      ,(string-append "LDFLAGS=-Wl,-rpath="
+                                      (assoc-ref %outputs "out") "/lib"))
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure))))
+    (home-page "https://fbreader.org/")
+    (synopsis "E-Book reader")
+    (description "@code{fbreader} is an E-Book reader.  It supports the
+following formats:
+
+@enumerate
+@item CHM
+@item Docbook
+@item FB2
+@item HTML
+@item OEB
+@item PDB
+@item RTF
+@item TCR
+@item TXT
+@item XHTML
+@end enumerate")
+    (license license:gpl2+)))

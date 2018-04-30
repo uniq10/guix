@@ -2,8 +2,9 @@
 ;;; Copyright © 2014 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2014 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2015, 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2016 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2016 Kei Kebreau <kkebreau@posteo.net>
 ;;; Copyright © 2017 Eric Bavier <bavier@member.fsf.org>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -35,6 +36,7 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages qt)
   #:use-module (gnu packages image)
   #:use-module (gnu packages tls)
@@ -77,14 +79,14 @@ older or slower computers and embedded systems.")
 (define-public links
   (package
     (name "links")
-    (version "2.14")
+    (version "2.15")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://links.twibright.com/download/"
                                   name "-" version ".tar.bz2"))
-              (sha256
+                (sha256
                (base32
-                "1f24y83wa1vzzjq5kp857gjqdpnmf8pb29yw7fam0m8wxxw0c3gp"))))
+                "1jp3xyvp87a188b4kg5ycqahrazj7928zncgsznzn54w8d5iqahy"))))
     (build-system gnu-build-system)
     (arguments
      `(#:phases
@@ -100,10 +102,10 @@ older or slower computers and embedded systems.")
                      `((setenv "CHOST" ,(%current-target-system)))
                      '())
                (setenv "CONFIG_SHELL" (which "bash"))
-               (zero?
-                (system* "./configure"
-                         (string-append "--prefix=" out)
-                         "--enable-graphics"))))))))
+               (invoke "./configure"
+                       (string-append "--prefix=" out)
+                       "--enable-graphics")
+               #t))))))
     (native-inputs `(("pkg-config" ,pkg-config)))
     (inputs `(("zlib" ,zlib)
               ("openssl" ,openssl)
@@ -128,7 +130,7 @@ features including, tables, builtin image display, bookmarks, SSL and more.")
 (define-public lynx
   (package
     (name "lynx")
-    (version "2.8.9dev.15")
+    (version "2.8.9dev.17")
     (source (origin
               (method url-fetch)
               (uri (string-append
@@ -136,7 +138,7 @@ features including, tables, builtin image display, bookmarks, SSL and more.")
                     "/lynx" version ".tar.bz2"))
               (sha256
                (base32
-                "16bdr7ai130ps67px8ssxnjxp5j6m4rin3in7jm22fxk0a8p2428"))))
+                "1lvfsnrw5mmwrmn1m76q9mx287xwm3h5lg8sv7bcqilc0ywi2f54"))))
     (build-system gnu-build-system)
     (native-inputs `(("pkg-config" ,pkg-config)
                      ("perl" ,perl)))
@@ -165,11 +167,16 @@ features including, tables, builtin image display, bookmarks, SSL and more.")
            "--enable-nls"
            "--enable-ipv6"))
        #:tests? #f  ; no check target
-       #:phases (alist-replace
-                 'install
-                 (lambda* (#:key (make-flags '()) #:allow-other-keys)
-                   (zero? (apply system* "make" "install-full" make-flags)))
-                 %standard-phases)))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'set-makefile-shell
+           (lambda _ (substitute* "po/makefile.inn"
+                       (("/bin/sh") (which "sh")))
+                     #t))
+         (replace 'install
+           (lambda* (#:key (make-flags '()) #:allow-other-keys)
+             (apply invoke "make" "install-full" make-flags)
+             #t)))))
     (synopsis "Text Web Browser")
     (description
      "Lynx is a fully-featured World Wide Web (WWW) client for users running
@@ -179,13 +186,13 @@ system, as well as files on remote systems running http, gopher, ftp, wais,
 nntp, finger, or cso/ph/qi servers.  Lynx can be used to access information on
 the WWW, or to build information systems intended primarily for local
 access.")
-    (home-page "http://lynx.isc.org/")
+    (home-page "https://lynx.invisible-island.net/")
     (license license:gpl2)))
 
 (define-public qutebrowser
   (package
     (name "qutebrowser")
-    (version "0.10.1")
+    (version "0.11.0")
     (source
      (origin
        (method url-fetch)
@@ -194,7 +201,7 @@ access.")
                            "qutebrowser-" version ".tar.gz"))
        (sha256
         (base32
-         "05qryn56w2pbqhir4pl99idx7apx2xqw9f8wmbrhj59b1xgr3x2p"))))
+         "13ihx66jm1dd6vx8px7pm0kbzf2sf9x43hhivc1rp17kahnxxdyv"))))
     (build-system python-build-system)
     (native-inputs
      `(("asciidoc" ,asciidoc)))
@@ -217,7 +224,7 @@ access.")
              (let* ((out (assoc-ref outputs "out"))
                     (app (string-append out "/share/applications"))
                     (hicolor (string-append out "/share/icons/hicolor")))
-               (system* "a2x" "-f" "manpage" "doc/qutebrowser.1.asciidoc")
+               (invoke "a2x" "-f" "manpage" "doc/qutebrowser.1.asciidoc")
                (install-file "doc/qutebrowser.1"
                              (string-append out "/share/man/man1"))
 

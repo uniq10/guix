@@ -1,11 +1,14 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2014, 2015 Eric Bavier <bavier@member.fsf.org>
 ;;; Copyright © 2014 Ian Denhardt <ian@zenhack.net>
-;;; Copyright © 2015, 2016 Leo Famulari <leo@famulari.name>
-;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2015, 2016, 2017 Leo Famulari <leo@famulari.name>
+;;; Copyright © 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
 ;;; Copyright © 2017 Arun Isaac <arunisaac@systemreboot.net>
-;;; Copyright © 2017 Kei Kebreau <kei@openmailbox.org>
+;;; Copyright © 2017 Kei Kebreau <kkebreau@posteo.net>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2017 Christopher Allan Webber <cwebber@dustycloud.org>
+;;; Copyright © 2017 Rutger Helling <rhelling@mykolab.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -33,7 +36,9 @@
   #:use-module (gnu packages acl)
   #:use-module (gnu packages autotools)
   #:use-module (gnu packages base)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages crypto)
   #:use-module (gnu packages databases)
   #:use-module (gnu packages dejagnu)
   #:use-module (gnu packages ftp)
@@ -48,6 +53,8 @@
   #:use-module (gnu packages perl)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages python)
+  #:use-module (gnu packages python-crypto)
+  #:use-module (gnu packages python-web)
   #:use-module (gnu packages rsync)
   #:use-module (gnu packages ssh)
   #:use-module (gnu packages tls)
@@ -118,7 +125,7 @@ spying and/or modification by the server.")
 (define-public par2cmdline
   (package
     (name "par2cmdline")
-    (version "0.7.3")
+    (version "0.8.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/Parchive/par2cmdline/archive/v"
@@ -126,7 +133,7 @@ spying and/or modification by the server.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0dqwarc2aw5clgpf24d9dxh43b0k0z3l6kksn30arx9bdlmrk5rx"))))
+                "1jpshmmcr81mxly0md2rr231qz9c8c680bbvcmhh100dg9i4a6s6"))))
     (native-inputs
      `(("automake" ,automake)
        ("autoconf" ,autoconf)))
@@ -184,16 +191,17 @@ backups (called chunks) to allow easy burning to CD/DVD.")
 (define-public libarchive
   (package
     (name "libarchive")
-    (replacement libarchive-3.3.1)
-    (version "3.2.2")
+    (version "3.3.2")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "http://libarchive.org/downloads/libarchive-"
                            version ".tar.gz"))
+       (patches (search-patches "libarchive-CVE-2017-14166.patch"
+                                "libarchive-CVE-2017-14502.patch"))
        (sha256
         (base32
-         "03q6y428rg723c9fj1vidzjw46w1vf8z0h95lkvz1l9jw571j739"))))
+         "1km0mzfl6in7l5vz9kl09a88ajx562rw93ng9h2jqavrailvsbgd"))))
     (build-system gnu-build-system)
     ;; TODO: Add -L/path/to/nettle in libarchive.pc.
     (inputs
@@ -205,26 +213,25 @@ backups (called chunks) to allow easy burning to CD/DVD.")
        ("xz" ,xz)))
     (arguments
      `(#:phases
-       (alist-cons-before
-        'build 'patch-pwd
-        (lambda _
-          (substitute* "Makefile"
-            (("/bin/pwd") (which "pwd"))))
-        (alist-replace
-         'check
-         (lambda _
-           ;; XXX: The test_owner_parse, test_read_disk, and
-           ;; test_write_disk_lookup tests expect user 'root' to exist, but
-           ;; the chroot's /etc/passwd doesn't have it.  Turn off those tests.
-           ;;
-           ;; The tests allow one to disable tests matching a globbing pattern.
-           (and (zero? (system* "make"
-                                "libarchive_test" "bsdcpio_test" "bsdtar_test"))
-                ;; XXX: This glob disables too much.
-                (zero? (system* "./libarchive_test" "^test_*_disk*"))
-                (zero? (system* "./bsdcpio_test" "^test_owner_parse"))
-                (zero? (system* "./bsdtar_test"))))
-         %standard-phases))
+       (modify-phases %standard-phases
+         (add-before 'build 'patch-pwd
+           (lambda _
+             (substitute* "Makefile"
+               (("/bin/pwd") (which "pwd")))
+             #t))
+         (replace 'check
+           (lambda _
+             ;; XXX: The test_owner_parse, test_read_disk, and
+             ;; test_write_disk_lookup tests expect user 'root' to exist, but
+             ;; the chroot's /etc/passwd doesn't have it.  Turn off those tests.
+             ;;
+             ;; The tests allow one to disable tests matching a globbing pattern.
+             (and (zero? (system* "make"
+                                  "libarchive_test" "bsdcpio_test" "bsdtar_test"))
+                  ;; XXX: This glob disables too much.
+                  (zero? (system* "./libarchive_test" "^test_*_disk*"))
+                  (zero? (system* "./bsdcpio_test" "^test_owner_parse"))
+                  (zero? (system* "./bsdtar_test"))))))
        ;; libarchive/test/test_write_format_gnutar_filenames.c needs to be
        ;; compiled with C99 or C11 or a gnu variant.
        #:configure-flags '("CFLAGS=-O2 -g -std=c99")))
@@ -240,74 +247,58 @@ archive.  In particular, note that there is currently no built-in support for
 random access nor for in-place modification.")
     (license license:bsd-2)))
 
-(define libarchive-3.3.1
-  (package
-    (inherit libarchive)
-    (name "libarchive")
-    (version "3.3.1")
-    (source
-     (origin
-       (method url-fetch)
-       (uri (string-append "http://libarchive.org/downloads/libarchive-"
-                           version ".tar.gz"))
-       (sha256
-        (base32
-         "1rr40hxlm9vy5z2zb5w7pyfkgd1a4s061qapm83s19accb8mpji9"))))))
-
 (define-public rdup
   (package
     (name "rdup")
-    (version "1.1.14")
+    (version "1.1.15")
     (source
      (origin
        (method url-fetch)
-       (uri (string-append "http://archive.miek.nl/projects/rdup/rdup-"
-                           version ".tar.bz2"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (uri (string-append "https://github.com/miekg/rdup/archive/"
+                           version ".tar.gz"))
        (sha256
         (base32
-         "0aklwd9v7ix0m4ayl762sil685f42cwljzx3jz5skrnjaq32npmj"))
-       (modules '((guix build utils)))
-       (snippet
-        ;; Some test scripts are missing shebangs, which cause "could not
-        ;; execute" errors.  Add shebangs.
-        '(for-each
-          (lambda (testscript)
-            (with-atomic-file-replacement
-                (string-append "testsuite/rdup/" testscript)
-              (lambda (in out)
-                (begin
-                  (format out "#!/bin/sh\n" )
-                  (dump-port in out)))))
-          '("rdup.hardlink.helper"
-            "rdup.hardlink-strip.helper"
-            "rdup.hardlink-strip2.helper"
-            "rdup.pipeline.helper")))))
+         "1jr91hgcf0rrpanqlwws72ql9db6d6grs2i122ki1s4bx0vqqyvq"))))
     (build-system gnu-build-system)
     (native-inputs
-     `(("pkg-config" ,pkg-config)
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("pkg-config" ,pkg-config)
+
+       ;; For tests.
        ("dejagnu" ,dejagnu)))
     (inputs
      `(("glib" ,glib)
        ("pcre" ,pcre)
        ("libarchive" ,libarchive)
+       ("mcrypt" ,mcrypt)
        ("nettle" ,nettle)))
     (arguments
      `(#:parallel-build? #f             ;race conditions
-       #:phases (alist-cons-before
-                 'build 'remove-Werror
-                 ;; rdup uses a deprecated function from libarchive
-                 (lambda _
-                   (substitute* "GNUmakefile"
-                     (("^(CFLAGS=.*)-Werror" _ front) front)))
-                 (alist-cons-before
-                  'check 'pre-check
-                  (lambda _
-                    (setenv "HOME" (getcwd))
-                    (substitute* "testsuite/rdup/rdup.rdup-up-t-with-file.exp"
-                      (("/bin/cat") (which "cat"))))
-
-                  %standard-phases))))
-    (home-page "http://archive.miek.nl/projects/rdup/index.html")
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (invoke "autoreconf")))
+         (add-before 'build 'qualify-inputs
+           (lambda* (#:key inputs #:allow-other-keys)
+             ;; This script is full of pitfalls.  Fix some that particularly
+             ;; affect Guix users & leave the rest as reader excercises.
+             (substitute* "rdup-simple"
+               ;; Use the input ‘mcrypt’, not whatever's in $PATH at run time.
+               (("([' ])mcrypt " all delimiter)
+                (string-append delimiter (which "mcrypt") " "))
+               ;; Avoid frivolous dependency on ‘which’ with a shell builtin.
+               (("which") "command -v"))
+             #t))
+         (add-before 'check 'pre-check
+           (lambda _
+             (setenv "HOME" (getcwd))
+             (substitute* "testsuite/rdup/rdup.rdup-up-t-with-file.exp"
+               (("/bin/cat") (which "cat")))
+             #t)))))
+    (home-page "https://github.com/miekg/rdup")
     (synopsis "Provide a list of files to backup")
     (description
      "Rdup is a utility inspired by rsync and the plan9 way of doing backups.
@@ -336,9 +327,9 @@ list and implement the backup strategy.")
                       "CC=gcc")
        #:tests? #f                      ;test input not distributed
        #:phases
-       (alist-delete
-        'configure                      ;no configure phase
-        %standard-phases)))
+       ;; no configure phase
+       (modify-phases %standard-phases
+         (delete 'configure))))
     (home-page "http://viric.name/cgi-bin/btar/doc/trunk/doc/home.wiki")
     (synopsis "Tar-compatible archiver")
     (description
@@ -367,7 +358,7 @@ errors.")
     (arguments
      `(#:python ,python-2
        #:tests? #f))
-    (home-page "http://www.nongnu.org/rdiff-backup/")
+    (home-page "https://www.nongnu.org/rdiff-backup/")
     (synopsis "Local/remote mirroring+incremental backup")
     (description
      "Rdiff-backup backs up one directory to another, possibly over a network.
@@ -413,7 +404,7 @@ rdiff-backup is easy to use and settings have sensible defaults.")
        ("rsync" ,rsync)))
     (home-page "http://rsnapshot.org")
     (synopsis "Deduplicating snapshot backup utility based on rsync")
-    (description "rsnapshot is a filesystem snapshot utility based on rsync.
+    (description "rsnapshot is a file system snapshot utility based on rsync.
 rsnapshot makes it easy to make periodic snapshots of local machines, and
 remote machines over SSH.  To reduce the disk space required for each backup,
 rsnapshot uses hard links to deduplicate identical files.")
@@ -447,7 +438,7 @@ rsnapshot uses hard links to deduplicate identical files.")
        ("lzo" ,lzo)
        ("bzip2" ,bzip2)
        ("zlib" ,zlib)))
-    (home-page "http://nongnu.org/libchop/")
+    (home-page "https://nongnu.org/libchop/")
     (synopsis "Tools & library for data backup and distributed storage")
     (description
      "Libchop is a set of utilities and library for data backup and
@@ -462,17 +453,22 @@ detection, and lossless compression.")
 (define-public borg
   (package
     (name "borg")
-    (version "1.0.11")
-    (source (origin
-              (method url-fetch)
-              (uri (pypi-uri "borgbackup" version))
-              (sha256
-               (base32
-                "14fjk5dfwmjkn7nmkbhhbrk3g1wfrn8arvqd5r9jaij534nzsvpw"))
-              (modules '((guix build utils)))
-              (snippet
-               '(for-each
-                  delete-file (find-files "borg" "^(c|h|p).*\\.c$")))))
+    (version "1.1.5")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (pypi-uri "borgbackup" version))
+       (sha256
+        (base32 "0gbdnq7ks46diz6y2pf6wpwkb9hy6hp3immi7jg3h7w72b3ycmj3"))
+       (modules '((guix build utils)))
+       (snippet
+        '(begin
+           (for-each delete-file
+                     (find-files "borg" "^(c|h|p).*\\.c$"))
+           ;; Remove bundled shared libraries.
+           (with-directory-excursion "src/borg/algorithms"
+             (for-each delete-file-recursively
+                       (list "blake2" "lz4" "zstd")))))))
     (build-system python-build-system)
     (arguments
      `(#:modules ((srfi srfi-26) ; for cut
@@ -483,14 +479,29 @@ detection, and lossless compression.")
          (add-after 'unpack 'set-env
            (lambda* (#:key inputs #:allow-other-keys)
              (let ((openssl (assoc-ref inputs "openssl"))
-                   (lz4 (assoc-ref inputs "lz4")))
+                   (libb2 (assoc-ref inputs "libb2"))
+                   (lz4 (assoc-ref inputs "lz4"))
+                   (zstd (assoc-ref inputs "zstd")))
                (setenv "BORG_OPENSSL_PREFIX" openssl)
-               (setenv "BORG_LZ4_PREFIX" lz4)
+               (setenv "BORG_LIBB2_PREFIX" libb2)
+               (setenv "BORG_LIBLZ4_PREFIX" lz4)
+               (setenv "BORG_LIBZSTD_PREFIX" zstd)
                (setenv "PYTHON_EGG_CACHE" "/tmp")
                ;; The test 'test_return_codes[python]' fails when
                ;; HOME=/homeless-shelter.
                (setenv "HOME" "/tmp")
                #t)))
+         ;; Later versions of msgpack were disallowed to some warnings and lack
+         ;; of support for Python versions that we don't support anyways. So,
+         ;; it's okay to to keep using more recents versions of msgpack for
+         ;; Borg. Also see the note about msgpack in the list of inputs.
+         ;; https://github.com/borgbackup/borg/issues/3517#issuecomment-357221978
+         (add-before 'build 'adjust-msgpack-dependency
+           (lambda _
+             (substitute* "setup.py"
+               (("msgpack-python>=0.4.6,<0.5.0")
+                 "msgpack-python>=0.4.6"))
+             #t))
          ;; The tests need to be run after Borg is installed.
          (delete 'check)
          (add-after 'install 'check
@@ -505,6 +516,7 @@ detection, and lossless compression.")
                           (string-append
                             ;; These tests need to write to '/var'.
                             "not test_get_cache_dir "
+                            "and not test_get_config_dir "
                             "and not test_get_keys_dir "
                             "and not test_get_security_dir "
                             ;; These tests assume there is a root user in
@@ -516,9 +528,10 @@ detection, and lossless compression.")
                             "and not benchmark "
                             ;; These tests assume the kernel supports FUSE.
                             "and not test_fuse "
-                            "and not test_fuse_allow_damaged_files"))))))
+                            "and not test_fuse_allow_damaged_files "
+                            "and not test_mount_hardlinks"))))))
          (add-after 'install 'install-doc
-           (lambda* (#:key outputs #:allow-other-keys)
+           (lambda* (#:key inputs outputs #:allow-other-keys)
              (let* ((out (assoc-ref outputs "out"))
                     (man (string-append out "/share/man/man1"))
                     (misc (string-append out "/share/borg/misc")))
@@ -526,27 +539,30 @@ detection, and lossless compression.")
                          '("docs/misc/create_chunker-params.txt"
                            "docs/misc/internals-picture.txt"
                            "docs/misc/prune-example.txt"))
+               (add-installed-pythonpath inputs outputs)
                (and
-                 (zero? (system* "python3" "setup.py" "build_ext" "--inplace"))
-                 (zero? (system* "make" "-C" "docs" "man"))
+                 (zero? (system* "python3" "setup.py" "build_man"))
                  (begin
-                   (install-file "docs/_build/man/borg.1" man)
+                   (copy-recursively "docs/man" man)
                    #t))))))))
     (native-inputs
      `(("python-cython" ,python-cython)
        ("python-setuptools-scm" ,python-setuptools-scm)
-       ;; Borg 1.0.8's test suite uses 'tmpdir_factory', which was introduced in
-       ;; pytest 2.8.
-       ("python-pytest" ,python-pytest-3.0)
+       ("python-pytest" ,python-pytest)
        ;; For generating the documentation.
        ("python-sphinx" ,python-sphinx)
-       ("python-sphinx-rtd-theme" ,python-sphinx-rtd-theme)))
+       ("python-guzzle-sphinx-theme" ,python-guzzle-sphinx-theme)))
     (inputs
      `(("acl" ,acl)
+       ("libb2" ,libb2)
        ("lz4" ,lz4)
        ("openssl" ,openssl)
        ("python-llfuse" ,python-llfuse)
-       ("python-msgpack" ,python-msgpack)))
+       ;; The Python msgpack library changed its name so Borg requires this
+       ;; transitional package for now:
+       ;; <https://bugs.gnu.org/30662>
+       ("python-msgpack" ,python-msgpack-transitional)
+       ("zstd" ,zstd)))
     (synopsis "Deduplicated, encrypted, authenticated and compressed backups")
     (description "Borg is a deduplicating backup program.  Optionally, it
 supports compression and authenticated encryption.  The main goal of Borg is to
@@ -554,7 +570,7 @@ provide an efficient and secure way to backup data.  The data deduplication
 technique used makes Borg suitable for daily backups since only changes are
 stored.  The authenticated encryption technique makes it suitable for backups
 to not fully trusted targets.  Borg is a fork of Attic.")
-    (home-page "https://borgbackup.github.io/borgbackup/")
+    (home-page "https://www.borgbackup.org/")
     (license license:bsd-3)))
 
 (define-public attic
@@ -606,14 +622,14 @@ changes are stored.")
 (define-public wimlib
   (package
     (name "wimlib")
-    (version "1.10.0")
+    (version "1.12.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://wimlib.net/downloads/"
                                   name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0mbz03smlc054i2m9q2sbqymml9m897kfs84q7g81i26y811p6wq"))))
+                "0ks6hq7vwq13ljkzxp3a490bf8dnracgl2azf57rg49ad2fzab45"))))
     (build-system gnu-build-system)
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -690,3 +706,110 @@ using GnuPG.  Backups can be stored on local hard disks, or online via
 the SSH SFTP protocol.  The backup server, if used, does not require
 any special software, on top of SSH.")
     (license license:gpl3+)))
+
+(define-public dirvish
+  (package
+    (name "dirvish")
+    (version "1.2.1")
+    (build-system gnu-build-system)
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "http://dirvish.org/dirvish-" version ".tgz"))
+              (sha256
+               (base32
+                "1kbxa1irszp2zw8hd5qzqnrrzb4vxfivs1vn64yxnj0lak1jjzvb"))))
+    (arguments
+     `(#:modules ((ice-9 match) (ice-9 rdelim)
+                  ,@%gnu-build-system-modules)
+       #:phases
+       ;; This mostly mirrors the steps taken in the install.sh that ships
+       ;; with dirvish, but simplified because we aren't prompting interactively
+       (modify-phases %standard-phases
+         (delete 'configure)
+         (delete 'build)
+         (delete 'check)
+         (replace 'install
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             ;; These are mostly the same steps the install.sh that comes with
+             ;; dirvish does
+             (let* (;; Files we'll be copying
+                    (executables
+                     '("dirvish" "dirvish-runall"
+                       "dirvish-expire" "dirvish-locate"))
+                    (man-pages
+                     '(("dirvish" "8") ("dirvish-runall" "8")
+                       ("dirvish-expire" "8") ("dirvish-locate" "8")
+                       ("dirvish.conf" "5")))
+
+                    (output-dir
+                     (assoc-ref outputs "out"))
+
+                    ;; Just a default... not so useful on guixsd though
+                    ;; You probably want to a service with file(s) to point to.
+                    (confdir "/etc/dirvish")
+
+                    (perl (string-append (assoc-ref %build-inputs "perl")
+                                         "/bin/perl"))
+                    (loadconfig.pl (call-with-input-file "loadconfig.pl"
+                                     read-string)))
+
+
+               (define (write-pl filename)
+                 (define pl-header
+                   (string-append "#!" perl "\n\n"
+                                  "$CONFDIR = \"" confdir "\";\n\n"))
+                 (define input-file-location
+                   (string-append filename ".pl"))
+                 (define target-file-location
+                   (string-append output-dir "/bin/" filename ".pl"))
+                 (define text-to-write
+                   (string-append pl-header
+                                  (call-with-input-file input-file-location
+                                    read-string)
+                                  "\n" loadconfig.pl))
+                 (with-output-to-file target-file-location
+                   (lambda ()
+                     (display text-to-write)))
+                 (chmod target-file-location #o755)
+                 (wrap-program target-file-location
+                   `("PERL5LIB" ":" prefix
+                     ,(map (lambda (l) (string-append (assoc-ref %build-inputs l)
+                                                      "/lib/perl5/site_perl"))
+                           '("perl-libtime-period"
+                             "perl-libtime-parsedate")))))
+
+               (define write-man
+                 (match-lambda
+                   ((file-base man-num)
+                    (let* ((filename
+                            (string-append file-base "." man-num))
+                           (output-path
+                            (string-append output-dir
+                                           "/share/man/man" man-num
+                                           "/" filename)))
+                      (copy-file filename output-path)))))
+
+               ;; Make directories
+               (mkdir-p (string-append output-dir "/bin/"))
+               (mkdir-p (string-append output-dir "/share/man/man8/"))
+               (mkdir-p (string-append output-dir "/share/man/man5/"))
+
+               ;; Write out executables
+               (for-each write-pl executables)
+               ;; Write out man pages
+               (for-each write-man man-pages)
+               #t))))))
+    (inputs
+     `(("perl" ,perl)
+       ("rsync" ,rsync)
+       ("perl-libtime-period" ,perl-libtime-period)
+       ("perl-libtime-parsedate" ,perl-libtime-parsedate)))
+    (home-page "http://dirvish.org/")
+    (synopsis "Fast, disk based, rotating network backup system")
+    (description
+     "With dirvish you can maintain a set of complete images of your
+file systems with unattended creation and expiration.  A dirvish backup vault
+is like a time machine for your data. ")
+    (license (license:fsf-free "file://COPYING"
+                               "Open Software License 2.0"))))

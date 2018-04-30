@@ -4,6 +4,8 @@
 ;;; Copyright © 2016 Marius Bakke <mbakke@fastmail.com>
 ;;; Copyright © 2017 Julien Lepiller <julien@lepiller.eu>
 ;;; Copyright © 2017 Hartmut Goebel <h.goebel@crazy-compilers.com>
+;;; Copyright © 2017 Maxim Cournoyer <maxim.cournoyer@gmail.com>
+;;; Copyright © 2018 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -22,16 +24,20 @@
 
 (define-module (gnu packages android)
   #:use-module (guix packages)
+  #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system python)
+  #:use-module (guix build-system trivial)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (gnu packages)
+  #:use-module (gnu packages check)
   #:use-module (gnu packages gnupg)
   #:use-module (gnu packages python)
   #:use-module (gnu packages ssh)
   #:use-module (gnu packages version-control)
-  #:use-module (gnu packages tls))
+  #:use-module (gnu packages tls)
+  #:use-module (gnu packages linux))
 
 ;; The Makefiles that we add are largely based on the Debian
 ;; packages.  They are licensed under GPL-2 and have copyright:
@@ -305,6 +311,69 @@ of device actions, such as installing and debugging apps, and it provides access
 to a Unix shell that can run commands on the connected device or emulator.")
     (license license:asl2.0)))
 
+(define-public mkbootimg
+  (package
+    (name "mkbootimg")
+    (version (android-platform-version))
+    (source (origin
+              (inherit (android-platform-system-core version))))
+    (build-system python-build-system)
+    (arguments
+     `(#:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'enter-source
+           (lambda _ (chdir "mkbootimg") #t))
+         (delete 'configure)
+         (delete 'build)
+         (replace 'install
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (bin (string-append out "/bin")))
+               (install-file "mkbootimg" bin)
+               #t))))))
+    (home-page "https://developer.android.com/studio/command-line/adb.html")
+    (synopsis "Tool to create Android boot images")
+    (description "This package provides a tool to create Android Boot
+Images.")
+    (license license:asl2.0)))
+
+(define-public android-udev-rules
+  (package
+    (name "android-udev-rules")
+    (version "20180112")
+    (source
+     (origin
+       (method git-fetch)
+       (uri (git-reference
+             (url "https://github.com/M0Rf30/android-udev-rules")
+             (commit version)))
+       (file-name (string-append name "-" version "-checkout"))
+       (sha256
+        (base32 "13gj79nnd04szqlrrzzkdr6wi1fky08pi7x8xfbg0jj3d3v0giah"))))
+    (build-system trivial-build-system)
+    (native-inputs `(("source" ,source)))
+    (arguments
+     '(#:modules ((guix build utils))
+       #:builder
+       (begin
+         (use-modules (guix build utils))
+         (let ((source (assoc-ref %build-inputs "source")))
+           (install-file (string-append source "/51-android.rules")
+                         (string-append %output "/lib/udev/rules.d"))))))
+    (home-page "https://github.com/M0Rf30/android-udev-rules")
+    (synopsis "udev rules for Android devices")
+    (description "Provides a set of udev rules to allow using Android devices
+with tools such as @command{adb} and @command{fastboot} without root
+privileges.  This package is intended to be added as a rule to the
+@code{udev-service-type} in your @code{operating-system} configuration.
+Additionally, an @code{adbusers} group must be defined and your user added to
+it.
+
+@emph{Simply installing this package will not have any effect.}  It is meant
+to be passed to the @code{udev} service.")
+    (license license:gpl3+)))
+
 (define-public git-repo
   (package
     (name "git-repo")
@@ -388,7 +457,7 @@ def _FindRepo():
      ;; TODO: Add git-remote-persistent-https once it is available in guix
      `(("git" ,git)
        ("gnupg" ,gnupg)
-       ("ssh", openssh)))
+       ("ssh" ,openssh)))
     (native-inputs
      `(("nose" ,python2-nose)))
     (home-page "https://code.google.com/p/git-repo/")
@@ -399,3 +468,38 @@ parts of the development workflow.  Repo is not meant to replace Git, only to
 make it easier to work with Git.  The repo command is an executable Python
 script that you can put anywhere in your path.")
     (license license:asl2.0)))
+
+(define-public abootimg
+  (package
+    (name "abootimg")
+    (version "0.6")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "http://http.debian.net/debian/pool/main/a/abootimg/"
+                           "abootimg_" version ".orig.tar.gz"))
+       (sha256
+        (base32 "0sfc2k011l1ymv97821w89391gnqdh8pp0haz4sdcm5hx0axv2ba"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:tests? #f
+       #:phases
+       (modify-phases %standard-phases
+        (replace 'configure
+          (lambda _
+            (setenv "CC" "gcc")
+            #t))
+        (replace 'install
+          (lambda* (#:key outputs #:allow-other-keys)
+            (let* ((out (assoc-ref outputs "out"))
+                   (bin (string-append out "/bin")))
+              (install-file "abootimg" bin)
+              #t))))))
+    (inputs
+     `(("libblkid" ,util-linux)))
+    (home-page "https://ac100.grandou.net/abootimg")
+    (synopsis "Tool for manipulating Android Boot Images")
+    (description "This package provides a tool for manipulating old Android
+Boot Images.  @code{abootimg} can work directly on block devices, or, the
+safest way, on a file image.")
+    (license license:gpl2+)))

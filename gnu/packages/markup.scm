@@ -2,7 +2,8 @@
 ;;; Copyright © 2015 Mathieu Lirzin <mthl@openmailbox.org>
 ;;; Copyright © 2015 David Thompson <davet@gnu.org>
 ;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
-;;; Copyright © 2017 ng0 <ng0@no-reply.pragmatique.xyz>
+;;; Copyright © 2017 Nils Gillmann <ng0@n0.is>
+;;; Copyright © 2017 Tobias Geerinckx-Rice <me@tobias.gr>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -26,7 +27,9 @@
   #:use-module (guix build-system gnu)
   #:use-module (guix build-system trivial)
   #:use-module (guix build-system cmake)
+  #:use-module (guix build-system perl)
   #:use-module (gnu packages compression)
+  #:use-module (gnu packages)
   #:use-module (gnu packages perl)
   #:use-module (gnu packages python)
   #:use-module (gnu packages web))
@@ -102,10 +105,96 @@ convert it to structurally valid XHTML (or HTML).")
     (license (non-copyleft "file://License.text"
                            "See License.text in the distribution."))))
 
+(define-public discount
+  (package
+    (name "discount")
+    (version "2.2.2")
+    (source (origin
+             (method url-fetch)
+             (uri (string-append
+                   "http://www.pell.portland.or.us/~orc/Code/"
+                   name "/" name "-" version ".tar.bz2"))
+             (file-name (string-append name "-" version ".tar.gz"))
+             (sha256
+              (base32
+               "0r4gjyk1ngx47zhb25q0gkjm3bz2m5x8ngrk6rim3y1y3rricygc"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:test-target "test"
+       #:make-flags (list
+                     (string-append "LFLAGS=-L. -Wl,-rpath="
+                                    (assoc-ref %outputs "out") "/lib"))
+       #:phases
+       (modify-phases %standard-phases
+         (add-before 'configure 'set-AC_PATH
+           (lambda _
+             ;; The default value is not suitable, so override using an
+             ;; environment variable. This just affects the build, and not the
+             ;; resulting store item.
+             (setenv "AC_PATH" (getenv "PATH"))
+             #t))
+         (replace 'configure
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (setenv "CC" "gcc")
+             (zero? (system*
+                     "./configure.sh"
+                     (string-append "--prefix=" (assoc-ref outputs "out"))
+                     "--shared")))))))
+    (synopsis "Markdown processing library, written in C")
+    (description
+     "Discount is a markdown implementation, written in C.  It provides a
+@command{markdown} command, and a library.")
+    (home-page "http://www.pell.portland.or.us/~orc/Code/discount/")
+    (license bsd-3)))
+
+(define-public perl-text-markdown-discount
+  (package
+    (name "perl-text-markdown-discount")
+    (version "0.11")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append
+             "mirror://cpan/authors/id/S/SE/SEKIMURA/Text-Markdown-Discount-"
+             version
+             ".tar.gz"))
+       (sha256
+        (base32
+         "1xx7v3wnla7m6wa3h33whxw3vvincaicg4yra1b9wbzf2aix9rnw"))
+       (patches
+        (search-patches "perl-text-markdown-discount-unbundle.patch"))))
+    (build-system perl-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-before 'build 'set-ldflags
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* "Makefile"
+               (("OTHERLDFLAGS = ")
+                (string-append
+                      "OTHERLDFLAGS = -lmarkdown -Wl,-rpath="
+                      (assoc-ref inputs "discount")
+                      "/lib"))))))))
+    (inputs
+     `(("discount" ,discount)))
+    (home-page
+     "http://search.cpan.org/dist/Text-Markdown-Discount")
+    (synopsis
+     "Fast function for converting Markdown to HTML using Discount")
+    (description
+     "Text::Markdown::Discount is a Perl extension to the Discount markdown
+implementation.
+
+@example
+  use Text::Markdown::Discount;
+  my $html = markdown($text)
+@end example")
+    (license perl-license)))
+
 (define-public cmark
   (package
     (name "cmark")
-    (version "0.27.1")
+    (version "0.28.3")
     (source (origin
              (method url-fetch)
              (uri (string-append "https://github.com/jgm/cmark/archive/"
@@ -113,7 +202,7 @@ convert it to structurally valid XHTML (or HTML).")
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "1da62ispca9aal2a36gaj87175rv5013pl7x740vk32y6lclr6v6"))))
+               "1z71pacl3ni1286c206pl8lazbcd32ackivsg3zibdf1sf2qdjdc"))))
     (build-system cmake-build-system)
     (arguments
      '(#:test-target "test"))
@@ -122,7 +211,7 @@ convert it to structurally valid XHTML (or HTML).")
     (description "CommonMark is a strongly defined, highly compatible
 specification of Markdown.  cmark is the C reference implementation of
 CommonMark.  It provides @code{libcmark} shared library for parsing
-CommonMark to an abstract syntax tree (AST) and rendering the document
+CommonMark to an abstract syntax tree (@dfn{AST}) and rendering the document
 as HTML, groff man, LaTeX, CommonMark, or an XML representation of the
 AST.  The package also provides the command-line program @command{cmark}
 for parsing and rendering CommonMark.")

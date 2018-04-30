@@ -79,10 +79,10 @@
        ("readline" ,readline)
        ("xextproto" ,xextproto)))
     (native-inputs
-     `(("perl",perl)
+     `(("perl" ,perl)
        ("pkg-config" ,pkg-config)
        ("ratpoison.desktop" ,ratpoison.desktop)))
-    (home-page "http://www.nongnu.org/ratpoison/")
+    (home-page "https://www.nongnu.org/ratpoison/")
     (synopsis "Simple mouse-free tiling window manager")
     (description
      "Ratpoison is a simple window manager with no fat library

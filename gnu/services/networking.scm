@@ -1,10 +1,11 @@
 ;;; GNU Guix --- Functional package management for GNU
 ;;; Copyright © 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2015 Mark H Weaver <mhw@netris.org>
-;;; Copyright © 2016 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2016, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 John Darrington <jmd@gnu.org>
 ;;; Copyright © 2017 Clément Lassieur <clement@lassieur.org>
 ;;; Copyright © 2017 Thomas Danckaert <post@thomasdanckaert.be>
+;;; Copyright © 2017 Marius Bakke <mbakke@fastmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -23,12 +24,14 @@
 
 (define-module (gnu services networking)
   #:use-module (gnu services)
+  #:use-module (gnu services base)
   #:use-module (gnu services shepherd)
   #:use-module (gnu services dbus)
   #:use-module (gnu system shadow)
   #:use-module (gnu system pam)
   #:use-module (gnu packages admin)
   #:use-module (gnu packages connman)
+  #:use-module (gnu packages freedesktop)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages tor)
   #:use-module (gnu packages messaging)
@@ -43,24 +46,32 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:use-module (ice-9 match)
+  #:re-export (static-networking-service
+               static-networking-service-type)
   #:export (%facebook-host-aliases
-            static-networking
-
-            static-networking?
-            static-networking-interface
-            static-networking-ip
-            static-networking-netmask
-            static-networking-gateway
-
-            static-networking-service
-            static-networking-service-type
             dhcp-client-service
+
+            dhcpd-service-type
+            dhcpd-configuration
+            dhcpd-configuration?
+            dhcpd-configuration-package
+            dhcpd-configuration-config-file
+            dhcpd-configuration-version
+            dhcpd-configuration-run-directory
+            dhcpd-configuration-lease-file
+            dhcpd-configuration-pid-file
+            dhcpd-configuration-interfaces
+
             %ntp-servers
 
             ntp-configuration
             ntp-configuration?
             ntp-service
             ntp-service-type
+
+            openntpd-configuration
+            openntpd-configuration?
+            openntpd-service-type
 
             inetd-configuration
             inetd-entry
@@ -71,11 +82,6 @@
             tor-hidden-service
             tor-service
             tor-service-type
-
-            bitlbee-configuration
-            bitlbee-configuration?
-            bitlbee-service
-            bitlbee-service-type
 
             wicd-service-type
             wicd-service
@@ -89,6 +95,9 @@
             connman-configuration?
             connman-service-type
 
+            modem-manager-configuration
+            modem-manager-configuration?
+            modem-manager-service-type
             wpa-supplicant-service-type
 
             openvswitch-service-type
@@ -132,147 +141,6 @@ fe80::1%lo0 static.ak.connect.facebook.com
 fe80::1%lo0 connect.facebook.net
 fe80::1%lo0 www.connect.facebook.net
 fe80::1%lo0 apps.facebook.com\n")
-
-
-(define-record-type* <static-networking>
-  static-networking make-static-networking
-  static-networking?
-  (interface static-networking-interface)
-  (ip static-networking-ip)
-  (netmask static-networking-netmask
-           (default #f))
-  (gateway static-networking-gateway              ;FIXME: doesn't belong here
-           (default #f))
-  (provision static-networking-provision
-             (default #f))
-  (name-servers static-networking-name-servers    ;FIXME: doesn't belong here
-                (default '())))
-
-(define static-networking-shepherd-service
-  (match-lambda
-    (($ <static-networking> interface ip netmask gateway provision
-                            name-servers)
-     (let ((loopback? (and provision (memq 'loopback provision))))
-       (shepherd-service
-
-        ;; Unless we're providing the loopback interface, wait for udev to be up
-        ;; and running so that INTERFACE is actually usable.
-        (requirement (if loopback? '() '(udev)))
-
-        (documentation
-         "Bring up the networking interface using a static IP address.")
-        (provision (or provision
-                       (list (symbol-append 'networking-
-                                            (string->symbol interface)))))
-
-        (start #~(lambda _
-                   ;; Return #t if successfully started.
-                   (let* ((addr     (inet-pton AF_INET #$ip))
-                          (sockaddr (make-socket-address AF_INET addr 0))
-                          (mask     (and #$netmask
-                                         (inet-pton AF_INET #$netmask)))
-                          (maskaddr (and mask
-                                         (make-socket-address AF_INET
-                                                              mask 0)))
-                          (gateway  (and #$gateway
-                                         (inet-pton AF_INET #$gateway)))
-                          (gatewayaddr (and gateway
-                                            (make-socket-address AF_INET
-                                                                 gateway 0))))
-                     (configure-network-interface #$interface sockaddr
-                                                  (logior IFF_UP
-                                                          #$(if loopback?
-                                                                #~IFF_LOOPBACK
-                                                                0))
-                                                  #:netmask maskaddr)
-                     (when gateway
-                       (let ((sock (socket AF_INET SOCK_DGRAM 0)))
-                         (add-network-route/gateway sock gatewayaddr)
-                         (close-port sock))))))
-        (stop #~(lambda _
-                  ;; Return #f is successfully stopped.
-                  (let ((sock (socket AF_INET SOCK_STREAM 0)))
-                    (when #$gateway
-                      (delete-network-route sock
-                                            (make-socket-address
-                                             AF_INET INADDR_ANY 0)))
-                    (set-network-interface-flags sock #$interface 0)
-                    (close-port sock)
-                    #f)))
-        (respawn? #f))))))
-
-(define (static-networking-etc-files interfaces)
-  "Return a /etc/resolv.conf entry for INTERFACES or the empty list."
-  (match (delete-duplicates
-          (append-map static-networking-name-servers
-                      interfaces))
-    (()
-     '())
-    ((name-servers ...)
-     (let ((content (string-join
-                     (map (cut string-append "nameserver " <>)
-                          name-servers)
-                     "\n" 'suffix)))
-       `(("resolv.conf"
-          ,(plain-file "resolv.conf"
-                       (string-append "\
-# Generated by 'static-networking-service'.\n"
-                                      content))))))))
-
-(define (static-networking-shepherd-services interfaces)
-  "Return the list of Shepherd services to bring up INTERFACES, a list of
-<static-networking> objects."
-  (define (loopback? service)
-    (memq 'loopback (shepherd-service-provision service)))
-
-  (let ((services (map static-networking-shepherd-service interfaces)))
-    (match (remove loopback? services)
-      (()
-       ;; There's no interface other than 'loopback', so we assume that the
-       ;; 'networking' service will be provided by dhclient or similar.
-       services)
-      ((non-loopback ...)
-       ;; Assume we're providing all the interfaces, and thus, provide a
-       ;; 'networking' service.
-       (cons (shepherd-service
-              (provision '(networking))
-              (requirement (append-map shepherd-service-provision
-                                       services))
-              (start #~(const #t))
-              (stop #~(const #f))
-              (documentation "Bring up all the networking interfaces."))
-             services)))))
-
-(define static-networking-service-type
-  ;; The service type for statically-defined network interfaces.
-  (service-type (name 'static-networking)
-                (extensions
-                 (list
-                  (service-extension shepherd-root-service-type
-                                     static-networking-shepherd-services)
-                  (service-extension etc-service-type
-                                     static-networking-etc-files)))
-                (compose concatenate)
-                (extend append)))
-
-(define* (static-networking-service interface ip
-                                    #:key
-                                    netmask gateway provision
-                                    (name-servers '()))
-  "Return a service that starts @var{interface} with address @var{ip}.  If
-@var{netmask} is true, use it as the network mask.  If @var{gateway} is true,
-it must be a string specifying the default network gateway.
-
-This procedure can be called several times, one for each network
-interface of interest.  Behind the scenes what it does is extend
-@code{static-networking-service-type} with additional network interfaces
-to handle."
-  (simple-service 'static-network-interface
-                  static-networking-service-type
-                  (list (static-networking (interface interface) (ip ip)
-                                           (netmask netmask) (gateway gateway)
-                                           (provision provision)
-                                           (name-servers name-servers)))))
 
 (define dhcp-client-service-type
   (shepherd-service-type
@@ -333,11 +201,80 @@ to handle."
 Protocol (DHCP) client, on all the non-loopback network interfaces."
   (service dhcp-client-service-type dhcp))
 
+(define-record-type* <dhcpd-configuration>
+  dhcpd-configuration make-dhcpd-configuration
+  dhcpd-configuration?
+  (package   dhcpd-configuration-package ;<package>
+             (default isc-dhcp))
+  (config-file   dhcpd-configuration-config-file ;file-like
+                 (default #f))
+  (version dhcpd-configuration-version ;"4", "6", or "4o6"
+              (default "4"))
+  (run-directory dhcpd-configuration-run-directory
+                 (default "/run/dhcpd"))
+  (lease-file dhcpd-configuration-lease-file
+              (default "/var/db/dhcpd.leases"))
+  (pid-file dhcpd-configuration-pid-file
+            (default "/run/dhcpd/dhcpd.pid"))
+  ;; list of strings, e.g. (list "enp0s25")
+  (interfaces dhcpd-configuration-interfaces
+              (default '())))
+
+(define dhcpd-shepherd-service
+  (match-lambda
+    (($ <dhcpd-configuration> package config-file version run-directory
+                              lease-file pid-file interfaces)
+     (unless config-file
+       (error "Must supply a config-file"))
+     (list (shepherd-service
+            ;; Allow users to easily run multiple versions simultaneously.
+            (provision (list (string->symbol
+                              (string-append "dhcpv" version "-daemon"))))
+            (documentation (string-append "Run the DHCPv" version " daemon"))
+            (requirement '(networking))
+            (start #~(make-forkexec-constructor
+                      '(#$(file-append package "/sbin/dhcpd")
+                        #$(string-append "-" version)
+                        "-lf" #$lease-file
+                        "-pf" #$pid-file
+                        "-cf" #$config-file
+                        #$@interfaces)
+                      #:pid-file #$pid-file))
+            (stop #~(make-kill-destructor)))))))
+
+(define dhcpd-activation
+  (match-lambda
+    (($ <dhcpd-configuration> package config-file version run-directory
+                              lease-file pid-file interfaces)
+     (with-imported-modules '((guix build utils))
+       #~(begin
+           (unless (file-exists? #$run-directory)
+             (mkdir #$run-directory))
+           ;; According to the DHCP manual (man dhcpd.leases), the lease
+           ;; database must be present for dhcpd to start successfully.
+           (unless (file-exists? #$lease-file)
+             (with-output-to-file #$lease-file
+               (lambda _ (display ""))))
+           ;; Validate the config.
+           (invoke
+            #$(file-append package "/sbin/dhcpd") "-t" "-cf"
+            #$config-file))))))
+
+(define dhcpd-service-type
+  (service-type
+   (name 'dhcpd)
+   (extensions
+    (list (service-extension shepherd-root-service-type dhcpd-shepherd-service)
+          (service-extension activation-service-type dhcpd-activation)))))
+
 (define %ntp-servers
-  ;; Default set of NTP servers.
-  '("0.pool.ntp.org"
-    "1.pool.ntp.org"
-    "2.pool.ntp.org"))
+  ;; Default set of NTP servers. These URLs are managed by the NTP Pool project.
+  ;; Within Guix, Leo Famulari <leo@famulari.name> is the administrative contact
+  ;; for this NTP pool "zone".
+  '("0.guix.pool.ntp.org"
+    "1.guix.pool.ntp.org"
+    "2.guix.pool.ntp.org"
+    "3.guix.pool.ntp.org"))
 
 
 ;;;
@@ -419,7 +356,11 @@ restrict -6 ::1\n"))
                        (service-extension account-service-type
                                           (const %ntp-accounts))
                        (service-extension activation-service-type
-                                          ntp-service-activation)))))
+                                          ntp-service-activation)))
+                (description
+                 "Run the @command{ntpd}, the Network Time Protocol (NTP)
+daemon of the @uref{http://www.ntp.org, Network Time Foundation}.  The daemon
+will keep the system clock synchronized with that of the given servers.")))
 
 (define* (ntp-service #:key (ntp ntp)
                       (servers %ntp-servers)
@@ -434,6 +375,102 @@ make an initial adjustment of more than 1,000 seconds."
                               (servers servers)
                               (allow-large-adjustment?
                                allow-large-adjustment?))))
+
+
+;;;
+;;; OpenNTPD.
+;;;
+
+(define-record-type* <openntpd-configuration>
+  openntpd-configuration make-openntpd-configuration
+  openntpd-configuration?
+  (openntpd                openntpd-configuration-openntpd
+                           (default openntpd))
+  (listen-on               openntpd-listen-on
+                           (default '("127.0.0.1"
+                                      "::1")))
+  (query-from              openntpd-query-from
+                           (default '()))
+  (sensor                  openntpd-sensor
+                           (default '()))
+  (server                  openntpd-server
+                           (default %ntp-servers))
+  (servers                 openntpd-servers
+                           (default '()))
+  (constraint-from         openntpd-constraint-from
+                           (default '()))
+  (constraints-from        openntpd-constraints-from
+                           (default '()))
+  (allow-large-adjustment? openntpd-allow-large-adjustment?
+                           (default #f))) ; upstream default
+
+(define (openntpd-shepherd-service config)
+  (match-record config <openntpd-configuration>
+    (openntpd listen-on query-from sensor server servers constraint-from
+              constraints-from allow-large-adjustment?)
+    (let ()
+      (define config
+        (string-join
+          (filter-map
+            (lambda (field value)
+              (string-join
+                (map (cut string-append field <> "\n")
+                     value)))
+            '("listen on " "query from " "sensor " "server " "servers "
+              "constraint from ")
+            (list listen-on query-from sensor server servers constraint-from))
+          ;; The 'constraints from' field needs to be enclosed in double quotes.
+          (string-join
+            (map (cut string-append "constraints from \"" <> "\"\n")
+                 constraints-from))))
+
+      (define ntpd.conf
+        (plain-file "ntpd.conf" config))
+
+      (list (shepherd-service
+              (provision '(ntpd))
+              (documentation "Run the Network Time Protocol (NTP) daemon.")
+              (requirement '(user-processes networking))
+              (start #~(make-forkexec-constructor
+                         (list (string-append #$openntpd "/sbin/ntpd")
+                               "-f" #$ntpd.conf
+                               "-d" ;; don't daemonize
+                               #$@(if allow-large-adjustment?
+                                    '("-s")
+                                    '()))
+                         ;; When ntpd is daemonized it repeatedly tries to respawn
+                         ;; while running, leading shepherd to disable it.  To
+                         ;; prevent spamming stderr, redirect output to logfile.
+                         #:log-file "/var/log/ntpd"))
+              (stop #~(make-kill-destructor)))))))
+
+(define (openntpd-service-activation config)
+  "Return the activation gexp for CONFIG."
+  (with-imported-modules '((guix build utils))
+    #~(begin
+        (use-modules (guix build utils))
+
+        (mkdir-p "/var/db")
+        (mkdir-p "/var/run")
+        (unless (file-exists? "/var/db/ntpd.drift")
+          (with-output-to-file "/var/db/ntpd.drift"
+                               (lambda _
+                                 (format #t "0.0")))))))
+
+(define openntpd-service-type
+  (service-type (name 'openntpd)
+                (extensions
+                 (list (service-extension shepherd-root-service-type
+                                          openntpd-shepherd-service)
+                       (service-extension account-service-type
+                                          (const %ntp-accounts))
+                       (service-extension activation-service-type
+                                          openntpd-service-activation)))
+                (default-value (openntpd-configuration))
+                (description
+                 "Run the @command{ntpd}, the Network Time Protocol (NTP)
+daemon, as implemented by @uref{http://www.openntpd.org, OpenNTPD}.  The
+daemon will keep the system clock synchronized with that of the given servers.")))
 
 
 ;;;
@@ -517,7 +554,11 @@ make an initial adjustment of more than 1,000 seconds."
              (inetd-configuration
               (inherit config)
               (entries (append (inetd-configuration-entries config)
-                               entries)))))))
+                               entries)))))
+   (description
+    "Start @command{inetd}, the @dfn{Internet superserver}.  It is responsible
+for listening on Internet sockets and spawning the corresponding services on
+demand.")))
 
 
 ;;;
@@ -668,7 +709,10 @@ HiddenServicePort ~a ~a~%"
                            (hidden-services
                             (append (tor-configuration-hidden-services config)
                                     services)))))
-                (default-value (tor-configuration))))
+                (default-value (tor-configuration))
+                (description
+                 "Run the @uref{https://torproject.org, Tor} anonymous
+networking daemon.")))
 
 (define* (tor-service #:optional
                       (config-file (plain-file "empty" ""))
@@ -688,7 +732,9 @@ and lines for hidden services added via @code{tor-hidden-service}.  Run
   ;; A type that extends Tor with hidden services.
   (service-type (name 'tor-hidden-service)
                 (extensions
-                 (list (service-extension tor-service-type list)))))
+                 (list (service-extension tor-service-type list)))
+                (description
+                 "Define a new Tor @dfn{hidden service}.")))
 
 (define (tor-hidden-service name mapping)
   "Define a new Tor @dfn{hidden service} called @var{name} and implementing
@@ -710,111 +756,6 @@ See @uref{https://www.torproject.org/docs/tor-hidden-service.html.en, the Tor
 project's documentation} for more information."
   (service tor-hidden-service-type
            (hidden-service name mapping)))
-
-
-;;;
-;;; BitlBee.
-;;;
-
-(define-record-type* <bitlbee-configuration>
-  bitlbee-configuration make-bitlbee-configuration
-  bitlbee-configuration?
-  (bitlbee bitlbee-configuration-bitlbee
-           (default bitlbee))
-  (interface bitlbee-configuration-interface
-             (default "127.0.0.1"))
-  (port bitlbee-configuration-port
-        (default 6667))
-  (extra-settings bitlbee-configuration-extra-settings
-                  (default "")))
-
-(define bitlbee-shepherd-service
-  (match-lambda
-    (($ <bitlbee-configuration> bitlbee interface port extra-settings)
-     (let ((conf (plain-file "bitlbee.conf"
-                             (string-append "
-  [settings]
-  User = bitlbee
-  ConfigDir = /var/lib/bitlbee
-  DaemonInterface = " interface "
-  DaemonPort = " (number->string port) "
-" extra-settings))))
-
-       (with-imported-modules (source-module-closure
-                               '((gnu build shepherd)
-                                 (gnu system file-systems)))
-         (list (shepherd-service
-                (provision '(bitlbee))
-
-                ;; Note: If networking is not up, then /etc/resolv.conf
-                ;; doesn't get mapped in the container, hence the dependency
-                ;; on 'networking'.
-                (requirement '(user-processes networking))
-
-                (modules '((gnu build shepherd)
-                           (gnu system file-systems)))
-                (start #~(make-forkexec-constructor/container
-                          (list #$(file-append bitlbee "/sbin/bitlbee")
-                                "-n" "-F" "-u" "bitlbee" "-c" #$conf)
-
-                          #:pid-file "/var/run/bitlbee.pid"
-                          #:mappings (list (file-system-mapping
-                                            (source "/var/lib/bitlbee")
-                                            (target source)
-                                            (writable? #t)))))
-                (stop  #~(make-kill-destructor)))))))))
-
-(define %bitlbee-accounts
-  ;; User group and account to run BitlBee.
-  (list (user-group (name "bitlbee") (system? #t))
-        (user-account
-         (name "bitlbee")
-         (group "bitlbee")
-         (system? #t)
-         (comment "BitlBee daemon user")
-         (home-directory "/var/empty")
-         (shell (file-append shadow "/sbin/nologin")))))
-
-(define %bitlbee-activation
-  ;; Activation gexp for BitlBee.
-  #~(begin
-      (use-modules (guix build utils))
-
-      ;; This directory is used to store OTR data.
-      (mkdir-p "/var/lib/bitlbee")
-      (let ((user (getpwnam "bitlbee")))
-        (chown "/var/lib/bitlbee"
-               (passwd:uid user) (passwd:gid user)))))
-
-(define bitlbee-service-type
-  (service-type (name 'bitlbee)
-                (extensions
-                 (list (service-extension shepherd-root-service-type
-                                          bitlbee-shepherd-service)
-                       (service-extension account-service-type
-                                          (const %bitlbee-accounts))
-                       (service-extension activation-service-type
-                                          (const %bitlbee-activation))))
-                (default-value (bitlbee-configuration))))
-
-(define* (bitlbee-service #:key (bitlbee bitlbee)
-                          (interface "127.0.0.1") (port 6667)
-                          (extra-settings ""))
-  "Return a service that runs @url{http://bitlbee.org,BitlBee}, a daemon that
-acts as a gateway between IRC and chat networks.
-
-The daemon will listen to the interface corresponding to the IP address
-specified in @var{interface}, on @var{port}.  @code{127.0.0.1} means that only
-local clients can connect, whereas @code{0.0.0.0} means that connections can
-come from any networking interface.
-
-In addition, @var{extra-settings} specifies a string to append to the
-configuration file."
-  (service bitlbee-service-type
-           (bitlbee-configuration
-            (bitlbee bitlbee)
-            (interface interface) (port port)
-            (extra-settings extra-settings))))
 
 
 ;;;
@@ -859,7 +800,10 @@ configuration file."
                                           (const %wicd-activation))
 
                        ;; Add Wicd to the global profile.
-                       (service-extension profile-service-type list)))))
+                       (service-extension profile-service-type list)))
+                (description
+                 "Run @url{https://launchpad.net/wicd,Wicd}, a network
+management daemon that aims to simplify wired and wireless networking.")))
 
 (define* (wicd-service #:key (wicd wicd))
   "Return a service that runs @url{https://launchpad.net/wicd,Wicd}, a network
@@ -873,6 +817,17 @@ and @command{wicd-curses} user interfaces."
 
 
 ;;;
+;;; ModemManager
+;;;
+
+(define-record-type* <modem-manager-configuration>
+  modem-manager-configuration make-modem-manager-configuration
+  modem-manager-configuration?
+  (modem-manager modem-manager-configuration-modem-manager
+                   (default modem-manager)))
+
+
+;;;
 ;;; NetworkManager
 ;;;
 
@@ -882,7 +837,9 @@ and @command{wicd-curses} user interfaces."
   (network-manager network-manager-configuration-network-manager
                    (default network-manager))
   (dns network-manager-configuration-dns
-       (default "default")))
+       (default "default"))
+  (vpn-plugins network-manager-vpn-plugins        ;list of <package>
+               (default '())))
 
 (define %network-manager-activation
   ;; Activation gexp for NetworkManager.
@@ -890,25 +847,38 @@ and @command{wicd-curses} user interfaces."
       (use-modules (guix build utils))
       (mkdir-p "/etc/NetworkManager/system-connections")))
 
+(define (vpn-plugin-directory plugins)
+  "Return a directory containing PLUGINS, the NM VPN plugins."
+  (directory-union "network-manager-vpn-plugins" plugins))
+
+(define network-manager-environment
+  (match-lambda
+    (($ <network-manager-configuration> network-manager dns vpn-plugins)
+     ;; Define this variable in the global environment such that
+     ;; "nmcli connection import type openvpn file foo.ovpn" works.
+     `(("NM_VPN_PLUGIN_DIR"
+        . ,(file-append (vpn-plugin-directory vpn-plugins)
+                        "/lib/NetworkManager/VPN"))))))
+
 (define network-manager-shepherd-service
   (match-lambda
-    (($ <network-manager-configuration> network-manager dns)
-     (let
-         ((conf (plain-file "NetworkManager.conf"
-                            (string-append "
-[main]
-dns=" dns "
-"))))
-     (list (shepherd-service
-            (documentation "Run the NetworkManager.")
-            (provision '(networking))
-            (requirement '(user-processes dbus-system wpa-supplicant loopback))
-            (start #~(make-forkexec-constructor
-                      (list (string-append #$network-manager
-                                           "/sbin/NetworkManager")
-                            (string-append "--config=" #$conf)
-                            "--no-daemon")))
-            (stop #~(make-kill-destructor))))))))
+    (($ <network-manager-configuration> network-manager dns vpn-plugins)
+     (let ((conf (plain-file "NetworkManager.conf"
+                             (string-append "[main]\ndns=" dns "\n")))
+           (vpn  (vpn-plugin-directory vpn-plugins)))
+       (list (shepherd-service
+              (documentation "Run the NetworkManager.")
+              (provision '(networking))
+              (requirement '(user-processes dbus-system wpa-supplicant loopback))
+              (start #~(make-forkexec-constructor
+                        (list (string-append #$network-manager
+                                             "/sbin/NetworkManager")
+                              (string-append "--config=" #$conf)
+                              "--no-daemon")
+                        #:environment-variables
+                        (list (string-append "NM_VPN_PLUGIN_DIR=" #$vpn
+                                             "/lib/NetworkManager/VPN"))))
+              (stop #~(make-kill-destructor))))))))
 
 (define network-manager-service-type
   (let
@@ -926,9 +896,15 @@ dns=" dns "
             (service-extension polkit-service-type config->package)
             (service-extension activation-service-type
                                (const %network-manager-activation))
+            (service-extension session-environment-service-type
+                               network-manager-environment)
             ;; Add network-manager to the system profile.
             (service-extension profile-service-type config->package)))
-     (default-value (network-manager-configuration)))))
+     (default-value (network-manager-configuration))
+     (description
+      "Run @uref{https://wiki.gnome.org/Projects/NetworkManager,
+NetworkManager}, a network management daemon that aims to simplify wired and
+wireless networking."))))
 
 
 ;;;
@@ -982,7 +958,34 @@ dns=" dns "
                                             connman-activation)
                          ;; Add connman to the system profile.
                          (service-extension profile-service-type
-                                            connman-package))))))
+                                            connman-package)))
+                  (description
+                   "Run @url{https://01.org/connman,Connman},
+a network connection manager."))))
+
+
+;;;
+;;; Modem manager
+;;;
+
+(define modem-manager-service-type
+  (let ((config->package
+         (match-lambda
+          (($ <modem-manager-configuration> modem-manager)
+           (list modem-manager)))))
+    (service-type (name 'modem-manager)
+                  (extensions
+                   (list (service-extension dbus-root-service-type
+                                            config->package)
+                         (service-extension udev-service-type
+                                            config->package)
+                         (service-extension polkit-service-type
+                                            config->package)))
+                  (default-value (modem-manager-configuration))
+                  (description
+                   "Run @uref{https://wiki.gnome.org/Projects/ModemManager,
+ModemManager}, a modem management daemon that aims to simplify dialup
+networking."))))
 
 
 ;;;
@@ -1068,6 +1071,10 @@ dns=" dns "
           (service-extension profile-service-type
                              (compose list openvswitch-configuration-package))
           (service-extension shepherd-root-service-type
-                             openvswitch-shepherd-service)))))
+                             openvswitch-shepherd-service)))
+   (description
+    "Run @uref{http://www.openvswitch.org, Open vSwitch}, a multilayer virtual
+switch designed to enable massive network automation through programmatic
+extension.")))
 
 ;;; networking.scm ends here

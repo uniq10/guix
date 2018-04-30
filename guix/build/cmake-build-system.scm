@@ -2,6 +2,7 @@
 ;;; Copyright © 2013, 2014, 2015 Ludovic Courtès <ludo@gnu.org>
 ;;; Copyright © 2013 Cyril Roelandt <tipecaml@gmail.com>
 ;;; Copyright © 2014, 2015 Andreas Enge <andreas@enge.fr>
+;;; Copyright © 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -32,7 +33,7 @@
 ;; Code:
 
 (define* (configure #:key outputs (configure-flags '()) (out-of-source? #t)
-                    build-type
+                    build-type target
                     #:allow-other-keys)
   "Configure the given package."
   (let* ((out        (assoc-ref outputs "out"))
@@ -53,12 +54,23 @@
                                              build-type))
                         '())
                   ,(string-append "-DCMAKE_INSTALL_PREFIX=" out)
+                  ;; ensure that the libraries are installed into /lib
+                  "-DCMAKE_INSTALL_LIBDIR=lib"
                   ;; add input libraries to rpath
                   "-DCMAKE_INSTALL_RPATH_USE_LINK_PATH=TRUE"
                   ;; add (other) libraries of the project itself to rpath
                   ,(string-append "-DCMAKE_INSTALL_RPATH=" out "/lib")
                   ;; enable verbose output from builds
                   "-DCMAKE_VERBOSE_MAKEFILE=ON"
+
+                  ;;  Cross-build
+                  ,@(if target
+                        (list (string-append "-DCMAKE_C_COMPILER="
+                                             target "-gcc")
+                              (if (string-contains target "mingw")
+                                  "-DCMAKE_SYSTEM_NAME=Windows"
+                                  "-DCMAKE_SYSTEM_NAME=Linux"))
+                        '())
                   ,@configure-flags)))
       (format #t "running 'cmake' with arguments ~s~%" args)
       (zero? (apply system* "cmake" args)))))

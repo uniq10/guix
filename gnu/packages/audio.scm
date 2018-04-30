@@ -1,14 +1,17 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2015, 2016, 2017, 2018 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Taylan Ulrich Bayırlı/Kammer <taylanbayirli@gmail.com>
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
 ;;; Copyright © 2015 Alex Kost <alezost@gmail.com>
 ;;; Copyright © 2015, 2016 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016, 2017 Alex Griffin <a@ajgrf.com>
-;;; Copyright © 2016 ng0 <ng0@we.make.ritual.n0.is>
+;;; Copyright © 2016 Nils Gillmann <ng0@n0.is>
 ;;; Copyright © 2016 Lukas Gradl <lgradl@openmailbox.org>
-;;; Copyright © 2016 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2016, 2017, 2018 Tobias Geerinckx-Rice <me@tobias.gr>
+;;; Copyright © 2018 Oleg Pykhalov <go.wigust@gmail.com>
+;;; Copyright © 2018 okapi <okapi@firemail.cc>
+;;; Copyright © 2018 Maxim Cournoyer <maxim.cournoyer@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
 ;;;
@@ -36,6 +39,7 @@
   #:use-module (guix build-system trivial)
   #:use-module (guix build-system cmake)
   #:use-module (guix build-system python)
+  #:use-module (guix build-system glib-or-gtk)
   #:use-module (gnu packages)
   #:use-module (gnu packages algebra)
   #:use-module (gnu packages autotools)
@@ -59,9 +63,11 @@
   #:use-module (gnu packages gnome)
   #:use-module (gnu packages gnunet) ; libmicrohttpd
   #:use-module (gnu packages gperf)
+  #:use-module (gnu packages icu4c)
   #:use-module (gnu packages image)
   #:use-module (gnu packages ncurses)
   #:use-module (gnu packages qt)
+  #:use-module (gnu packages libbsd)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages llvm)
   #:use-module (gnu packages mp3) ;taglib
@@ -71,6 +77,8 @@
   #:use-module (gnu packages python)
   #:use-module (gnu packages rdf)
   #:use-module (gnu packages readline)
+  #:use-module (gnu packages serialization)
+  #:use-module (gnu packages telephony)
   #:use-module (gnu packages tls)
   #:use-module (gnu packages video)
   #:use-module (gnu packages vim) ;xxd
@@ -79,7 +87,11 @@
   #:use-module (gnu packages xiph)
   #:use-module (gnu packages xml)
   #:use-module (gnu packages xorg)
-  #:use-module (srfi srfi-1))
+  #:use-module (gnu packages maths)
+  #:use-module (gnu packages multiprecision)
+  #:use-module (gnu packages music)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-26))
 
 (define-public alsa-modular-synth
   (package
@@ -186,11 +198,11 @@ streams from live audio.")
 (define-public ardour
   (package
     (name "ardour")
-    (version "5.8")
+    (version "5.12")
     (source (origin
               (method git-fetch)
               (uri (git-reference
-                    (url "git://git.ardour.org/ardour/ardour.git")
+                    (url "https://git.ardour.org/ardour/ardour.git")
                     (commit version)))
               (snippet
                ;; Ardour expects this file to exist at build time.  The revision
@@ -203,7 +215,7 @@ streams from live audio.")
 namespace ARDOUR { const char* revision = \"" version "\" ; }")))))
               (sha256
                (base32
-                "1lcvslrcw6g4kp9w0h1jx46x6ilz4nzz0k2yrw4gd545k1rwx0c1"))
+                "0mla5lm51ryikc2rrk53max2m7a5ds6i1ai921l2h95wrha45nkr"))
               (file-name (string-append name "-" version))))
     (build-system waf-build-system)
     (arguments
@@ -215,7 +227,7 @@ namespace ARDOUR { const char* revision = \"" version "\" ; }")))))
        (modify-phases %standard-phases
          (add-after
           'unpack 'set-rpath-in-LDFLAGS
-          ,(ardour-rpath-phase (version-prefix version 1))))
+          ,(ardour-rpath-phase (version-major version))))
        #:test-target "test"
        #:python ,python-2))
     (inputs
@@ -272,20 +284,43 @@ engineers, musicians, soundtrack editors and composers.")
 (define-public audacity
   (package
     (name "audacity")
-    (version "2.1.3")
+    (version "2.2.2")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://github.com/audacity/audacity/archive"
                            "/Audacity-" version ".tar.gz"))
        (sha256
-        (base32 "11mx7gb4dbqrgfp7hm0154x3m76ddnmhf2675q5zkxn7jc5qfc6b"))))
+        (base32
+         "18q7i77ynihx7xp45lz2lv0k0wrh6736pcrivlpwrxjgbvyqx7km"))
+       (patches (search-patches "audacity-build-with-system-portaudio.patch"))
+       (modules '((guix build utils)))
+       (snippet
+        ;; Remove bundled libraries.
+        '(begin
+           (for-each
+            (lambda (dir)
+              (delete-file-recursively (string-append "lib-src/" dir)))
+            '("expat" "ffmpeg" "libflac" "libid3tag" "libmad" "libogg"
+              "libsndfile" "libsoxr" "libvamp" "libvorbis" "lv2"
+              "portaudio-v19" "portmidi" "soundtouch" "twolame"
+              ;; FIXME: these libraries have not been packaged yet:
+              ;; "libnyquist"
+              ;; "libscorealign"
+              ;; "libwidgetextra"
+              ;; "portburn"
+              ;; "portsmf"
+              ;; "portmixer"
+
+              ;; FIXME: we have this library, but it differs in that the Slide
+              ;; class does not have a member "getInverseStretchedTime".
+              ;; "sbsms"
+              ))
+           #t))))
     (build-system gnu-build-system)
     (inputs
-     ;; TODO: Add portSMF and libwidgetextra once they're packaged.  In-tree
-     ;; versions shipping with Audacity are used for now.
-     `(("wxwidgets" ,wxwidgets-gtk2)
-       ("gtk" ,gtk+-2)
+     `(("wxwidgets" ,wxwidgets)
+       ("gtk" ,gtk+)
        ("alsa-lib" ,alsa-lib)
        ("jack" ,jack-1)
        ("expat" ,expat)
@@ -294,7 +329,7 @@ engineers, musicians, soundtrack editors and composers.")
        ("flac" ,flac)
        ("libid3tag" ,libid3tag)
        ("libmad" ,libmad)
-       ("libsbsms" ,libsbsms)
+       ;;("libsbsms" ,libsbsms)         ;bundled version is modified
        ("libsndfile" ,libsndfile)
        ("soundtouch" ,soundtouch)
        ("soxr" ,soxr)                   ;replaces libsamplerate
@@ -302,8 +337,10 @@ engineers, musicians, soundtrack editors and composers.")
        ("vamp" ,vamp)
        ("libvorbis" ,libvorbis)
        ("lv2" ,lv2)
-       ("lilv" ,lilv)
-       ("portaudio" ,portaudio)))
+       ("lilv" ,lilv)                   ;for lv2
+       ("suil" ,suil)                   ;for lv2
+       ("portaudio" ,portaudio)
+       ("portmidi" ,portmidi)))
     (native-inputs
      `(("autoconf" ,autoconf)
        ("automake" ,automake)
@@ -313,24 +350,63 @@ engineers, musicians, soundtrack editors and composers.")
        ("python" ,python-2)
        ("which" ,which)))
     (arguments
-     '(#:configure-flags
+     `(#:configure-flags
        (let ((libid3tag (assoc-ref %build-inputs "libid3tag"))
-             (libmad (assoc-ref %build-inputs "libmad")))
+             (libmad (assoc-ref %build-inputs "libmad"))
+             (portmidi (assoc-ref %build-inputs "portmidi")))
          (list
           ;; Loading FFmpeg dynamically is problematic.
           "--disable-dynamic-loading"
-          ;; libid3tag and libmad provide no .pc files, so pkg-config fails to
-          ;; find them.  Force their inclusion.
+          ;; SSE instructions are available on Intel systems only.
+          ,@(if (any (cute string-prefix? <> (or (%current-target-system)
+                                                 (%current-system)))
+                    '("x64_64" "i686"))
+              '()
+              '("--enable-sse=no"))
+          ;; portmidi, libid3tag and libmad provide no .pc files, so
+          ;; pkg-config fails to find them.  Force their inclusion.
           (string-append "ID3TAG_CFLAGS=-I" libid3tag "/include")
           (string-append "ID3TAG_LIBS=-L" libid3tag "/lib -lid3tag -lz")
           (string-append "LIBMAD_CFLAGS=-I" libmad "/include")
-          (string-append "LIBMAD_LIBS=-L" libmad "/lib -lmad")))
+          (string-append "LIBMAD_LIBS=-L" libmad "/lib -lmad")
+          (string-append "PORTMIDI_CFLAGS=-I" portmidi "/include")
+          (string-append "PORTMIDI_LIBS=-L" portmidi "/lib -lportmidi")
+          "EXPAT_USE_SYSTEM=yes"
+          "FFMPEG_USE_SYSTEM=yes"
+          "LAME_USE_SYSTEM=yes"
+          "LIBFLAC_USE_SYSTEM=yes"
+          "LIBID3TAG_USE_SYSTEM=yes"
+          "LIBMAD_USE_SYSTEM=yes"
+          "USE_LOCAL_LIBNYQUIST="      ;not packaged yet
+          ;;"LIBSBSMS_USE_SYSTEM=yes"  ;bundled version is patched
+          "LIBSNDFILE_USE_SYSTEM=yes"
+          "LIBSOUNDTOUCH_USE_SYSTEM=yes"
+          "LIBSOXR_USE_SYSTEM=yes"
+          "LIBTWOLAME_USE_SYSTEM=yes"
+          "LIBVAMP_USE_SYSTEM=yes"
+          "LIBVORBIS_USE_SYSTEM=yes"
+          "LV2_USE_SYSTEM=yes"
+          "PORTAUDIO_USE_SYSTEM=yes"))
        #:phases
        (modify-phases %standard-phases
-         ;; FFmpeg is only detected if autoreconf runs.
-         (add-before 'configure 'autoreconf
+         (add-after 'unpack 'fix-sbsms-check
            (lambda _
-             (zero? (system* "autoreconf" "-vfi")))))
+             ;; This check is wrong: there is no 2.2.0 release; not even the
+             ;; bundled sources match this release string.
+             (substitute* '("m4/audacity_checklib_libsbsms.m4"
+                            "configure")
+               (("sbsms >= 2.2.0") "sbsms >= 2.0.0"))
+             #t))
+         (add-after 'unpack 'use-upstream-headers
+           (lambda* (#:key inputs #:allow-other-keys)
+             (substitute* '("src/NoteTrack.cpp"
+                            "src/AudioIO.cpp"
+                            "src/AudioIO.h")
+               (("../lib-src/portmidi/pm_common/portmidi.h") "portmidi.h")
+               (("../lib-src/portmidi/porttime/porttime.h") "porttime.h"))
+             (substitute* "src/prefs/MidiIOPrefs.cpp"
+               (("../../lib-src/portmidi/pm_common/portmidi.h") "portmidi.h"))
+             #t)))
        ;; The test suite is not "well exercised" according to the developers,
        ;; and fails with various errors.  See
        ;; <http://sourceforge.net/p/audacity/mailman/message/33524292/>.
@@ -385,14 +461,14 @@ plugins are provided.")
 (define-public calf
   (package
     (name "calf")
-    (version "0.0.60")
+    (version "0.90.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "http://calf-studio-gear.org/files/calf-"
                                   version ".tar.gz"))
               (sha256
                (base32
-                "019fwg00jv217a5r767z7szh7vdrarybac0pr2sk26xp81kibrx9"))))
+                "0dijv2j7vlp76l10s4v8gbav26ibaqk8s24ci74vrc398xy00cib"))))
     (build-system gnu-build-system)
     (inputs
      `(("fluidsynth" ,fluidsynth)
@@ -477,7 +553,7 @@ based on human speech recordings.")
 (define-public infamous-plugins
   (package
     (name "infamous-plugins")
-    (version "0.2.02")
+    (version "0.2.04")
     (source (origin
               (method url-fetch)
               (uri (string-append "https://github.com/ssj71/infamousPlugins/"
@@ -485,10 +561,10 @@ based on human speech recordings.")
               (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0qm3ak07vc1l3f5c3c2lq9gkfknlxwn8ks03cysw1pk8hj7dwnv6"))))
+                "1n6rhqsmvad7692w2h01niw5gqg5yk7a09wxl5ivs77zyp93vf7z"))))
     (build-system cmake-build-system)
     (arguments
-     `(#:tests? #f ; There are no tests
+     `(#:tests? #f                      ; there are no tests
        #:phases
        (modify-phases %standard-phases
          (add-after 'unpack 'remove-compiler-flags
@@ -503,7 +579,7 @@ based on human speech recordings.")
                             "src/powercut/CMakeLists.txt"
                             "src/powerup/CMakeLists.txt"
                             "src/stuck/CMakeLists.txt")
-                          (("-msse2 -mfpmath=sse") ""))
+               (("-msse2 -mfpmath=sse") ""))
              #t)))))
     (inputs
      `(("cairo" ,cairo)
@@ -513,7 +589,7 @@ based on human speech recordings.")
        ("zita-resampler" ,zita-resampler)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
-    (home-page "http://ssj71.github.io/infamousPlugins")
+    (home-page "https://ssj71.github.io/infamousPlugins")
     (synopsis "LV2 plugins for live use")
     (description
      "The infamous plugins are a collection of LV2 audio plugins for live
@@ -568,23 +644,17 @@ emulation (valve, tape), bit fiddling (decimator, pointer-cast), etc.")
 (define-public csound
   (package
     (name "csound")
-    (version "6.05")
+    (version "6.09.1")
     (source (origin
               (method url-fetch)
               (uri (string-append
-                    "mirror://sourceforge/csound/csound6/Csound"
-                    version "/Csound" version ".tar.gz"))
+                    "https://github.com/csound/csound/archive/"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
               (sha256
                (base32
-                "0a1sni6lr7qpwywpggbkp0ia3h9bwwgf9i87gsag8ra2h30v82hd"))
-              (patches (search-patches "csound-header-ordering.patch"))))
+                "0xqpqws4jsv7fyawcjzwaw544qbfh29xq164kdf30a9v1n3yklp4"))))
     (build-system cmake-build-system)
-    (arguments
-     ;; Work around this error on x86_64 with libc 2.22+:
-     ;;    libmvec.so.1: error adding symbols: DSO missing from command line
-     (if (string-prefix? "x86_64" (or (%current-target-system) (%current-system)))
-         '(#:configure-flags '("-DCMAKE_EXE_LINKER_FLAGS=-lmvec"))
-         '()))
     (inputs
      `(("alsa-lib" ,alsa-lib)
        ("boost" ,boost)
@@ -623,27 +693,25 @@ language and software synthesizer.")
      `(#:tests? #f ; no "check" target
        #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:phases
-       (alist-cons-after
-        'unpack 'patch-makefile-and-enter-directory
-        (lambda _
-          (substitute* "libs/Makefile"
-            (("/sbin/ldconfig") "true")
-            (("^LIBDIR =.*") "LIBDIR = lib\n"))
-          (chdir "libs")
-          #t)
-        (alist-cons-after
-         'install
-         'install-symlink
-         (lambda _
-           (symlink "libclalsadrv.so"
-                    (string-append (assoc-ref %outputs "out")
-                                   "/lib/libclalsadrv.so.2")))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-makefile-and-enter-directory
+           (lambda _
+             (substitute* "libs/Makefile"
+               (("/sbin/ldconfig") "true")
+               (("^LIBDIR =.*") "LIBDIR = lib\n"))
+             (chdir "libs")
+             #t))
+         (add-after 'install 'install-symlink
+           (lambda _
+             (symlink "libclalsadrv.so"
+                      (string-append (assoc-ref %outputs "out")
+                                     "/lib/libclalsadrv.so.2"))))
          ;; no configure script
-         (alist-delete 'configure %standard-phases)))))
+         (delete 'configure))))
     (inputs
      `(("alsa-lib" ,alsa-lib)
        ("fftw" ,fftw)))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "C++ wrapper around the ALSA API")
     (description
      "clalsadrv is a C++ wrapper around the ALSA API simplifying access to
@@ -682,7 +750,7 @@ ALSA PCM devices.")
                (("/usr/bin/install") (which "install"))
                (("/bin/rm") "#"))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA ambisonics plugins")
     (description
      "The AMB plugins are a set of LADSPA ambisonics plugins, mainly to be
@@ -719,7 +787,7 @@ horizontal rotator, square, hexagon and cube decoders.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "Chorus, phaser, and vintage high-pass and low-pass filters")
     (description
      "This package provides various LADSPA plugins.  @code{cs_chorus} and
@@ -759,7 +827,7 @@ the non-linear circuit elements of their original analog counterparts.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA reverb plugin")
     (description
      "This package provides a stereo reverb LADSPA plugin based on the
@@ -795,7 +863,7 @@ well-known greverb.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA four-band parametric equalizer plugin")
     (description
      "This package provides a LADSPA plugin for a four-band parametric
@@ -840,7 +908,7 @@ for stage use.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA stereo width plugin")
     (description
      "This package provides a LADSPA plugin to manipulate the stereo width of
@@ -877,7 +945,7 @@ audio signals.")
                (("/usr") (assoc-ref outputs "out"))
                (("/bin/cp") (which "cp")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA plugin for synthesizer oscillators")
     (description
      "The @code{blvco} LADSPA plugin provides three anti-aliased oscillators:
@@ -921,7 +989,7 @@ output of analog synthesizers such as the Moog Voyager.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA Autowah effect plugin")
     (description
      "This package provides a LADSPA plugin for a Wah effect with envelope
@@ -957,7 +1025,7 @@ follower.")
              (substitute* "Makefile"
                (("/usr") (assoc-ref outputs "out")))
              #t)))))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "LADSPA stereo reverb plugin")
     (description
      "This package provides a LADSPA plugin for a stereo reverb effect.")
@@ -966,23 +1034,28 @@ follower.")
 (define-public fluidsynth
   (package
     (name "fluidsynth")
-    (version "1.1.6")
+    (version "1.1.10")
     (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "mirror://sourceforge/fluidsynth/fluidsynth-"
-                    version "/fluidsynth-" version ".tar.gz"))
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/FluidSynth/fluidsynth.git")
+                    (commit (string-append "v" version))))
+              (file-name (string-append name "-" version "-checkout"))
               (sha256
                (base32
-                "070pwb7brdcn1mfvplkd56vjc7lbz4iznzkqvfsakvgbv68k71ah"))))
-    (build-system gnu-build-system)
+                "04jlgq1d1hd8r9cnmkl3lgf1fgm7kgy4hh9nfddap41fm1wp121p"))))
+    (build-system cmake-build-system)
     (arguments
-     `(#:phases
-       (alist-cons-after
-        'unpack
-        'remove-broken-symlinks
-        (lambda _ (delete-file-recursively "m4") #t)
-        %standard-phases)))
+     '(#:tests? #f                      ; no check target
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'fix-libdir
+           (lambda _
+             ;; Install libraries to /lib, not /lib64.
+             (substitute* "CMakeLists.txt"
+               (("LIB_SUFFIX \\$\\{_init_lib_suffix\\}")
+                "LIB_SUFFIX \"\""))
+             #t)))))
     (inputs
      `(("libsndfile" ,libsndfile)
        ("alsa-lib" ,alsa-lib)
@@ -1000,7 +1073,7 @@ follower.")
 specifications.  FluidSynth reads and handles MIDI events from the MIDI input
 device.  It is the software analogue of a MIDI synthesizer.  FluidSynth can
 also play midifiles using a Soundfont.")
-    (license license:gpl2+)))
+    (license license:lgpl2.1+)))
 
 (define-public faad2
   (package
@@ -1021,12 +1094,11 @@ also play midifiles using a Soundfont.")
        ("unzip" ,unzip)))
     (arguments
      '(#:phases
-       (alist-cons-after
-        'unpack 'bootstrap
-        (lambda _
-          (substitute* "bootstrap" (("\r\n") "\n"))
-          (zero? (system* "sh" "bootstrap")))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (substitute* "bootstrap" (("\r\n") "\n"))
+             (zero? (system* "sh" "bootstrap")))))))
     (home-page "http://www.audiocoding.com/faad2.html")
     (synopsis "MPEG-4 and MPEG-2 AAC decoder")
     (description
@@ -1037,17 +1109,19 @@ PS, and DAB+.")
 (define-public faust
   (package
     (name "faust")
-    (version "0.9.67")
+    (version "0.9.90")
     (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "mirror://sourceforge/faudiostream/faust-" version ".zip"))
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/grame-cncm/faust.git")
+                    (commit (string-append "v"
+                                           (string-map (lambda (c)
+                                                         (if (char=? c #\.) #\- c))
+                                                       version)))))
+              (file-name (string-append "faust-" version "-checkout"))
               (sha256
                (base32
-                "068vl9536zn0j4pknwfcchzi90rx5pk64wbcbd67z32w0csx8xm1"))
-              (snippet
-               ;; Remove prebuilt library
-               '(delete-file "architecture/android/libs/armeabi-v7a/libfaust_dsp.so"))))
+                "0qc6iwjd3i80jdyjc186c6ywipmjzl8wlsp4050pbr56q4rlkd4z"))))
     (build-system gnu-build-system)
     (arguments
      `(#:make-flags (list (string-append "prefix=" (assoc-ref %outputs "out")))
@@ -1055,7 +1129,16 @@ PS, and DAB+.")
        #:phases
        (modify-phases %standard-phases
          ;; no "configure" script
-         (delete 'configure))))
+         (delete 'configure)
+         ;; Files appear under $out/share/faust that are read-only.  The
+         ;; install phase tries to overwrite them and fails, so we change
+         ;; the permissions first.
+         (add-before 'install 'fix-permissions
+           (lambda _
+             (for-each (lambda (file)
+                         (chmod file #o644))
+                       (find-files "architecture/max-msp" ".*"))
+             #t)))))
     (native-inputs
      `(("unzip" ,unzip)))
     (home-page "http://faust.grame.fr/")
@@ -1067,14 +1150,19 @@ PS, and DAB+.")
 (define-public faust-2
   (package
     (inherit faust)
-    (version "2.0.a51")
+    (version "2.1.0")
     (source (origin
-              (method url-fetch)
-              (uri (string-append
-                    "mirror://sourceforge/faudiostream/faust-" version ".tgz"))
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/grame-cncm/faust.git")
+                    (commit (string-append "v"
+                                           (string-map (lambda (c)
+                                                         (if (char=? c #\.) #\- c))
+                                                       version)))))
+              (file-name (string-append "faust-" version "-checkout"))
               (sha256
                (base32
-                "1yryjqfqmxs7lxy95hjgmrncvl9kig3rcsmg0v49ghzz7vs7haxf"))))
+                "06km0ygwxxwgw1lqldccqidxhmjfz8ck0wnbd95qk5sg8sbpc068"))))
     (build-system gnu-build-system)
     (arguments
      (substitute-keyword-arguments (package-arguments faust)
@@ -1084,7 +1172,7 @@ PS, and DAB+.")
     (native-inputs
      `(("llvm" ,llvm-with-rtti)
        ("which" ,which)
-       ("xxd" ,vim)
+       ("xxd" ,xxd)
        ("ctags" ,emacs-minimal)  ; for ctags
        ("pkg-config" ,pkg-config)))
     (inputs
@@ -1136,7 +1224,7 @@ patches that can be used with softsynths such as Timidity and WildMidi.")
 (define-public guitarix
   (package
     (name "guitarix")
-    (version "0.35.5")
+    (version "0.36.1")
     (source (origin
              (method url-fetch)
              (uri (string-append
@@ -1144,7 +1232,7 @@ patches that can be used with softsynths such as Timidity and WildMidi.")
                    version ".tar.xz"))
              (sha256
               (base32
-               "00pfb6qa3jfa6qaql7isnb8srfdfmk362ygslh7y0qkm36qasmh4"))))
+               "1g5949jwh2n755xjs3kcbdb8a1wxr5mn0m115wdnk27dxcdn93b0"))))
     (build-system waf-build-system)
     (arguments
      `(#:tests? #f ; no "check" target
@@ -1338,17 +1426,16 @@ synchronous execution of all clients, and low latency operation.")
 (define-public jack-2
   (package (inherit jack-1)
     (name "jack2")
-    (version "1.9.10")
+    (version "1.9.12")
     (source (origin
              (method url-fetch)
-             (uri (string-append
-                   "https://github.com/jackaudio/jack2/archive/v"
-                   version
-                   ".tar.gz"))
+             (uri (string-append "https://github.com/jackaudio/jack2/releases/"
+                                 "download/v" version "/jack2-"
+                                 version ".tar.gz"))
              (file-name (string-append name "-" version ".tar.gz"))
              (sha256
               (base32
-               "03b0iiyk3ng3vh5s8gaqwn565vik7910p56mlbk512bw3dhbdwc8"))))
+               "0crf4y9a5j9miw8r5ji4l3w5w0y2frrf7xyfsfdgacnw6vwy5vyy"))))
     (build-system waf-build-system)
     (arguments
      `(#:python ,python-2
@@ -1357,15 +1444,6 @@ synchronous execution of all clients, and low latency operation.")
                            "--alsa")
        #:phases
        (modify-phases %standard-phases
-         (add-after 'unpack 'patch-fast_rand
-           (lambda _
-             (substitute* "common/memops.c"
-               ;; Fixed in upstream commit d3c8e2d8d78899fba40a3e677ed4dbe388d82269
-               (("^inline unsigned int fast_rand" line)
-                (string-append "static " line))
-               ;; Fixed in upstream commit 0279a2d65a36d1378f5bab56d95bf9e99cc8cefb
-               ((" 96314165") " 196314165"))
-             #t))
          (add-before
           'configure 'set-linkflags
           (lambda _
@@ -1496,6 +1574,16 @@ to be plugged into a wide range of audio synthesis and recording packages.")
                (base32
                 "12z1vx3krrzsfccpah9xjs68900xvr7bw92wx8np5871i2yv47iw"))))
     (build-system gnu-build-system)
+    (arguments
+     '(#:phases
+       (modify-phases %standard-phases
+         ;; lashd embeds an ancient version of sigsegv so we just skip it
+         (add-after 'unpack 'skip-lashd
+           (lambda _
+             (substitute* '("Makefile.am" "Makefile.in")
+               (("lashd ") ""))
+             #t)))
+       #:configure-flags '("--disable-static")))
     (inputs
      `(("bdb" ,bdb)
        ("gtk" ,gtk+-2)
@@ -1510,7 +1598,7 @@ to be plugged into a wide range of audio synthesis and recording packages.")
        ("libxml2" ,libxml2)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
-    (home-page "http://www.nongnu.org/lash/")
+    (home-page "https://www.nongnu.org/lash/")
     (synopsis "Audio application session manager")
     (description
      "LASH is a session management system for audio applications.  It allows
@@ -1545,14 +1633,14 @@ essential distortions.")
 (define-public liblo
   (package
     (name "liblo")
-    (version "0.28")
+    (version "0.29")
     (source (origin
              (method url-fetch)
              (uri (string-append "mirror://sourceforge/liblo/liblo/" version
                                  "/liblo-" version ".tar.gz"))
              (sha256
               (base32
-               "02drgnpirvl2ihvzgsmn02agr5sj3vipzzw9vma56qlkgfvak56s"))))
+               "0sn0ckc1d0845mhsaa62wf7f9v0c0ykiq796a30ja5096kib9qdc"))))
     (build-system gnu-build-system)
     (arguments
      `(;; liblo test FAILED
@@ -1562,8 +1650,35 @@ essential distortions.")
     (synopsis "Implementation of the Open Sound Control protocol")
     (description
      "liblo is a lightweight library that provides an easy to use
-implementation of the Open Sound Control (OSC) protocol.")
+implementation of the Open Sound Control (@dfn{OSC}) protocol.")
     (license license:lgpl2.1+)))
+
+(define-public python-pyaudio
+  (package
+    (name "python-pyaudio")
+    (version "0.2.11")
+    (source
+     (origin
+       (method url-fetch)
+       (uri
+        (string-append
+         "https://pypi.python.org/packages/ab/42/"
+         "b4f04721c5c5bfc196ce156b3c768998ef8c0ae3654ed29ea5020c749a6b"
+         "/PyAudio-" version ".tar.gz"))
+       (sha256
+        (base32
+         "0x7vdsigm7xgvyg3shd3lj113m8zqj2pxmrgdyj66kmnw0qdxgwk"))))
+    (build-system python-build-system)
+    (inputs
+     `(("portaudio" ,portaudio)))
+    (home-page "https://people.csail.mit.edu/hubert/pyaudio/")
+    (synopsis "Bindings for PortAudio v19")
+    (description "This package provides bindings for PortAudio v19, the
+cross-platform audio input/output stream library.")
+    (license license:expat)))
+
+(define-public python2-pyaudio
+  (package-with-python2 python-pyaudio))
 
 (define-public python-pyliblo
   (package
@@ -1662,6 +1777,22 @@ add functionality to support the needs of increasingly powerful audio
 software.")
     (license license:isc)))
 
+(define-public lv2-devel
+  (let ((commit "39c7c726cd52b2863fcea356cafe1bcab2ba7f37")
+        (revision "1"))
+    (package (inherit lv2)
+      (name "lv2-devel")
+      (version (string-append "1.15.3-" revision "." (string-take commit 7)))
+      (source (origin
+                (method git-fetch)
+                (uri (git-reference
+                      (url "http://lv2plug.in/git/lv2.git")
+                      (commit commit)))
+                (file-name (git-file-name name version))
+                (sha256
+                 (base32
+                  "1gp2rd99dfmpibvpixrqn115mrhybzf3if3h8bssf6siyi13f29r")))))))
+
 (define-public lv2-mda-piano
   (package
     (name "lv2-mda-piano")
@@ -1671,6 +1802,7 @@ software.")
               (uri (git-reference
                     (url "http://git.elephly.net/software/lv2-mdametapiano.git")
                     (commit version)))
+              (file-name (git-file-name name version))
               (sha256
                (base32
                 "07lywf6lpfpndg3i9w752mmlg2hgn1bwp23h8b0mdj6awh67abqd"))))
@@ -1680,7 +1812,7 @@ software.")
                      "TYPE=mdaPiano"
                      (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:tests? #f ; no check target
-       #:phases (alist-delete 'configure %standard-phases)))
+       #:phases (modify-phases %standard-phases (delete 'configure))))
     (inputs
      `(("lv2" ,lv2)
        ("lvtk" ,lvtk)))
@@ -1703,7 +1835,7 @@ software.")
                      "TYPE=mdaEPiano"
                      (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:tests? #f ; no check target
-       #:phases (alist-delete 'configure %standard-phases)))
+       #:phases (modify-phases %standard-phases (delete 'configure))))
     (home-page "http://elephly.net/lv2/mdaepiano.html")
     (synopsis "LV2 port of the mda EPiano plugin")
     (description "An LV2 port of the mda EPiano VSTi.")))
@@ -1865,19 +1997,20 @@ and ALSA.")
 (define-public qjackctl
   (package
     (name "qjackctl")
-    (version "0.4.5")
+    (version "0.5.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://sourceforge/qjackctl/qjackctl/"
                                   version "/qjackctl-" version ".tar.gz"))
               (sha256
                (base32
-                "1dsavjfzz5bpzc80mvfs940w9f9f47cf4r9cqxnaqrl4xilsa3f5"))))
+                "0lx81dfwanc10vrny1vzi0wx73ph82dlz99ffjzsigj3cqzz6x4s"))))
     (build-system gnu-build-system)
     (arguments
      '(#:tests? #f)) ; no check target
     (inputs
      `(("jack" ,jack-1)
+       ("alsa-lib" ,alsa-lib)
        ("qtbase" ,qtbase)
        ("qtx11extras" ,qtx11extras)))
     (native-inputs
@@ -1889,6 +2022,148 @@ and ALSA.")
 into various outputs and to start, stop and configure jackd")
     (license license:gpl2+)))
 
+(define-public qjackrcd
+  (package
+    (name "qjackrcd")
+    (version "1.2.2")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/orouits/qjackrcd.git")
+                    (commit (string-append "v" version))))
+              (file-name (git-file-name name version))
+              (sha256
+               (base32
+                "1l5iq2mkqd4gn9yr8xbh9qlpp1clcflazychl4vhdbz0bzq4c6al"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (zero? (system* "qmake"
+                             (string-append "PREFIX="
+                                            (assoc-ref outputs "out")))))))))
+    (native-inputs
+     `(("qtbase" ,qtbase))) ; for qmake
+    (inputs
+     `(("jack" ,jack-1)
+       ("libsndfile" ,libsndfile)
+       ("qtbase" ,qtbase)))
+    (home-page "https://sourceforge.net/projects/qjackrcd/")
+    (synopsis "Stereo audio recorder for JACK")
+    (description "QJackRcd is a simple graphical stereo recorder for JACK
+supporting silence processing for automatic pause, file splitting, and
+background file post-processing.")
+    (license license:gpl2+)))
+
+(define-public supercollider
+  (package
+    (name "supercollider")
+    (version "3.9.2")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/supercollider/supercollider"
+                    "/releases/download/Version-" version
+                    "/SuperCollider-" version "-Source-linux.tar.bz2"))
+              (sha256
+               (base32
+                "0d3cb6dw8jz7ijriqn3rlwin24gffczp69hl17pzxj1d5w57yj44"))))
+    (build-system cmake-build-system)
+    (arguments
+     `(#:configure-flags '("-DSYSTEM_BOOST=on" "-DSYSTEM_YAMLCPP=on"
+                           "-DSC_EL=off") ;scel is packaged individually as
+                                          ;emacs-scel.
+       #:modules ((guix build utils)
+                  (guix build cmake-build-system)
+                  (ice-9 ftw))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'rm-bundled-libs
+           (lambda _
+             ;; The build system doesn't allow us to unbundle the following
+             ;; libraries.  hidapi is also heavily patched and upstream not
+             ;; actively maintained.
+             (let ((keep-dirs '("nova-simd" "nova-tt" "hidapi" "TLSF-2.4.6"
+                                "oscpack_1_1_0" "." "..")))
+               (with-directory-excursion "./external_libraries"
+                 (for-each
+                  delete-file-recursively
+                  (scandir "."
+                           (lambda (x)
+                             (and (eq? (stat:type (stat x)) 'directory)
+                                  (not (member (basename x) keep-dirs))))))))
+             #t))
+         ;; Some tests are broken (see:
+         ;; https://github.com/supercollider/supercollider/issues/3555 and
+         ;; https://github.com/supercollider/supercollider/issues/1736
+         (add-after 'rm-bundled-libs 'disable-broken-tests
+           (lambda _
+             (substitute* "testsuite/supernova/CMakeLists.txt"
+               (("server_test.cpp")
+                "")
+               (("perf_counter_test.cpp")
+                ""))
+             (delete-file "testsuite/supernova/server_test.cpp")
+             (delete-file "testsuite/supernova/perf_counter_test.cpp")
+             (substitute* "testsuite/CMakeLists.txt"
+               (("add_subdirectory\\(sclang\\)")
+                ""))
+             (delete-file "testsuite/sclang/CMakeLists.txt")
+             #t))
+         ;; TODO: Remove after version 3.9.2 is released
+         ;; (see: https://github.com/supercollider/supercollider/pull/3558).
+         (add-after 'disable-broken-tests 'apply-system-yaml-cpp-fix
+           (lambda _
+             ;; cmake: correctly include yaml-cpp (commit f82cec5ae).
+             (substitute* "editors/sc-ide/CMakeLists.txt"
+               (("external_libraries/boost\\)$")
+                "external_libraries/boost)
+include_directories(${YAMLCPP_INCLUDE_DIR})")
+               (("    yaml")
+                "    ${YAMLCPP_LIBRARY}"))
+             ;; set YAMLCPP_LIBRARY and YAMLCPP_INCLUDE_DIR if not using
+             ;; system (commit 031922987).
+             (substitute* "external_libraries/CMakeLists.txt"
+               (("set_property\\( TARGET yaml PROPERTY FOLDER 3rdparty \\)")
+                "set_property( TARGET yaml PROPERTY FOLDER 3rdparty )
+set(YAMLCPP_LIBRARY yaml)
+set(YAMLCPP_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/\
+external_libraries/yaml-cpp/include)"))
+             #t)))))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)
+       ("qttools" ,qttools)))
+    (inputs
+     `(("jack" ,jack-1)
+       ("libsndfile" ,libsndfile)
+       ("fftw" ,fftw)
+       ("libxt" ,libxt)
+       ("readline" ,readline)           ;readline support for sclang's CLI
+       ("alsa" ,alsa-lib)               ;for sclang's MIDI interface
+       ("eudev" ,eudev)                 ;for user interactions with devices
+       ("avahi" ,avahi)                 ;zeroconf service discovery support
+       ("icu4c" ,icu4c)
+       ("boost" ,boost)
+       ("boost-sync" ,boost-sync)
+       ("yaml-cpp" ,yaml-cpp)
+       ("qtbase" ,qtbase)               ;IDE support
+       ("qtwebkit" ,qtwebkit)
+       ("qtsensors" ,qtsensors)
+       ("qtdeclarative" ,qtdeclarative)
+       ("qtlocation" ,qtlocation)))
+    (home-page "https://github.com/supercollider/supercollider")
+    (synopsis "Synthesis engine and programming language")
+    (description "SuperCollider is a synthesis engine (@code{scsynth} or
+@code{supernova}) and programming language (@code{sclang}).  It can be used
+for experimenting with sound synthesis and algorithmic composition.
+
+SuperCollider requires jackd to be installed in your user profile and your
+user must be allowed to access the realtime features of the kernel.  Search
+for \"realtime\" in the index of the Guix manual to learn how to achieve this
+using GuixSD.")
+    (license license:gpl2+)))
 
 (define-public raul
   (package
@@ -1918,11 +2193,11 @@ aimed at audio/musical applications.")
     (license license:gpl2+)))
 
 (define-public raul-devel
-  (let ((commit "f8bf77d3c3b77830aedafb9ebb5cdadfea7ed07a")
+  (let ((commit "4db870b2b20b0a608ec0283139056b836c5b1624")
         (revision "1"))
     (package (inherit raul)
       (name "raul")
-      (version (string-append "0.8.4-" revision "."
+      (version (string-append "0.8.9-" revision "."
                               (string-take commit 9)))
       (source (origin
                 (method git-fetch)
@@ -1932,7 +2207,7 @@ aimed at audio/musical applications.")
                 (file-name (string-append name "-" version "-checkout"))
                 (sha256
                  (base32
-                  "1lby508fb0n8ks6iz959sh18fc37br39d6pbapwvbcw5nckdrxwj")))))))
+                  "04fajrass3ymr72flx5js5vxc601ccrmx8ny8scp0rw7j0igyjdr")))))))
 
 (define-public rubberband
   (package
@@ -1944,6 +2219,7 @@ aimed at audio/musical applications.")
                (string-append "https://bitbucket.org/breakfastquay/rubberband/get/v"
                               version
                               ".tar.bz2"))
+              (file-name (string-append name "-" version ".tar.bz2"))
               (sha256
                (base32
                 "05amrbrxx0da3w7m237q51799r8xgs4ffqabi2qv06hq8dpcj386"))))
@@ -1979,8 +2255,8 @@ tempo and pitch of an audio recording independently of one another.")
     (arguments
      `(#:tests? #f ;no "check" target
        #:phases (modify-phases %standard-phases
-                  (add-before
-                   'configure 'autoconf
+                  (add-after
+                   'unpack 'autoconf
                    (lambda _ (zero? (system* "autoreconf" "-vfi"))))
                   (add-before
                    'build 'fix-makefile
@@ -2042,14 +2318,14 @@ the Turtle syntax.")
 (define-public suil
   (package
     (name "suil")
-    (version "0.8.4")
+    (version "0.10.0")
     (source (origin
              (method url-fetch)
              (uri (string-append "http://download.drobilla.net/suil-"
                                  version ".tar.bz2"))
              (sha256
               (base32
-               "1kji3lhha26qr6xm9j8ic5c40zbrrb5qnwm2qxzmsfxgmrz29wkf"))))
+               "0j489gm3fhnmwmbgw30bvd4byw1vsy4yazdlnji8jzhcz0qwb5cq"))))
     (build-system waf-build-system)
     (arguments
      `(#:tests? #f ; no check target
@@ -2057,7 +2333,8 @@ the Turtle syntax.")
        '("CXXFLAGS=-std=gnu++11")))
     (inputs
      `(("lv2" ,lv2)
-       ("gtk+-2" ,gtk+-2)
+       ("gtk+" ,gtk+-2)
+       ("gtk+" ,gtk+)
        ("qt" ,qtbase)))
     (native-inputs
      `(("pkg-config" ,pkg-config)))
@@ -2071,7 +2348,7 @@ toolkit.  The API is designed such that hosts do not need to explicitly
 support specific toolkits – if Suil supports a particular toolkit, then UIs in
 that toolkit will work in all hosts that use Suil automatically.
 
-Suil currently supports every combination of Gtk 2, Qt 4, and X11.")
+Suil currently supports every combination of Gtk, Qt, and X11.")
     (license license:isc)))
 
 (define-public timidity++
@@ -2096,19 +2373,19 @@ Suil currently supports every combination of Gtk 2, Qt 4, and X11.")
              (string-append "--with-default-path="
                             (assoc-ref %outputs "out") "/etc/timidity"))
        #:phases
-       (alist-cons-after
-        'install 'install-config
-        (lambda _
-          (let ((out (string-append (assoc-ref %outputs "out")
-                                    "/etc/timidity")))
-            (mkdir-p out)
-            (call-with-output-file
-                (string-append out "/timidity.cfg")
-              (lambda (port)
-                (format port (string-append "source "
-                                            (assoc-ref %build-inputs "freepats")
-                                            "/share/freepats/freepats.cfg"))))))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'install 'install-config
+           (lambda _
+             (let ((out (string-append (assoc-ref %outputs "out")
+                                       "/etc/timidity")))
+               (mkdir-p out)
+               (call-with-output-file
+                   (string-append out "/timidity.cfg")
+                 (lambda (port)
+                   (format port (string-append "source "
+                                               (assoc-ref %build-inputs "freepats")
+                                               "/share/freepats/freepats.cfg")))))
+             #t)))))
     (inputs
      `(("alsa-lib" ,alsa-lib)
        ("ao" ,ao)
@@ -2147,16 +2424,15 @@ disks as various audio file formats.")
     (arguments
      `(#:tests? #f                      ; no check target
        #:phases
-       (alist-cons-after
-        'install 'remove-libvamp-hostsdk.la
-        (lambda* (#:key outputs #:allow-other-keys)
-          ;; https://bugs.launchpad.net/ubuntu/+source/vamp-plugin-sdk/+bug/1253656
-          (for-each delete-file
-                    (let ((out (assoc-ref outputs "out")))
-                      (list (string-append out "/lib/libvamp-sdk.la")
-                            (string-append out "/lib/libvamp-hostsdk.la"))))
-          #t)
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'install 'remove-libvamp-hostsdk.la
+           (lambda* (#:key outputs #:allow-other-keys)
+             ;; https://bugs.launchpad.net/ubuntu/+source/vamp-plugin-sdk/+bug/1253656
+             (for-each delete-file
+                       (let ((out (assoc-ref outputs "out")))
+                         (list (string-append out "/lib/libvamp-sdk.la")
+                               (string-append out "/lib/libvamp-hostsdk.la"))))
+             #t)))))
     (inputs
      `(("libsndfile" ,libsndfile)))
     (native-inputs
@@ -2219,6 +2495,9 @@ stretching and pitch scaling of audio.  This package contains the library.")
               (method url-fetch)
               (uri (string-append "http://www.wavpack.com/"
                                   name "-" version ".tar.bz2"))
+              (patches (search-patches "wavpack-CVE-2018-6767.patch"
+                                       "wavpack-CVE-2018-7253.patch"
+                                       "wavpack-CVE-2018-7254.patch"))
               (sha256
                (base32
                 "0i19c6krc0p9krwrqy9s5xahaafigqzxcn31piidmlaqadyn4f8r"))))
@@ -2318,11 +2597,10 @@ Tracker 3 S3M and Impulse Tracker IT files.")
        ("file" ,file)))
     (arguments
      '(#:phases
-       (alist-cons-after
-        'unpack 'bootstrap
-        (lambda _
-          (zero? (system* "sh" "bootstrap")))
-        %standard-phases)))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (zero? (system* "sh" "bootstrap")))))))
     (home-page "http://www.surina.net/soundtouch/")
     (synopsis
      "Audio processing library for changing tempo, pitch and playback rate")
@@ -2377,7 +2655,7 @@ can play and record audio files.")
 (define-public soxr
   (package
     (name "soxr")
-    (version "0.1.2")
+    (version "0.1.3")
     (source
      (origin
        (method url-fetch)
@@ -2385,7 +2663,7 @@ can play and record audio files.")
         (string-append "mirror://sourceforge/soxr/soxr-" version
                        "-Source.tar.xz"))
        (sha256
-        (base32 "0xf2w3piwz9gfr1xqyrj4k685q5dy53kq3igv663i4f4y4sg9rjl"))))
+        (base32 "12aql6svkplxq5fjycar18863hcq84c5kx8g6f4rj0lcvigw24di"))))
     (build-system cmake-build-system)
     (arguments '(#:tests? #f))          ;no 'check' target
     (home-page "https://sourceforge.net/p/soxr/wiki/Home/")
@@ -2456,11 +2734,10 @@ portions of LAME.")
      '(#:phases
        ;; Autoreconf is necessary because the audacity-compat patch modifies
        ;; .in files.
-       (alist-cons-after
-        'unpack 'autoreconf
-        (lambda _
-          (zero? (system* "autoreconf" "-vif")))
-        %standard-phases)
+       (modify-phases %standard-phases
+         (add-after 'unpack 'autoreconf
+           (lambda _
+             (zero? (system* "autoreconf" "-vif")))))
        #:tests? #f))                    ;no 'check' target
     (home-page "http://www.portaudio.com/")
     (synopsis "Audio I/O library")
@@ -2473,7 +2750,7 @@ interface.")
 (define-public qsynth
   (package
     (name "qsynth")
-    (version "0.4.4")
+    (version "0.5.0")
     (source
      (origin
        (method url-fetch)
@@ -2481,7 +2758,7 @@ interface.")
                            "/qsynth-" version ".tar.gz"))
        (sha256
         (base32
-         "0qhfnikx3xcllkvs60kj6vcf2rwwzh31y41qkk6kwfhzgd219y8f"))))
+         "1sr6vrz8z9r99j9xcix86lgcqldragb2ajmq1bnhr58d99sda584"))))
     (build-system gnu-build-system)
     (arguments
      `(#:tests? #f ; no "check" phase
@@ -2524,14 +2801,13 @@ synthesizer written in C++.")
        ("pulseaudio" ,pulseaudio)))
     (arguments
      '(#:phases
-       (alist-replace
-        'configure
-        (lambda* (#:key outputs #:allow-other-keys)
-          (setenv "CC" "gcc")
-          (zero?
-           (system* "./configure"
-                    (string-append "--prefix=" (assoc-ref outputs "out")))))
-        %standard-phases)
+       (modify-phases %standard-phases
+         (replace 'configure
+           (lambda* (#:key outputs #:allow-other-keys)
+             (setenv "CC" "gcc")
+             (zero?
+              (system* "./configure"
+                       (string-append "--prefix=" (assoc-ref outputs "out")))))))
        ;; No 'check' target.
        #:tests? #f))
     (home-page "http://themaister.net/rsound.html")
@@ -2598,24 +2874,22 @@ result.")
      `(#:tests? #f ; no "check" target
        #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:phases
-       (alist-cons-after
-        'unpack 'patch-makefile-and-enter-directory
-        (lambda _
-          (substitute* "libs/Makefile"
-            (("ldconfig") "true")
-            (("^LIBDIR =.*") "LIBDIR = lib\n"))
-          (chdir "libs") #t)
-        (alist-cons-after
-         'install
-         'install-symlink
-         (lambda _
-           (symlink "libzita-convolver.so"
-                    (string-append (assoc-ref %outputs "out")
-                                   "/lib/libzita-convolver.so.3")))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-makefile-and-enter-directory
+           (lambda _
+             (substitute* "libs/Makefile"
+               (("ldconfig") "true")
+               (("^LIBDIR =.*") "LIBDIR = lib\n"))
+             (chdir "libs") #t))
+         (add-after 'install 'install-symlink
+           (lambda _
+             (symlink "libzita-convolver.so"
+                      (string-append (assoc-ref %outputs "out")
+                                     "/lib/libzita-convolver.so.3"))))
          ;; no configure script
-         (alist-delete 'configure %standard-phases)))))
+         (delete 'configure))))
     (inputs `(("fftwf" ,fftwf)))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "Fast, partitioned convolution engine library")
     (description
      "Zita convolver is a C++ library providing a real-time convolution
@@ -2662,7 +2936,7 @@ engine.")
                                     "/lib/libzita-resampler.so.1"))))
          ;; no configure script
          (delete 'configure))))
-    (home-page "http://kokkinizita.linuxaudio.org/linuxaudio/zita-resampler/resampler.html")
+    (home-page "https://kokkinizita.linuxaudio.org/linuxaudio/zita-resampler/resampler.html")
     (synopsis "C++ library for resampling audio signals")
     (description
      "Libzita-resampler is a C++ library for resampling audio signals.  It is
@@ -2688,27 +2962,25 @@ provide high-quality sample rate conversion.")
      `(#:tests? #f ; no "check" target
        #:make-flags (list (string-append "PREFIX=" (assoc-ref %outputs "out")))
        #:phases
-       (alist-cons-after
-        'unpack 'patch-makefile-and-enter-directory
-        (lambda _
-          (substitute* "libs/Makefile"
-            (("ldconfig") "true")
-            (("^LIBDIR =.*") "LIBDIR = lib\n"))
-          (chdir "libs")
-          #t)
-        (alist-cons-after
-         'install
-         'install-symlink
-         (lambda _
-           (symlink "libzita-alsa-pcmi.so"
-                    (string-append (assoc-ref %outputs "out")
-                                   "/lib/libzita-alsa-pcmi.so.0")))
-         ;; no configure script
-         (alist-delete 'configure %standard-phases)))))
+       (modify-phases %standard-phases
+         (add-after 'unpack 'patch-makefile-and-enter-directory
+           (lambda _
+             (substitute* "libs/Makefile"
+               (("ldconfig") "true")
+               (("^LIBDIR =.*") "LIBDIR = lib\n"))
+             (chdir "libs")
+             #t))
+         (add-after 'install 'install-symlink
+           (lambda _
+             (symlink "libzita-alsa-pcmi.so"
+                      (string-append (assoc-ref %outputs "out")
+                                     "/lib/libzita-alsa-pcmi.so.0"))))
+          ;; no configure script
+          (delete 'configure))))
     (inputs
      `(("alsa-lib" ,alsa-lib)
        ("fftw" ,fftw)))
-    (home-page "http://kokkinizita.linuxaudio.org")
+    (home-page "https://kokkinizita.linuxaudio.org")
     (synopsis "C++ wrapper around the ALSA API")
     (description
      "Zita-alsa-pcmi is a C++ wrapper around the ALSA API.  It provides easy
@@ -2865,7 +3137,7 @@ code, used in @code{libtoxcore}.")
 (define-public gsm
   (package
     (name "gsm")
-    (version "1.0.14")
+    (version "1.0.17")
     (source
      (origin
        (method url-fetch)
@@ -2874,7 +3146,7 @@ code, used in @code{libtoxcore}.")
                        "-" version ".tar.gz"))
        (sha256
         (base32
-         "0b1mx69jq88wva3wk0hi6fcl5a52qhnq2f9p3f3jdh5k61ma252q"))))
+         "00bns0d4wwrvc60lj2w7wz4yk49q1f6rpdrwqzrxsha9d78mfnl5"))))
     (build-system gnu-build-system)
     (arguments
      `(#:test-target "tst"
@@ -2906,3 +3178,322 @@ code, used in @code{libtoxcore}.")
 06.10 RPE-LTP lossy speech compression algorithm.")
     (home-page "http://quut.com/gsm/")
     (license (license:non-copyleft "file://COPYRIGHT"))))
+
+(define-public python-pyalsaaudio
+  (package
+    (name "python-pyalsaaudio")
+    (version "0.8.4")
+    (source (origin
+              (method url-fetch)
+              (uri (pypi-uri "pyalsaaudio" version))
+              (sha256
+               (base32
+                "1180ypn9596rq4b7y7dyv627j1q0fqilmkkrckclnzsdakdgis44"))))
+    (build-system python-build-system)
+    (arguments
+     `(#:tests? #f))                   ; tests require access to ALSA devices.
+    (inputs
+     `(("alsa-lib" ,alsa-lib)))
+    (home-page "http://larsimmisch.github.io/pyalsaaudio/")
+    (synopsis "ALSA wrappers for Python")
+    (description
+     "This package contains wrappers for accessing the ALSA API from Python.
+It is currently fairly complete for PCM devices, and has some support for
+mixers.")
+    (license license:psfl)))
+
+(define-public python2-pyalsaaudio
+  (package-with-python2 python-pyalsaaudio))
+
+(define-public bluez-alsa
+  (package
+    (name "bluez-alsa")
+    (version "1.2.0")
+    (source (origin
+              ;; The tarballs are mere snapshots and don't contain a
+              ;; bootstrapped build system.
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/Arkq/bluez-alsa.git")
+                    (commit (string-append "v" version))))
+              (file-name (string-append name "-" version "-checkout"))
+              (sha256
+               (base32
+                "1qinf41wl2ihx54zmmhanycihwjkn7dn1cicq6pp4rqbiv79b95x"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda _
+             (zero? (system* "autoreconf" "-vif")))))))
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)
+       ("pkg-config" ,pkg-config)))
+    (inputs
+     `(("alsa-lib" ,alsa-lib)
+       ("bluez" ,bluez)
+       ("glib" ,glib)
+       ("libbsd" ,libbsd)
+       ("ncurses" ,ncurses)
+       ("ortp" ,ortp)
+       ("sbc" ,sbc)))
+    (home-page "https://github.com/Arkq/bluez-alsa")
+    (synopsis "Bluetooth ALSA backend")
+    (description "This project is a rebirth of a direct integration between
+Bluez and ALSA.  Since Bluez >= 5, the build-in integration has been removed
+in favor of 3rd party audio applications.  From now on, Bluez acts as a
+middleware between an audio application, which implements Bluetooth audio
+profile, and a Bluetooth audio device.  BlueALSA registers all known Bluetooth
+audio profiles in Bluez, so in theory every Bluetooth device (with audio
+capabilities) can be connected.  In order to access the audio stream, one has
+to connect to the ALSA PCM device called @code{bluealsa}.  The device is based
+on the ALSA software PCM plugin.")
+    (license license:expat)))
+
+(define-public snd
+  (package
+    (name "snd")
+    (version "17.7")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "ftp://ccrma-ftp.stanford.edu/pub/Lisp/"
+                                  "snd-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1vm0dy5qlycqkima7y5ajzvazyjybifa803fabjcpncjz08c26vp"))))
+    (build-system glib-or-gtk-build-system)
+    (arguments
+     '(#:tests? #f                      ; no tests
+       #:out-of-source? #f              ; for the 'install-doc' phase
+       #:configure-flags
+       (let* ((out (assoc-ref %outputs "out"))
+              (docdir (string-append out "/share/doc/snd")))
+         (list "--with-alsa" "--with-jack" "--with-gmp"
+               (string-append "--with-doc-dir=" docdir)))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'install 'install-doc
+           (lambda* (#:key outputs #:allow-other-keys)
+             (let* ((out (assoc-ref outputs "out"))
+                    (docdir (string-append out "/share/doc/snd")))
+               (mkdir-p docdir)
+               (for-each
+                (lambda (f)
+                  (install-file f docdir))
+                (find-files "." "\\.html$|COPYING"))
+               (copy-recursively "pix" (string-append docdir "/pix"))
+               #t))))))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (inputs
+     `(("alsa-lib" ,alsa-lib)
+       ("fftw" ,fftw)
+       ("flac" ,flac)
+       ("gmp" ,gmp)
+       ("gsl" ,gsl)
+       ("gtk+" ,gtk+)
+       ("jack" ,jack-1)
+       ("libsamplerate" ,libsamplerate)
+       ("mpc" ,mpc)
+       ("mpfr" ,mpfr)
+       ("mpg123" ,mpg123)
+       ("speex" ,speex)
+       ("timidity++" ,timidity++)
+       ("vorbis-tools" ,vorbis-tools)
+       ("wavpack" ,wavpack)))
+    (synopsis "Sound editor")
+    (home-page "https://ccrma.stanford.edu/software/snd/")
+    (description
+     "Snd is a sound editor modelled loosely after Emacs.  It can be
+customized and extended using either the s7 Scheme implementation (included in
+the Snd sources), Ruby, or Forth.")
+    (license (license:non-copyleft "file://COPYING"))))
+
+(define-public noise-repellent
+  (package
+    (name "noise-repellent")
+    (version "0.1.4")
+    (source (origin
+              (method git-fetch)
+              (uri (git-reference
+                    (url "https://github.com/lucianodato/noise-repellent.git")
+                    (commit version)))
+              (file-name (string-append name "-" version "-checkout"))
+              (sha256
+               (base32
+                "0rd3dlmk3vivjmcr6x2x860y0j1d49c2j95j6ny50v184mwvn11j"))))
+    (build-system gnu-build-system)
+    (arguments
+     `(#:make-flags
+       (list "CC=gcc"
+             (string-append "PREFIX=" (assoc-ref %outputs "out")))
+       #:tests? #f ; there are none
+       #:phases
+       (modify-phases %standard-phases
+         (delete 'configure))))
+    (inputs
+     `(("lv2" ,lv2)
+       ("fftwf" ,fftwf)))
+    (native-inputs
+     `(("pkg-config" ,pkg-config)))
+    (home-page "https://github.com/lucianodato/noise-repellent")
+    (synopsis "LV2 plugin for broadband noise reduction")
+    (description "Noise Repellent is an LV2 plugin to reduce noise.  It has
+the following features:
+
+@enumerate
+@item Spectral gating and spectral subtraction suppression rule
+@item Adaptive and manual noise thresholds estimation
+@item Adjustable noise floor
+@item Adjustable offset of thresholds to perform over-subtraction
+@item Time smoothing and a masking estimation to reduce artifacts
+@item Basic onset detector to avoid transients suppression
+@item Whitening of the noise floor to mask artifacts and to recover higher
+  frequencies
+@item Option to listen to the residual signal
+@item Soft bypass
+@item Noise profile saved with the session
+@end enumerate
+")
+    (license license:lgpl3+)))
+
+(define-public cli-visualizer
+  (package
+    (name "cli-visualizer")
+    (version "1.6")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://github.com/dpayne/cli-visualizer/archive/"
+                           version ".tar.gz"))
+       (file-name (string-append name "-" version ".tar.gz"))
+       (sha256
+        (base32
+         "07zkm87f2fr8kc6531zrkya7q81sdanm6813y2f54mg13g41y6hi"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("which" ,which)))
+    (inputs
+     `(("fftw" ,fftw)
+       ("googletest" ,googletest)
+       ("ncurses" ,ncurses)
+       ("pulseaudio" ,pulseaudio)))
+    (arguments
+     '(#:test-target "test"
+       #:make-flags
+       (list (string-append "PREFIX=" %output "/bin/") "ENABLE_PULSE=1")
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'remove-sudo
+           (lambda _
+             (substitute* "install.sh" (("sudo") ""))
+             #t))
+         (add-before 'check 'set-check-environment
+           (lambda _
+             (setenv "CXX" "g++")
+             (setenv "CC" "gcc")
+             #t))
+         (add-before 'install 'make-prefix
+           (lambda _
+             (mkdir-p (string-append (assoc-ref %outputs "out") "/bin"))
+             #t))
+         (add-after 'install 'data
+           (lambda _
+             (for-each (lambda (file)
+                         (install-file file
+                                       (string-append (assoc-ref %outputs "out")
+                                                      "/share/doc")))
+                       (find-files "examples"))
+             #t)))))
+    (home-page "https://github.com/dpayne/cli-visualizer/")
+    (synopsis "Command-line audio visualizer")
+    (description "@code{cli-visualizer} displays fast-Fourier
+transforms (FFTs) of the sound being played, as well as other graphical
+representations.")
+    (license license:expat)))
+
+(define-public cava
+  (package
+    (name "cava")
+    (version "0.6.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/karlstav/cava/archive/"
+                    version ".tar.gz"))
+              (file-name (string-append name "-" version ".tar.gz"))
+              (sha256
+               (base32
+                "1p24lz3h4d0h82ffylqr7mq8a8x1c66flm2r2bsv1liw51n1rma2"))))
+    (build-system gnu-build-system)
+    (native-inputs
+     `(("autoconf" ,autoconf)
+       ("automake" ,automake)
+       ("libtool" ,libtool)))
+    (inputs
+     `(("fftw" ,fftw)
+       ("ncurses" ,ncurses)
+       ("pulseaudio" ,pulseaudio)))
+    (arguments
+     `(#:configure-flags
+       (list (string-append "PREFIX=" %output)
+             (string-append "FONT_DIR=" %output "/usr/share/consolefonts"))
+       #:make-flags
+       (let ((lib (string-append %output "/lib")))
+         (list (string-append "cava_LDFLAGS = -L" lib " -Wl,-rpath " lib)))
+       #:phases
+       (modify-phases %standard-phases
+         (add-after 'unpack 'bootstrap
+           (lambda* (#:key outputs #:allow-other-keys)
+             (setenv "HOME" (getcwd))
+             (invoke "sh" "autogen.sh")))
+         (add-before 'build 'make-cava-ldflags
+           (lambda* (#:key outputs #:allow-other-keys)
+             (mkdir-p (string-append (assoc-ref outputs "out") "/lib"))))
+         (add-after 'install 'data
+           (lambda* (#:key outputs #:allow-other-keys)
+             (for-each (lambda (file)
+                         (install-file file
+                                       (string-append (assoc-ref outputs "out")
+                                                      "/share/doc/examples")))
+                       (find-files "example_files")))))))
+    (home-page "https://karlstav.github.io/cava/")
+    (synopsis "Console audio visualizer for ALSA, MPD, and PulseAudio")
+    (description "C.A.V.A. is a bar audio spectrum visualizer for the terminal
+using ALSA, MPD, PulseAudio, or a FIFO buffer as its input.")
+    (license license:expat)))
+
+(define-public fluid-3
+  (let ((commit "871c8ce2002e8b3c198f532fdb4fbcce7914f951"))
+    (package
+      (name "fluid-3")
+      (version "2.1")
+      (source
+       (origin
+         (method url-fetch)
+         ;; Only one file is required, but the release bundles the whole
+         ;; software which is 50MiB as tar and 200MiB unpacked. The website
+         ;; directly links the soundfont release to the github file download.
+         (uri (string-append "https://github.com/musescore/MuseScore/raw/"
+                             commit "/share/sound/FluidR3Mono_GM.sf3"))
+         (file-name (string-append name "-" version ".sf3"))
+         (sha256
+          (base32
+           "1hjfg5i15bw9279007xs92zsggjgn4s4k9pc00s851l3kvc6dkfg"))))
+      (build-system trivial-build-system)
+      (arguments
+       `(#:modules ((guix build utils))
+         #:builder
+         (begin
+           (use-modules (guix build utils))
+           (let ((file (assoc-ref %build-inputs "source"))
+                 (out (string-append %output "/share/soundfonts")))
+             (mkdir-p out)
+             (copy-file file (string-append out "/FluidR3Mono_GM.sf3"))))))
+      (home-page  "https://github.com/musescore/MuseScore/tree/master/share/sound")
+      (synopsis "Pro-quality GM soundfont")
+      (description "Fluid-3 is Frank Wen's pro-quality GM soundfont.")
+      (license license:expat))))

@@ -1,9 +1,9 @@
 ;;; GNU Guix --- Functional package management for GNU
-;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017 Ludovic Courtès <ludo@gnu.org>
-;;; Copyright © 2014, 2015 Mark H Weaver <mhw@netris.org>
+;;; Copyright © 2012, 2013, 2014, 2015, 2016, 2017, 2018 Ludovic Courtès <ludo@gnu.org>
+;;; Copyright © 2014, 2015, 2018 Mark H Weaver <mhw@netris.org>
 ;;; Copyright © 2014, 2015, 2016, 2017 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2015 Andreas Enge <andreas@enge.fr>
-;;; Copyright © 2015, 2016, 2017 Efraim Flashner <efraim@flashner.co.il>
+;;; Copyright © 2015, 2016, 2017, 2018 Efraim Flashner <efraim@flashner.co.il>
 ;;; Copyright © 2016 Carlos Sánchez de La Lama <csanchezdll@gmail.com>
 ;;;
 ;;; This file is part of GNU Guix.
@@ -65,6 +65,14 @@ where the OS part is overloaded to denote a specific ABI---into GCC
            "--with-mode=thumb"
            "--with-fpu=neon"))
 
+        ((and (string-suffix? "-gnu" target)
+              (not (string-contains target "-linux")))
+         ;; Cross-compilation of libcilkrts in GCC 5.5.0 to GNU/Hurd fails
+         ;; with:
+         ;;   libcilkrts/runtime/os-unix.c:388:2: error: #error "Unknown architecture"
+         ;; Cilk has been removed from GCC 8 anyway.
+         '("--disable-libcilkrts"))
+
         (else
          ;; TODO: Add `arm.*-gnueabi', etc.
          '())))
@@ -80,8 +88,8 @@ where the OS part is overloaded to denote a specific ABI---into GCC
                   (map (lambda (var tool)
                          (string-append (string-append var "_FOR_TARGET")
                                         "=" target "-" tool))
-                       '("CC"  "CXX" "LD" "AR" "NM" "RANLIB" "STRIP")
-                       '("gcc" "g++" "ld" "ar" "nm" "ranlib" "strip"))
+                       '("CC"  "CXX" "LD" "AR" "NM" "OBJDUMP" "RANLIB" "STRIP")
+                       '("gcc" "g++" "ld" "ar" "nm" "objdump" "ranlib" "strip"))
                   '()))))
          (libdir
           (let ((base '(or (assoc-ref outputs "lib")
@@ -136,9 +144,11 @@ where the OS part is overloaded to denote a specific ABI---into GCC
                (method url-fetch)
                (uri (string-append "mirror://gnu/gcc/gcc-"
                                    version "/gcc-" version ".tar.bz2"))
+               (patches (search-patches "gcc-4-compile-with-gcc-5.patch"))
                (sha256
                 (base32
-                 "10k2k71kxgay283ylbbhhs51cl55zn2q38vj5pk4k950qdnirrlj"))))
+                 "10k2k71kxgay283ylbbhhs51cl55zn2q38vj5pk4k950qdnirrlj"))
+               (patches (search-patches "gcc-fix-texi2pod.patch"))))
       (build-system gnu-build-system)
 
       ;; Separate out the run-time support libraries because all the
@@ -150,14 +160,13 @@ where the OS part is overloaded to denote a specific ABI---into GCC
       (inputs `(("gmp" ,gmp)
                 ("mpfr" ,mpfr)
                 ("mpc" ,mpc)
-                ("isl" ,isl)
-                ("cloog" ,cloog)
                 ("libelf" ,libelf)
                 ("zlib" ,zlib)))
 
       ;; GCC < 5 is one of the few packages that doesn't ship .info files.
       ;; Newer texinfos fail to build the manual, so we use an older one.
-      (native-inputs `(("texinfo" ,texinfo-5)))
+      (native-inputs `(("perl" ,perl)   ;for manpages
+                       ("texinfo" ,texinfo-5)))
 
       (arguments
        `(#:out-of-source? #t
@@ -213,7 +222,7 @@ where the OS part is overloaded to denote a specific ABI---into GCC
                 ;; Fix the dynamic linker's file name.
                 (substitute* (find-files "gcc/config"
                                          "^(linux|gnu|sysv4)(64|-elf|-eabi)?\\.h$")
-                  (("#define (GLIBC|GNU_USER)_DYNAMIC_LINKER([^ ]*).*$"
+                  (("#define (GLIBC|GNU_USER)_DYNAMIC_LINKER([^ \t]*).*$"
                     _ gnu-user suffix)
                    (format #f "#define ~a_DYNAMIC_LINKER~a \"~a\"~%"
                            gnu-user suffix
@@ -340,6 +349,7 @@ where the OS part is overloaded to denote a specific ABI---into GCC
 for several languages, including C, C++, Objective-C, Fortran, Java, Ada, and
 Go.  It also includes runtime support libraries for these languages.")
       (license gpl3+)
+      (supported-systems (delete "aarch64-linux" %supported-systems))
       (home-page "https://gcc.gnu.org/"))))
 
 (define-public gcc-4.8
@@ -352,10 +362,28 @@ Go.  It also includes runtime support libraries for these languages.")
               (sha256
                (base32
                 "08yggr18v373a1ihj0rg2vd6psnic42b518xcgp3r9k81xz1xyr2"))
-              (patches (search-patches "gcc-arm-link-spec-fix.patch"))))))
+              (patches (search-patches "gcc-arm-link-spec-fix.patch"
+                                       "gcc-asan-missing-include.patch"
+                                       "gcc-fix-texi2pod.patch"))
+              (modules '((guix build utils)))
+              ;; This is required for building with glibc-2.26.
+              ;; https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81712
+              (snippet
+               '(for-each
+                  (lambda (dir)
+                    (substitute* (string-append "libgcc/config/"
+                                                dir "/linux-unwind.h")
+                      (("struct ucontext") "ucontext_t")))
+                  '("aarch64" "alpha" "bfin" "i386" "m68k"
+                    "pa" "sh" "tilepro" "xtensa")))))
+    (supported-systems %supported-systems)
+    (inputs
+     `(("isl" ,isl-0.11)
+       ("cloog" ,cloog)
+       ,@(package-inputs gcc-4.7)))))
 
 (define-public gcc-4.9
-  (package (inherit gcc-4.7)
+  (package (inherit gcc-4.8)
     (version "4.9.4")
     (source (origin
               (method url-fetch)
@@ -364,27 +392,59 @@ Go.  It also includes runtime support libraries for these languages.")
               (sha256
                (base32
                 "14l06m7nvcvb0igkbip58x59w3nq6315k6jcz3wr9ch1rn9d44bc"))
-              (patches (search-patches "gcc-arm-bug-71399.patch"
-                                       "gcc-libvtv-runpath.patch"))))
-    (native-inputs `(("texinfo" ,texinfo)))))
+              (patches (search-patches "gcc-4.9-libsanitizer-fix.patch"
+                                       "gcc-arm-bug-71399.patch"
+                                       "gcc-asan-missing-include.patch"
+                                       "gcc-libvtv-runpath.patch"
+                                       "gcc-fix-texi2pod.patch"))
+              (modules '((guix build utils)))
+              ;; This is required for building with glibc-2.26.
+              ;; https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81712
+              (snippet
+               '(for-each
+                  (lambda (dir)
+                    (substitute* (string-append "libgcc/config/"
+                                                dir "/linux-unwind.h")
+                      (("struct ucontext") "ucontext_t")))
+                  '("aarch64" "alpha" "bfin" "i386" "m68k" "nios2"
+                    "pa" "sh" "tilepro" "xtensa")))))
+    ;; Override inherited texinfo-5 with latest version.
+    (native-inputs `(("perl" ,perl)   ;for manpages
+                     ("texinfo" ,texinfo)))))
 
 (define-public gcc-5
   ;; Note: GCC >= 5 ships with .info files but 'make install' fails to install
   ;; them in a VPATH build.
   (package (inherit gcc-4.9)
-    (version "5.4.0")
+    (version "5.5.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://gnu/gcc/gcc-"
-                                  version "/gcc-" version ".tar.bz2"))
+                                  version "/gcc-" version ".tar.xz"))
               (sha256
                (base32
-                "0fihlcy5hnksdxk0sn6bvgnyq8gfrgs8m794b1jxwd1dxinzg3b0"))
+                "11zd1hgzkli3b2v70qsm2hyqppngd4616qc96lmm9zl2kl9yl32k"))
               (patches (search-patches "gcc-arm-bug-71399.patch"
                                        "gcc-strmov-store-file-names.patch"
                                        "gcc-5.0-libvtv-runpath.patch"
                                        "gcc-5-source-date-epoch-1.patch"
-                                       "gcc-5-source-date-epoch-2.patch"))))))
+                                       "gcc-5-source-date-epoch-2.patch"
+                                       "gcc-fix-texi2pod.patch"))
+              (modules '((guix build utils)))
+              (snippet
+               ;; Fix 'libcc1/configure' error when cross-compiling GCC.
+               ;; Without that, 'libcc1/configure' wrongfully determines that
+               ;; '-rdynamic' support is missing because $gcc_cv_objdump is
+               ;; empty:
+               ;;
+               ;;   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67590
+               ;;   http://cgit.openembedded.org/openembedded-core/commit/?id=f6e47aa9b12f9ab61530c40e0343f451699d9077
+               '(substitute* "libcc1/configure"
+                  (("\\$gcc_cv_objdump -T")
+                   "$OBJDUMP_FOR_TARGET -T")))))
+    (inputs
+     `(("isl" ,isl)
+       ,@(package-inputs gcc-4.7)))))
 
 (define-public gcc-6
   (package
@@ -397,21 +457,44 @@ Go.  It also includes runtime support libraries for these languages.")
               (sha256
                (base32
                 "1m0lr7938lw5d773dkvwld90hjlcq2282517d1gwvrfzmwgg42w5"))
-              (patches (search-patches "gcc-strmov-store-file-names.patch"
-                                       "gcc-5.0-libvtv-runpath.patch"))))))
+              (patches (search-patches "gcc-libsanitizer-fix.patch"
+                                       "gcc-strmov-store-file-names.patch"
+                                       "gcc-6-source-date-epoch-1.patch"
+                                       "gcc-6-source-date-epoch-2.patch"
+                                       "gcc-5.0-libvtv-runpath.patch"))
+              (modules '((guix build utils)))
+              ;; This is required for building with glibc-2.26.
+              ;; This can be removed when gcc-6.5.0 is released.
+              ;; https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81712
+              (snippet
+               '(for-each
+                  (lambda (dir)
+                    (substitute* (string-append "libgcc/config/"
+                                                dir "/linux-unwind.h")
+                      (("struct ucontext") "ucontext_t")))
+                  '("aarch64" "alpha" "bfin" "i386" "m68k" "nios2"
+                    "pa" "sh" "tilepro" "xtensa")))))
+    (inputs
+     `(("isl" ,isl)
+       ,@(package-inputs gcc-4.7)))))
+
 (define-public gcc-7
   (package
     (inherit gcc-6)
-    (version "7.1.0")
+    (version "7.3.0")
     (source (origin
               (method url-fetch)
               (uri (string-append "mirror://gnu/gcc/gcc-"
-                                  version "/gcc-" version ".tar.bz2"))
+                                  version "/gcc-" version ".tar.xz"))
               (sha256
                (base32
-                "05xwps0ci7wgxh50askpa2r9p8518qxdgh6ad7pnyk7n6p13d0ca"))
+                "0p71bij6bfhzyrs8676a8jmpjsfz392s2rg862sdnsk30jpacb43"))
               (patches (search-patches "gcc-strmov-store-file-names.patch"
-                                       "gcc-5.0-libvtv-runpath.patch"))))))
+                                       "gcc-5.0-libvtv-runpath.patch"))))
+    (description
+     "GCC is the GNU Compiler Collection.  It provides compiler front-ends
+for several languages, including C, C++, Objective-C, Fortran, Ada, and Go.
+It also includes runtime support libraries for these languages.")))
 
 ;; Note: When changing the default gcc version, update
 ;;       the gcc-toolchain-* definitions and the gfortran definition
@@ -577,7 +660,34 @@ as the 'native-search-paths' field."
                      (variable "LIBRARY_PATH")
                      (files '("lib" "lib64"))))))
 
-(define-public gcc-objc gcc-objc-4.9)
+(define-public gcc-objc-5
+  (custom-gcc gcc-5 "gcc-objc" '("objc")
+              (list (search-path-specification
+                     (variable "OBJC_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc-6
+  (custom-gcc gcc-6 "gcc-objc" '("objc")
+              (list (search-path-specification
+                     (variable "OBJC_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc-7
+  (custom-gcc gcc-7 "gcc-objc" '("objc")
+              (list (search-path-specification
+                     (variable "OBJC_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc gcc-objc-5)
 
 (define-public gcc-objc++-4.8
   (custom-gcc gcc-4.8 "gcc-objc++" '("obj-c++")
@@ -597,7 +707,34 @@ as the 'native-search-paths' field."
                      (variable "LIBRARY_PATH")
                      (files '("lib" "lib64"))))))
 
-(define-public gcc-objc++ gcc-objc++-4.9)
+(define-public gcc-objc++-5
+  (custom-gcc gcc-5 "gcc-objc++" '("obj-c++")
+              (list (search-path-specification
+                     (variable "OBJCPLUS_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc++-6
+  (custom-gcc gcc-6 "gcc-objc++" '("obj-c++")
+              (list (search-path-specification
+                     (variable "OBJCPLUS_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc++-7
+  (custom-gcc gcc-7 "gcc-objc++" '("obj-c++")
+              (list (search-path-specification
+                     (variable "OBJCPLUS_INCLUDE_PATH")
+                     (files '("include")))
+                    (search-path-specification
+                     (variable "LIBRARY_PATH")
+                     (files '("lib" "lib64"))))))
+
+(define-public gcc-objc++ gcc-objc++-5)
 
 (define (make-libstdc++-doc gcc)
   "Return a package with the libstdc++ documentation for GCC."
@@ -657,7 +794,7 @@ as the 'native-search-paths' field."
 (define-public isl
   (package
     (name "isl")
-    (version "0.11.1")
+    (version "0.18")
     (source (origin
              (method url-fetch)
              (uri (list (string-append
@@ -668,8 +805,7 @@ as the 'native-search-paths' field."
                                        name "-" version ".tar.gz")))
              (sha256
               (base32
-               "13d9cqa5rzhbjq0xf0b2dyxag7pqa72xj9dhsa03m8ccr1a4npq9"))
-             (patches (search-patches "isl-0.11.1-aarch64-support.patch"))))
+               "06ybml6llhi4i56q90jnimbcgk1lpcdwhy9nxdxra2hxz3bhz2vb"))))
     (build-system gnu-build-system)
     (inputs `(("gmp" ,gmp)))
     (home-page "http://isl.gforge.inria.fr/")
@@ -686,6 +822,24 @@ enumeration.  It also includes an ILP solver based on generalized basis
 reduction, transitive closures on maps (which may encode infinite graphs),
 dependence analysis and bounds on piecewise step-polynomials.")
     (license lgpl2.1+)))
+
+(define-public isl-0.11
+  (package
+    (inherit isl)
+    (name "isl")
+    (version "0.11.1")
+    (source (origin
+             (method url-fetch)
+             (uri (list (string-append
+                         "http://isl.gforge.inria.fr/isl-"
+                         version
+                         ".tar.bz2")
+                        (string-append %gcc-infrastructure
+                                       name "-" version ".tar.gz")))
+             (sha256
+              (base32
+               "13d9cqa5rzhbjq0xf0b2dyxag7pqa72xj9dhsa03m8ccr1a4npq9"))
+             (patches (search-patches "isl-0.11.1-aarch64-support.patch"))))))
 
 (define-public cloog
   (package
@@ -706,7 +860,7 @@ dependence analysis and bounds on piecewise step-polynomials.")
       (file-name (string-append name "-" version ".tar.gz"))))
     (build-system gnu-build-system)
     (inputs `(("gmp" ,gmp)
-              ("isl" ,isl)))
+              ("isl" ,isl-0.11)))
     (arguments '(#:configure-flags '("--with-isl=system")))
     (home-page "http://www.cloog.org/")
     (synopsis "Library to generate code for scanning Z-polyhedra")
